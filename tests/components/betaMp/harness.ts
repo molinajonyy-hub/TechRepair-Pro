@@ -7,25 +7,25 @@
 //
 //   · FakeDb  — PostgREST en memoria. No es un mock complaciente: conoce las
 //     tablas y columnas reales, los CHECK, los índices únicos y los privilegios
-//     de `service_role` (los de la migración 20261012120000, o los anteriores con
-//     `preMigration`). Una columna mal escrita o un UPDATE fuera del GRANT falla
-//     acá igual que en la base.
+//     de `service_role` (los de las migraciones 20261012120000 y 20261013120000,
+//     o los anteriores con `preMigration`). Una columna mal escrita o un UPDATE
+//     fuera del GRANT falla acá igual que en la base.
 //   · FakeMercadoPago — la API HTTP de Mercado Pago. Responde a las mismas rutas
-//     que usa `mpClient.ts`, así que también se prueba el parseo de respuestas.
+//     que usa `mpClient.ts`, así que también se prueban el cuerpo del POST y el
+//     parseo de respuestas.
 //
-// Esto NO certifica Mercado Pago: lo que MP hace de verdad con el checkout de un
-// plan se mide en el smoke del runbook.
+// Esto NO certifica Mercado Pago: lo que MP hace de verdad con un preapproval
+// creado por API se mide en el smoke del runbook.
 // ─────────────────────────────────────────────────────────────────────────────
 import { createMpClient } from '../../../supabase/functions/_shared/billing/mpClient.ts'
-import { buildPlanCatalog } from '../../../supabase/functions/_shared/billing/planCatalog.ts'
+import { PLAN_PRICES, buildPlanCatalog } from '../../../supabase/functions/_shared/billing/planCatalog.ts'
+import type { PlanPriceTable } from '../../../supabase/functions/_shared/billing/planCatalog.ts'
 import type { BillingContext, BillingLogEvent } from '../../../supabase/functions/_shared/billing/preapproval.ts'
 import { createCapabilityAuthorizer, createSupabaseBillingStore } from '../../../supabase/functions/_shared/billing/store.ts'
 import { handleBillingAction } from '../../../supabase/functions/_shared/billing/subscriptionActions.ts'
 import type { ActionContext, ActionResponse } from '../../../supabase/functions/_shared/billing/subscriptionActions.ts'
 import { parseNotification, processWebhookNotification } from '../../../supabase/functions/_shared/billing/webhook.ts'
-import { FAKE_MP_TOKEN, FakeMercadoPago, PLAN_ENV, TEST_PLANS } from './fakeMercadoPago.ts'
-
-export { PLAN_ENV }
+import { FAKE_MP_TOKEN, FakeMercadoPago } from './fakeMercadoPago.ts'
 
 export type Row = Record<string, unknown>
 interface PgError { code: string; message: string }
@@ -276,6 +276,10 @@ class Query implements PromiseLike<PgResult> {
       if (next.external_reference && others.some((r) => r.external_reference === next.external_reference)) {
         return 'subscription_checkout_sessions_external_reference_key'
       }
+      // uq_scs_mp_preapproval (migración 20261013120000): un preapproval, una sesión.
+      if (next.mp_preapproval_id && others.some((r) => r.mp_preapproval_id === next.mp_preapproval_id)) {
+        return 'uq_scs_mp_preapproval'
+      }
       const merged = own.length === 1 ? { ...own[0], ...next } : next
       if (merged.status === 'pending' && others.some((r) => r.status === 'pending' && r.business_id === merged.business_id
           && r.plan_id === merged.plan_id && r.billing_cycle === merged.billing_cycle)) return 'idx_scs_pending_unique'
@@ -305,14 +309,14 @@ export class World {
   readonly db = new FakeDb(this.now)
   readonly mp = new FakeMercadoPago(this.now)
   readonly logs: BillingLogEvent[] = []
-  env: Record<string, string> = { ...PLAN_ENV }
+  /** Tabla de precios del servidor. Un test la cambia para simular un cambio de precio. */
+  prices: PlanPriceTable = structuredClone(PLAN_PRICES)
   /** La consulta de capacidad falla (base caída / contrato de cliente rechazado). */
   authorizerDown = false
   private notificationSeq = 1000
   private idSeq = 0
 
   constructor() {
-    this.mp.seedPlans(TEST_PLANS)
     this.addBusiness(BIZ_A, OWNER_A, { subscription_status: 'trialing', access_source: 'trial', trial_ends_at: '2026-10-07T12:00:00.000Z' })
     this.addBusiness(BIZ_B, OWNER_B, { subscription_status: 'trialing', access_source: 'trial', trial_ends_at: '2026-10-07T12:00:00.000Z' })
     this.addMember({ userId: OWNER_A, businessId: BIZ_A, role: 'owner' })
@@ -367,8 +371,7 @@ export class World {
   billingContext(): BillingContext {
     return {
       store: createSupabaseBillingStore(this.db),
-      mp: createMpClient({ fetchImpl: this.mp.fetchImpl, accessToken: () => FAKE_MP_TOKEN }),
-      catalog: buildPlanCatalog((key) => this.env[key]),
+      mp: createMpClient({ fetchImpl: (input, init) => this.mp.fetchImpl(input, init), accessToken: () => FAKE_MP_TOKEN }),
       now: this.now,
       log: (event) => { this.logs.push(event) },
     }
@@ -378,6 +381,7 @@ export class World {
     return {
       ...this.billingContext(),
       authorizer: createCapabilityAuthorizer(this.userClient(userId)),
+      catalog: buildPlanCatalog(this.prices),
       newId: () => { this.idSeq += 1; return `cccccccc-0000-4000-8000-${String(this.idSeq).padStart(12, '0')}` },
       allowedOrigins: [ORIGIN, 'https://techrepairpro.app'],
       appOrigin: ORIGIN,
@@ -400,25 +404,39 @@ export class World {
     return processWebhookNotification(this.billingContext(), parseNotification(body))
   }
 
-  /** Abre un checkout y devuelve la referencia que el servidor puso en la URL. */
-  async openCheckout(userId: string, businessId: string, plan: string, billingCycle = 'monthly') {
+  /** La sesión de checkout que el servidor vinculó a un preapproval. */
+  sessionOf(preapprovalId: string): Row {
+    const row = this.db.tables.subscription_checkout_sessions.find((s) => s.mp_preapproval_id === preapprovalId)
+    if (!row) throw new Error(`ninguna sesión tiene el preapproval ${preapprovalId}`)
+    return row
+  }
+
+  /**
+   * Abre un checkout como lo haría el navegador. El id del preapproval y la
+   * referencia se leen de la BASE (lo que el servidor guardó), no de la respuesta:
+   * al navegador sólo le llega el `init_point`.
+   */
+  async openCheckout(userId: string, businessId: string, plan: string, billingCycle = 'monthly', preapprovalId?: string) {
+    if (preapprovalId) this.mp.nextIds.push(preapprovalId)
     const res = await this.call(userId, { action: 'create', business_id: businessId, plan, billing_cycle: billingCycle })
     if (res.status !== 200) throw new Error(`create respondió ${res.status}: ${JSON.stringify(res.body)}`)
     const url = new URL(String(res.body.init_point))
-    return { res, url, reference: url.searchParams.get('external_reference') as string }
+    const id = url.searchParams.get('preapproval_id') as string
+    const session = this.sessionOf(id)
+    return { res, url, preapprovalId: id, session, reference: session.external_reference as string }
   }
 
-  /** Lo que Mercado Pago tendría después de que alguien completa (o no) un checkout. */
-  mpPreapproval(id: string, patch: Row): Row {
-    return this.mp.seedPreapproval(id, { preapproval_plan_id: 'mpplan_pro_m', ...patch })
+  /** Quien abrió el checkout paga: Mercado Pago deja ESE preapproval `authorized`. */
+  pay(preapprovalId: string, patch: Row = {}): Row {
+    return this.mp.authorize(preapprovalId, patch)
   }
 
-  /** Atajo: checkout abierto + suscripción autorizada en MP + webhook procesado. */
-  async subscribe(userId: string, businessId: string, plan: string, preapprovalId: string, mpPlanId = `mpplan_${plan}_m`) {
-    const { reference } = await this.openCheckout(userId, businessId, plan)
-    this.mpPreapproval(preapprovalId, { preapproval_plan_id: mpPlanId, external_reference: reference })
+  /** Atajo: checkout abierto + pago en MP + webhook procesado. */
+  async subscribe(userId: string, businessId: string, plan: string, preapprovalId: string, billingCycle = 'monthly') {
+    await this.openCheckout(userId, businessId, plan, billingCycle, preapprovalId)
+    this.pay(preapprovalId)
     await this.notify('subscription_preapproval', preapprovalId)
-    return reference
+    return preapprovalId
   }
 }
 

@@ -5,9 +5,12 @@ Esta guía cubre **Billing SaaS**: el cobro de los planes Básico / Pro / Full d
 es un registro interno y no usa la red de Mercado Pago, ni Merchant Connect (`mp-oauth` /
 `mp-payments`), que queda para después de la beta.
 
-> **Estado (BETA-MP, 2026-10-01).** El pipeline nunca completó un pago en producción. El código
-> de este repositorio está probado con tests de integración y contra un stack Supabase local,
-> con Mercado Pago **simulado**. Lo que Mercado Pago hace de verdad todavía no se midió: ver
+> **Estado (BETA-MP Plan B, 2026-10-02).** El primer smoke real (2026-10-02) cobró una
+> suscripción por el checkout de un **plan** de Mercado Pago y no se pudo vincular con ningún
+> negocio: Mercado Pago no conservó `external_reference`. Ese camino («Plan A») queda
+> **CONFIRMED UNSUPPORTED**. El código de este repositorio implementa el Plan B —el servidor crea
+> la suscripción por API— y está probado con tests de integración y contra un stack Supabase
+> local, con Mercado Pago **simulado**. El Plan B todavía no se midió contra Mercado Pago: ver
 > [docs/beta-mp/runbook-rollout.md](docs/beta-mp/runbook-rollout.md).
 >
 > Arquitectura, matriz de riesgos y decisiones: [docs/beta-mp/README.md](docs/beta-mp/README.md).
@@ -21,8 +24,10 @@ es un registro interno y no usa la red de Mercado Pago, ni Merchant Connect (`mp
 - Abrir un checkout no cambia el estado ni el plan del negocio.
 - Un negocio queda activo sólo cuando el servidor consulta a Mercado Pago y la suscripción está
   `authorized`.
-- El plan que se otorga es el que Mercado Pago informa (`preapproval_plan_id`), no el que eligió
-  el navegador.
+- La suscripción la crea el servidor, y su id queda guardado antes de que nadie pague: ese id es
+  la identidad del pago. El email del pagador, el importe y las fechas no identifican a nadie.
+- El plan que se otorga es el de la intención que el servidor registró al crear esa suscripción,
+  y sólo si Mercado Pago informa el importe y la frecuencia de esa intención.
 - Volver de Mercado Pago a una URL de la app no activa nada.
 
 ---
@@ -42,32 +47,36 @@ están en la documentación de Mercado Pago: no se copian acá porque cambian.
 
 ---
 
-## 3. Planes de suscripción en Mercado Pago
+## 3. Precios
 
-Panel → **Suscripciones → Planes** → nuevo plan. Uno por cada combinación que se venda:
+**No hay que crear planes en el panel de Mercado Pago.** El servidor crea cada suscripción por
+API con el importe y la frecuencia de su propio catálogo
+(`supabase/functions/_shared/billing/planCatalog.ts`, `PLAN_PRICES`):
 
-| Plan | Ciclo | Importe ARS | Frecuencia |
+| Plan | Ciclo | Importe ARS | Frecuencia que se le pide a Mercado Pago |
 |---|---|---|---|
-| Básico | Mensual | $15.000 | 1 mes |
-| Básico | Anual | $144.000 | 1 año |
-| Pro | Mensual | $25.000 | 1 mes |
-| Pro | Anual | $240.000 | 1 año |
-| Full | Mensual | $45.000 | 1 mes |
-| Full | Anual | $432.000 | 1 año |
+| Básico | Mensual | $15.000 | 1 / `months` |
+| Básico | Anual | $144.000 | 12 / `months` |
+| Pro | Mensual | $25.000 | 1 / `months` |
+| Pro | Anual | $240.000 | 12 / `months` |
+| Full | Mensual | $45.000 | 1 / `months` |
+| Full | Anual | $432.000 | 12 / `months` |
 
-Planes ofrece hoy mensual y anual. El ciclo trimestral ($39.000 / $64.500 / $117.000, cada 3
-meses) está en el modelo pero no en la pantalla: sus secrets son opcionales.
+Planes ofrece hoy mensual y anual. El ciclo trimestral está en el modelo pero no tiene precio en
+el servidor: no se vende.
 
-> ⚠️ **El importe que se cobra lo define el plan de Mercado Pago**, no el frontend. Los valores
-> de arriba tienen que coincidir con `src/types/subscription.ts` (`PLANS`), que es lo que ve el
-> usuario. Si se cambia un precio, se cambia en los dos lugares.
+> ⚠️ **El importe que se cobra lo define `PLAN_PRICES`**, no el frontend ni el panel de Mercado
+> Pago. Lo que ve el usuario sale de `src/types/subscription.ts` (`PLANS`). Las dos tablas tienen
+> que coincidir y un test de CI (`tests/unit/billingContracts.test.ts`) falla si no. Para cambiar
+> un precio: se cambian las dos y se redespliega `mp-subscription`.
 >
-> La frecuencia del plan también importa: al abrir un checkout el servidor consulta el plan y
-> rechaza (503) uno cuya frecuencia no coincide con el ciclo pedido. La API de Mercado Pago
-> devuelve un plan anual creado desde el panel como `frequency = 1`, `frequency_type = "years"`
-> (medido el 2026-10-01/02), y uno creado por API puede venir como `12` / `"months"`: se aceptan
-> las dos formas. Mensual es `1` / `"months"` y trimestral `3` / `"months"`. Cualquier otra
-> combinación se rechaza.
+> Al leer una suscripción, el servidor compara lo que cobra Mercado Pago con lo que registró al
+> crearla. Un anual puede volver como `12` / `"months"` o como `1` / `"years"` (así expresa
+> Mercado Pago los anuales del panel, medido el 2026-10-01/02): se aceptan las dos formas. Otro
+> importe, otra moneda u otra frecuencia no activan nada.
+
+Los planes que ya existen en el panel (los del Plan A) dejaron de usarse. Una suscripción creada
+por el checkout de uno de esos planes no se vincula con ningún negocio.
 
 ---
 
@@ -90,36 +99,29 @@ Sólo nombres; los valores se cargan con `supabase secrets set` y no se versiona
 
 | Secret | Uso |
 |---|---|
-| `MP_ACCESS_TOKEN` | API de Mercado Pago |
+| `MP_ACCESS_TOKEN` | API de Mercado Pago. Con este token el servidor **crea** las suscripciones: tiene que ser el de la aplicación cuyo webhook está configurado |
 | `MP_WEBHOOK_SECRET` | Firma del webhook. Sin él `mp-webhook` responde 500 |
-| `MP_PLAN_BASICO_MONTHLY`, `MP_PLAN_BASICO_ANNUAL` | Id del plan de MP |
-| `MP_PLAN_PRO_MONTHLY`, `MP_PLAN_PRO_ANNUAL` | Id del plan de MP |
-| `MP_PLAN_FULL_MONTHLY`, `MP_PLAN_FULL_ANNUAL` | Id del plan de MP |
-| `MP_PLAN_*_QUARTERLY` | Opcional |
 | `APP_URL` | Origen del frontend: `https://www.techrepairpro.app` |
 | `MP_CORS_ORIGIN` | Opcional: orígenes extra, separados por coma |
 
 `SUPABASE_URL`, `SUPABASE_ANON_KEY` y `SUPABASE_SERVICE_ROLE_KEY` los inyecta Supabase.
 
-Los ids `MP_PLAN_*` son la **única** tabla que traduce «plan de Mercado Pago» a «plan de
-TechRepair Pro», en las dos direcciones:
-
-- Un id que no está en ningún secret no otorga ningún plan.
-- El mismo id en dos secrets deja a esos dos planes sin venderse y sin otorgarse.
+Los secrets `MP_PLAN_*` del Plan A ya no se leen. Pueden quedar cargados: no hacen nada.
 
 ---
 
 ## 6. Base de datos
 
-La migración de este lote es
-`supabase/migrations/20261012120000_beta_mp_checkout_session_server_authority.sql`. Va **antes**
-que las Edge Functions.
+| Migración | Qué hace | Estado en producción |
+|---|---|---|
+| `20261012120000_beta_mp_checkout_session_server_authority.sql` | La sesión de checkout es sólo del backend; dedupe de eventos por notificación; `upsert` del ledger | Aplicada |
+| `20261013120000_beta_mp_plan_b_session_preapproval_unique.sql` | Un preapproval pertenece a una sola sesión (índice único) | **Sin aplicar** |
 
 ```bash
 supabase db push --dry-run
 ```
 
-Tiene que listar esa migración y ninguna otra. Recién entonces `supabase db push`.
+Tiene que listar la `20261013120000` y ninguna otra. Recién entonces `supabase db push`.
 
 ---
 
@@ -166,6 +168,13 @@ deno check supabase/functions/mp-subscription/index.ts supabase/functions/mp-web
    - `payment` — opcional. Se registra y **no escribe nada**: no es una autoridad de billing.
 4. La clave secreta que genera Mercado Pago es `MP_WEBHOOK_SECRET`.
 
+> ⚠️ En el smoke real del 2026-10-02 `mp-webhook` **no recibió ninguna notificación** de Mercado
+> Pago (los únicos dos requests del día fueron pruebas manuales). No fue un rechazo de firma: no
+> hubo request. Antes del próximo smoke hay que confirmar en el panel que la URL está cargada en
+> **modo productivo** con el evento «Planes y suscripciones», y revisar el historial de
+> notificaciones. Detalle y verificación:
+> [runbook](docs/beta-mp/runbook-rollout.md#segundo-hallazgo-mp-webhook-no-recibió-ninguna-notificación).
+
 ---
 
 ## 9. Flujo de alta
@@ -176,32 +185,35 @@ Usuario elige plan y ciclo en Planes
 Frontend → mp-subscription (create)
     ↓
 La función exige la capacidad `subscription` del usuario en ese negocio,
-resuelve el plan de MP por secret, lo verifica en Mercado Pago,
-registra la intención en subscription_checkout_sessions
-y devuelve el init_point            ← el negocio NO cambia
+toma importe y frecuencia de SU catálogo,
+registra la intención en subscription_checkout_sessions,
+crea en Mercado Pago un preapproval `pending` (POST /preapproval),
+valida la respuesta y GUARDA EL ID del preapproval en la sesión,
+y recién entonces devuelve su init_point   ← el negocio NO cambia
     ↓
-El navegador va al checkout de Mercado Pago
+El navegador va al checkout de ESE preapproval
     ↓
 El usuario paga y Mercado Pago lo devuelve a /subscription/pending
     ↓
-Mercado Pago llama a mp-webhook (subscription_preapproval)
+Mercado Pago llama a mp-webhook (subscription_preapproval)        ┐ lo que llegue
+        — o —                                                     ├ primero
+/subscription/pending llama a mp-subscription (reconcile)         ┘
     ↓
-La función valida la firma, relee el preapproval en Mercado Pago,
-resuelve el negocio por la referencia del checkout,
-toma el plan de preapproval_plan_id
-y recién ahí escribe businesses      ← acá cambia el acceso
+El servidor relee el preapproval en Mercado Pago, resuelve el negocio
+por el id que guardó, comprueba que cobra lo de esa sesión
+y recién ahí escribe businesses            ← acá cambia el acceso
     ↓
 /subscription/pending muestra «Pago confirmado» cuando el servidor
 informa que ESE checkout quedó pagado
 ```
 
-Si el webhook no llega, **Verificar pago** (`mp-subscription: reconcile`) hace que el servidor
-consulte a Mercado Pago y aplique exactamente las mismas reglas.
+El webhook y **Verificar pago** (`mp-subscription: reconcile`) aplican exactamente las mismas
+reglas sobre el mismo preapproval. La pantalla de espera llama a `reconcile` cada 8 segundos: si
+el webhook no llega, la compra se activa igual.
 
-La referencia del checkout (`external_reference`) la genera el servidor, una por checkout, y
-viaja en la URL del checkout del plan. Que Mercado Pago la conserve en la suscripción no está
-documentado: es lo primero que mide el smoke. Si no la conserva, el pago no se vincula y no se
-activa nada.
+La referencia del checkout (`external_reference`) la genera el servidor, una por checkout, y se
+le manda a Mercado Pago al crear el preapproval. Si Mercado Pago la devuelve, se contrasta; si
+no la devuelve, alcanza con el id. Un preapproval que el servidor no creó no activa nada.
 
 ---
 
@@ -230,14 +242,14 @@ El cron (`billing-expire-trials`, `billing-enforce-grace`) ya corre en producci�
 
 | Acción | Qué hace | Escribe |
 |---|---|---|
-| `create` | Abre un checkout | Sólo la sesión de checkout |
+| `create` | Crea el preapproval `pending` en Mercado Pago y devuelve su checkout | Sólo la sesión de checkout (con el id del preapproval) |
 | `status` | Lectura local del estado y del último checkout. No consulta Mercado Pago | Nada |
-| `reconcile` | Consulta Mercado Pago y lleva la base al estado confirmado | Lo mismo que el webhook |
+| `reconcile` | Relee por id los preapprovals del negocio y lleva la base al estado confirmado | Lo mismo que el webhook |
 | `update_payment_method` | Devuelve el enlace de Mercado Pago de la suscripción del negocio | Nada |
 | `cancel` | Cancela en Mercado Pago, lo confirma releyendo y refleja la baja | Lo mismo que el webhook |
 
 Todas exigen la capacidad `subscription` del usuario en el negocio que nombran. Ninguna acepta
-un id de suscripción, un id de plan o un email de pagador del navegador.
+un id de suscripción, una referencia, un importe o un email de pagador del navegador.
 
 ---
 
@@ -253,7 +265,7 @@ Tests de integración, guard estático y contratos de fuente. Corre en CI.
 npm run test:beta-mp:local
 ```
 
-Matriz contra un stack Supabase local con la migración aplicada. Corre en CI (job
+Matriz contra un stack Supabase local con las dos migraciones aplicadas. Corre en CI (job
 `beta-mp-billing`).
 
 Ninguno de los dos habla con Mercado Pago. La certificación real es el smoke de

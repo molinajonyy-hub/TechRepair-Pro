@@ -116,11 +116,18 @@ jobs:
       # conoce columnas, CHECK, índices únicos y GRANT de service_role, y contra
       # un Mercado Pago simulado a nivel HTTP. Fija: las cinco acciones exigen la
       # capacidad `subscription` EN ese negocio (cross-tenant → 403 sin tocar MP
-      # ni la base); abrir un checkout no escribe `businesses`; el plan otorgado
-      # sale del `preapproval_plan_id` de MP (pide Full + MP Básico = Básico; plan
-      # desconocido no activa); webhook idempotente por notificación y tolerante
-      # al desorden; `reconcile` existe, no activa sin evidencia ni con evidencia
-      # ambigua; el navegador no confirma un pago por `isActive` ni por la URL.
+      # ni la base); abrir un checkout no escribe `businesses`.
+      # PLAN B (el checkout por URL de un plan de MP no conserva
+      # `external_reference`: smoke real del 2026-10-02): `create` crea el
+      # preapproval por API con el precio del catálogo del servidor y guarda su
+      # id en la sesión ANTES de devolver el checkout; la activación resuelve el
+      # negocio sólo por ese id (un id desconocido no activa, aunque traiga una
+      # referencia válida, el mismo email, importe o fecha), la referencia se
+      # contrasta cuando MP la devuelve, y el plan otorgado es el de esa sesión
+      # si MP informa su importe y frecuencia. Webhook idempotente por
+      # notificación y tolerante al desorden; `reconcile` recupera sin webhook
+      # leyendo por id y es idempotente; el navegador no confirma un pago por
+      # `isActive` ni por la URL; el precio del servidor es el de Planes.
       # Guard estático (self-test primero) + guard read-only de los SQL del
       # runbook + contratos de fuente. NO certifica Mercado Pago: eso es el smoke.
       # La base real y el RPC de capacidad los cubre el job `beta-mp-billing`.
@@ -322,7 +329,10 @@ jobs:
           # subscription_checkout_sessions y agrega columnas e indices a las
           # tablas de billing (drift frente al catalogo de produccion). Lo
           # certifica el job beta-mp-billing.
+          # BETA-MP Plan B tambien (20261013120000): su PRECONDICION 1 exige la
+          # columna que agrega BETA-MP, que aca esta apartada. Mismo job.
           beta_mp="supabase/migrations/20261012120000_beta_mp_checkout_session_server_authority.sql"
+          beta_mp_plan_b="supabase/migrations/20261013120000_beta_mp_plan_b_session_preapproval_unique.sql"
           g2b="supabase/migrations/20261003120000_g2b_comprobante_items_immutability.sql"
           g2c="supabase/migrations/20261004120000_g2c_negative_stock_reversal.sql"
           g2c1="supabase/migrations/20261005120000_g2c1_wholesale_stock_authority.sql"
@@ -346,6 +356,7 @@ jobs:
           mv "$p3s_mayorista" "$RUNNER_TEMP/"
           mv "$p3s_clic" "$RUNNER_TEMP/"
           mv "$beta_mp" "$RUNNER_TEMP/"
+          mv "$beta_mp_plan_b" "$RUNNER_TEMP/"
           supabase start
           mv "$RUNNER_TEMP/$(basename "$r3")" "$r3"
       - name: Run real PostgreSQL/PostgREST R3 matrix
@@ -624,8 +635,8 @@ jobs:
       # quedara en la carpeta, `supabase start` la aplicaria sobre A1 y despues
       # `migration up` no podria insertar A3/PRE-BETA-1 antes de ella. Su
       # contrato lo certifica el job prebeta3a2s-server-authority.
-      # BETA-MP (posterior a 3A-2S) se aparta por la misma razon y tampoco se
-      # devuelve. Lo certifica el job beta-mp-billing.
+      # BETA-MP y BETA-MP Plan B (posteriores a 3A-2S) se apartan por la misma
+      # razon y tampoco se devuelven. Los certifica el job beta-mp-billing.
       - name: Start local Supabase at A1 (G2-C.3A3 set aside)
         shell: bash
         run: |
@@ -635,6 +646,7 @@ jobs:
           mv supabase/migrations/20261011120000_prebeta3a2s_wholesale_server_authority.sql "$RUNNER_TEMP/"
           mv supabase/migrations/20261011130000_prebeta3a2s_portal_clic_internal_authority.sql "$RUNNER_TEMP/"
           mv supabase/migrations/20261012120000_beta_mp_checkout_session_server_authority.sql "$RUNNER_TEMP/"
+          mv supabase/migrations/20261013120000_beta_mp_plan_b_session_preapproval_unique.sql "$RUNNER_TEMP/"
           mv "$a3" "$RUNNER_TEMP/"
           mv "$prebeta1" "$RUNNER_TEMP/"
           trap 'mv "$RUNNER_TEMP/$(basename "$a3")" "$a3"; mv "$RUNNER_TEMP/$(basename "$prebeta1")" "$prebeta1"' EXIT
@@ -683,8 +695,8 @@ jobs:
       # PRE-BETA-3A-2S (posterior) se aparta y NO se devuelve, por la misma
       # razon que en g2c3a3: `migration up` tiene que aplicar SOLO PRE-BETA-1.
       # Lo certifica el job prebeta3a2s-server-authority.
-      # BETA-MP (posterior) se aparta igual y tampoco se devuelve. Lo certifica
-      # el job beta-mp-billing.
+      # BETA-MP y BETA-MP Plan B (posteriores) se apartan igual y tampoco se
+      # devuelven. Los certifica el job beta-mp-billing.
       - name: Start local Supabase at A3 (PRE-BETA-1 set aside)
         shell: bash
         run: |
@@ -693,6 +705,7 @@ jobs:
           mv supabase/migrations/20261011120000_prebeta3a2s_wholesale_server_authority.sql "$RUNNER_TEMP/"
           mv supabase/migrations/20261011130000_prebeta3a2s_portal_clic_internal_authority.sql "$RUNNER_TEMP/"
           mv supabase/migrations/20261012120000_beta_mp_checkout_session_server_authority.sql "$RUNNER_TEMP/"
+          mv supabase/migrations/20261013120000_beta_mp_plan_b_session_preapproval_unique.sql "$RUNNER_TEMP/"
           mv "$prebeta1" "$RUNNER_TEMP/"
           trap 'mv "$RUNNER_TEMP/$(basename "$prebeta1")" "$prebeta1"' EXIT
           supabase start
@@ -743,9 +756,11 @@ jobs:
           set -euo pipefail
           mayorista="supabase/migrations/20261011120000_prebeta3a2s_wholesale_server_authority.sql"
           clic="supabase/migrations/20261011130000_prebeta3a2s_portal_clic_internal_authority.sql"
-          # BETA-MP (posterior) se aparta y NO se devuelve: `migration up` tiene
-          # que aplicar SOLO las dos de 3A-2S. Lo certifica el job beta-mp-billing.
+          # BETA-MP y BETA-MP Plan B (posteriores) se apartan y NO se devuelven:
+          # `migration up` tiene que aplicar SOLO las dos de 3A-2S. Los certifica
+          # el job beta-mp-billing.
           mv supabase/migrations/20261012120000_beta_mp_checkout_session_server_authority.sql "$RUNNER_TEMP/"
+          mv supabase/migrations/20261013120000_beta_mp_plan_b_session_preapproval_unique.sql "$RUNNER_TEMP/"
           mv "$mayorista" "$RUNNER_TEMP/"
           mv "$clic" "$RUNNER_TEMP/"
           trap 'mv "$RUNNER_TEMP/$(basename "$mayorista")" "$mayorista"; mv "$RUNNER_TEMP/$(basename "$clic")" "$clic"' EXIT
@@ -767,20 +782,22 @@ jobs:
 
   # ── BETA-MP · Billing SaaS (Mercado Pago) contra la base real ─────────────
   # El step de `quality` corre las Edge Functions sobre una base en memoria.
-  # Este job levanta una DB limpia CON la migracion BETA-MP aplicada desde cero
-  # (precondiciones y postcondiciones fail-closed: si el replay no la reproduce,
-  # `supabase start` falla aca) y corre:
+  # Este job levanta una DB limpia CON las migraciones BETA-MP y BETA-MP Plan B
+  # aplicadas desde cero (precondiciones y postcondiciones fail-closed: si el
+  # replay no las reproduce, `supabase start` falla aca) y corre:
   #   · la matriz SQL como la API (SET LOCAL ROLE): el navegador no inserta, no
   #     lee y no se marca `paid` una sesion de checkout; service_role la crea y
   #     la resuelve y no la borra; subscription_events deduplica por
   #     notificacion; payments admite el upsert del webhook (el indice unico
-  #     parcial de antes daba 42P10 en el primer cobro);
+  #     parcial de antes daba 42P10 en el primer cobro); un preapproval no se
+  #     puede vincular a dos sesiones (uq_scs_mp_preapproval);
   #   · el MISMO codigo de las Edge Functions sobre PostgREST + supabase-js
   #     reales, con JWT firmados: la autoridad real
   #     current_user_can_in_business(..., 'subscription') niega el cross-tenant
-  #     y al tecnico; create no cambia la fila del negocio; webhook, cobro
-  #     recurrente, reconcile, cancelacion y medio de pago escriben solo lo que
-  #     el GRANT de service_role permite.
+  #     y al tecnico; create vincula el preapproval a la sesion sin cambiar la
+  #     fila del negocio; un preapproval desconocido no activa; reconcile
+  #     recupera sin webhook; webhook, cobro recurrente, cancelacion y medio de
+  #     pago escriben solo lo que el GRANT de service_role permite.
   # Mercado Pago sigue SIMULADO: esto no reemplaza el smoke del runbook.
   beta-mp-billing:
     name: BETA-MP Mercado Pago Billing Authority

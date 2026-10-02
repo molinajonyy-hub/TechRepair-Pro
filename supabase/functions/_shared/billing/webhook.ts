@@ -6,6 +6,12 @@
  *   1. Claim idempotente de la notificación (índice único en la base).
  *   2. Se relee el recurso en Mercado Pago: el cuerpo del webhook nunca es estado.
  *   3. El acceso lo decide `applyPreapprovalEvidence`, el mismo camino de `reconcile`.
+ *      El negocio se resuelve por el id del preapproval, que el servidor conoce
+ *      desde que lo creó (`create`): una notificación sobre un preapproval que
+ *      el servidor no originó queda registrada y no activa nada.
+ *
+ * El webhook es una vía de entrega, no la única: si Mercado Pago no notifica,
+ * `reconcile` llega al mismo resultado releyendo el mismo preapproval.
  *
  * La clave de idempotencia es la NOTIFICACIÓN, no el recurso. Un preapproval
  * emite varias notificaciones con el mismo `data.id` (`created` en `pending`,
@@ -128,7 +134,6 @@ async function handlePreapproval(ctx: BillingContext, preapprovalId: string): Pr
 
   const applied = await applyPreapprovalEvidence(ctx, pre, { source: 'webhook' })
   if (applied.kind === 'not_applied') return { businessId: applied.businessId, detail: `not_applied:${applied.reason}` }
-  if (applied.planMismatch) return { businessId: applied.businessId, detail: 'applied:plan_differs_from_checkout' }
   return { businessId: applied.businessId, detail: applied.reason ? `${applied.kind}:${applied.reason}` : null }
 }
 

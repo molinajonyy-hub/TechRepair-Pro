@@ -4,8 +4,9 @@
  * POST /functions/v1/mp-subscription
  * Body: { action, business_id, ... }
  *
- *   create                  abre un checkout de Mercado Pago. NO cambia el acceso del negocio.
- *   status                  lectura local (DB). No consulta ni sincroniza Mercado Pago.
+ *   create                  crea el preapproval `pending` en Mercado Pago, lo vincula a la
+ *                           sesión y devuelve su checkout. NO cambia el acceso del negocio.
+ *   status                 lectura local (DB). No consulta ni sincroniza Mercado Pago.
  *   reconcile               consulta Mercado Pago y lleva la DB al estado confirmado.
  *   update_payment_method   link de MP para la suscripción del negocio autorizado.
  *   cancel                  cancela en MP la suscripción del negocio autorizado.
@@ -15,7 +16,7 @@
  *
  *   subscriptionActions.ts   las cinco acciones + la autorización uniforme
  *   preapproval.ts           el camino canónico que comparte con `mp-webhook`
- *   planCatalog.ts           MP_PLAN_* ↔ plan/ciclo
+ *   planCatalog.ts           precio y frecuencia de cada plan/ciclo (catálogo del servidor)
  *
  * ─── Seguridad ─────────────────────────────────────────────────
  * - El frontend propone, Mercado Pago confirma, el backend decide. Ninguna
@@ -198,7 +199,8 @@ serve(async (req) => {
         fetchImpl: (input, init) => fetch(input, init),
         accessToken: () => Deno.env.get('MP_ACCESS_TOKEN'),
       }),
-      catalog: buildPlanCatalog((key) => Deno.env.get(key)),
+      // Precio y frecuencia: tabla del servidor. No depende de secrets ni del body.
+      catalog: buildPlanCatalog(),
       now: () => new Date(),
       newId: () => crypto.randomUUID(),
       allowedOrigins: ALLOWED_ORIGINS,

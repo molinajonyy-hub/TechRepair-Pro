@@ -30,7 +30,6 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { createMpClient } from '../_shared/billing/mpClient.ts'
-import { buildPlanCatalog } from '../_shared/billing/planCatalog.ts'
 import type { BillingContext } from '../_shared/billing/preapproval.ts'
 import { createSupabaseBillingStore } from '../_shared/billing/store.ts'
 import { parseNotification, processWebhookNotification } from '../_shared/billing/webhook.ts'
@@ -76,19 +75,38 @@ async function verifySignature(
   return diff === 0 ? 'ok' : 'invalid'
 }
 
+/**
+ * Qué partes de la firma trajo el request. Sólo presencia, nunca valores: alcanza
+ * para distinguir un request sin firma de una firma calculada sobre otro manifiesto.
+ */
+function signatureParts(req: Request, urlDataId: string | null): string {
+  const has = (name: string) => (req.headers.get(name) ? 'yes' : 'no')
+  return `x-signature=${has('x-signature')} x-request-id=${has('x-request-id')} url-data-id=${urlDataId === null ? 'no' : 'yes'}`
+}
+
 // ─────────────────────────────────────────────────────────────────
 // Main handler — validate, claim, process (awaited), respond
 // ─────────────────────────────────────────────────────────────────
 serve(async (req) => {
-  if (req.method !== 'POST') return new Response('Method Not Allowed', { status: 405 })
+  if (req.method !== 'POST') {
+    console.warn(`[mp-webhook] Rejected: method ${req.method}`)
+    return new Response('Method Not Allowed', { status: 405 })
+  }
+
+  // Todo rechazo previo a reclamar el evento deja una línea en el log: sin ella
+  // no se distingue «Mercado Pago no notificó» de «notificó y lo rechazamos».
+  const badBody = (why: string) => {
+    console.warn(`[mp-webhook] Rejected: ${why}`)
+    return new Response(why === 'unreadable body' ? 'Bad Request' : 'Invalid JSON', { status: 400 })
+  }
 
   let rawBody: string
-  try { rawBody = await req.text() } catch { return new Response('Bad Request', { status: 400 }) }
+  try { rawBody = await req.text() } catch { return badBody('unreadable body') }
 
   let payload: unknown
-  try { payload = JSON.parse(rawBody) } catch { return new Response('Invalid JSON', { status: 400 }) }
+  try { payload = JSON.parse(rawBody) } catch { return badBody('body is not JSON') }
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    return new Response('Invalid JSON', { status: 400 })
+    return badBody('body is not a JSON object')
   }
 
   const notification = parseNotification(payload as Record<string, unknown>)
@@ -109,7 +127,7 @@ serve(async (req) => {
     return new Response('Webhook secret not configured', { status: 500 })
   }
   if (sig === 'invalid') {
-    console.warn(`[mp-webhook] Rejected: invalid signature (type=${topic} id=${resourceId})`)
+    console.warn(`[mp-webhook] Rejected: invalid signature (type=${topic} id=${resourceId} ${signatureParts(req, urlDataId)})`)
     return new Response('Forbidden', { status: 401 })
   }
 
@@ -128,7 +146,6 @@ serve(async (req) => {
       fetchImpl: (input, init) => fetch(input, init),
       accessToken: () => Deno.env.get('MP_ACCESS_TOKEN'),
     }),
-    catalog: buildPlanCatalog((key) => Deno.env.get(key)),
     now: () => new Date(),
     // Sólo ids, estados y códigos. Nunca emails, tokens ni cuerpos de Mercado Pago.
     log: (event) => console.log(JSON.stringify({ fn: 'mp-webhook', ...event })),

@@ -1,8 +1,9 @@
 -- ============================================================================
 -- BETA-MP · PREFLIGHT de solo lectura
 --
--- Se corre ANTES de aplicar la migracion 20261012120000 y de desplegar las Edge
--- Functions. No escribe nada (lo verifica `npm run guard:beta-mp:readonly-sql`).
+-- Se corre ANTES de aplicar la migracion del Plan B (20261013120000) y de
+-- desplegar las Edge Functions. No escribe nada (lo verifica
+-- `npm run guard:beta-mp:readonly-sql`).
 -- Guardar la salida: es la linea de base contra la que se compara el smoke.
 --
 -- Cada fila `gate:*` tiene que dar `true`. Si alguna da `false`, NO seguir.
@@ -33,6 +34,19 @@ SELECT 'gate:existe la autoridad de capacidad',
        (to_regprocedure('public.current_user_can_in_business(uuid, text)') IS NOT NULL
         AND has_function_privilege('authenticated', 'public.current_user_can_in_business(uuid, text)', 'EXECUTE'))::text
 UNION ALL
+SELECT 'gate:plan B: la migracion BETA-MP (20261012120000) esta aplicada',
+       (EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = '20261012120000')
+        AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.subscription_checkout_sessions'::regclass
+                       AND attname = 'mp_preapproval_id' AND NOT attisdropped))::text
+UNION ALL
+SELECT 'gate:plan B: ningun preapproval figura en dos sesiones',
+       (NOT EXISTS (SELECT 1 FROM public.subscription_checkout_sessions WHERE mp_preapproval_id IS NOT NULL
+                     GROUP BY mp_preapproval_id HAVING count(*) > 1))::text
+UNION ALL
+SELECT 'gate:plan B: la tabla de checkout sigue sin lectura de cliente',
+       (NOT has_table_privilege('authenticated', 'public.subscription_checkout_sessions', 'SELECT')
+        AND NOT has_table_privilege('anon', 'public.subscription_checkout_sessions', 'SELECT'))::text
+UNION ALL
 SELECT 'gate:service_role escribe las columnas de billing de businesses',
        (has_column_privilege('service_role', 'public.businesses', 'subscription_status', 'UPDATE')
         AND has_column_privilege('service_role', 'public.businesses', 'subscription_plan', 'UPDATE')
@@ -47,6 +61,8 @@ UNION ALL SELECT 'subscription_events (mercadopago)', count(*)::text FROM public
            WHERE event_type IN ('payment', 'subscription_preapproval', 'subscription_authorized_payment')
 UNION ALL SELECT 'subscription_events sin procesar', count(*)::text FROM public.subscription_events WHERE NOT processed
 UNION ALL SELECT 'subscription_checkout_sessions', count(*)::text FROM public.subscription_checkout_sessions
+UNION ALL SELECT 'subscription_checkout_sessions pending sin preapproval (checkouts del Plan A)', count(*)::text
+           FROM public.subscription_checkout_sessions WHERE status = 'pending' AND mp_preapproval_id IS NULL
 UNION ALL SELECT 'negocios con mp_preapproval_id', count(*)::text FROM public.businesses WHERE mp_preapproval_id IS NOT NULL
 UNION ALL SELECT 'negocios con access_source = mercado_pago', count(*)::text FROM public.businesses WHERE access_source = 'mercado_pago'
 UNION ALL SELECT 'negocios con plan de MP anotado y sin suscripcion (restos del create viejo)', count(*)::text

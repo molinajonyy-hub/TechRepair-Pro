@@ -1,7 +1,8 @@
 /**
  * subscriptionActions — BETA-MP · acciones autenticadas de `mp-subscription`.
  *
- *   create                  abre un checkout. NO cambia el acceso del negocio.
+ *   create                  crea el preapproval `pending` en Mercado Pago, lo vincula
+ *                           a la sesión y devuelve SU checkout. NO cambia el acceso.
  *   status                  lectura local (DB). No consulta ni sincroniza Mercado Pago.
  *   reconcile               consulta Mercado Pago y lleva la DB al estado confirmado.
  *   update_payment_method   link de MP para la suscripción DEL negocio autorizado.
@@ -12,29 +13,34 @@
  * No hay una verificación por handler que alguno pueda olvidarse.
  *
  * Del body sólo se usan `action`, `business_id`, `plan`, `billing_cycle` y
- * `back_url` (validado contra la allowlist). `payer_email`, ids de preapproval o
- * de plan que mande el navegador se ignoran: el email sale del JWT, los ids de
- * la base y de los secrets.
+ * `back_url` (validado contra la allowlist). Importe, moneda, frecuencia,
+ * referencia, `payer_email` e ids de preapproval que mande el navegador se
+ * ignoran: el email sale del JWT, el precio del catálogo del servidor y los ids
+ * de la base.
  */
-import { MpApiError, isMercadoPagoUrl, preapprovalState } from './mpClient.ts'
-import type { MpPlan, MpPreapproval } from './mpClient.ts'
-import { isBillingCycle, isBillingPlan, matchesBillingCycleFrequency, planEnvKey } from './planCatalog.ts'
-import type { BillingCycle, BillingPlan } from './planCatalog.ts'
-import { applyPreapprovalEvidence, newCheckoutReference, parseCheckoutReference } from './preapproval.ts'
+import { MpApiError, preapprovalCheckoutUrl, preapprovalState } from './mpClient.ts'
+import type { MpPreapproval } from './mpClient.ts'
+import { checkoutTermsProblem, isBillingCycle, isBillingPlan } from './planCatalog.ts'
+import type { BillingCycle, BillingPlan, CheckoutTerms, ExpectedTerms, PlanCatalog } from './planCatalog.ts'
+import {
+  applyPreapprovalEvidence, newCheckoutReference, parseCheckoutReference, referenceConflicts, reportedReference,
+} from './preapproval.ts'
 import type { BillingContext, EvidenceOutcome } from './preapproval.ts'
 import { BillingStoreError } from './store.ts'
-import type { BillingAuthorizer, BusinessBillingRow, CheckoutSessionRow } from './store.ts'
+import type { BillingAuthorizer, BusinessBillingRow, CheckoutSessionRow, CheckoutSessionStatus } from './store.ts'
 
 export const BILLING_ACTIONS = ['create', 'cancel', 'status', 'reconcile', 'update_payment_method'] as const
 export type BillingAction = (typeof BILLING_ACTIONS)[number]
 
-/** Un checkout abierto y sin pagar deja de considerarse vigente pasado este tiempo. */
+/** Un checkout abierto y sin pagar deja de reutilizarse pasado este tiempo. */
 export const CHECKOUT_SESSION_TTL_MS = 48 * 60 * 60 * 1000
-const MAX_RECONCILE_SESSIONS = 3
-const SEARCH_PAGE_SIZE = 50
-const MAX_SEARCH_PAGES = 4
+/**
+ * Margen para que el request que insertó la sesión termine de vincularle su
+ * preapproval. Mientras dura, un segundo `create` del mismo plan no la pisa.
+ */
+export const CHECKOUT_LINK_GRACE_MS = 60 * 1000
+const MAX_RECONCILE_SESSIONS = 5
 const PENDING_PATH = '/subscription/pending'
-const DEFAULT_CHECKOUT_BASE = 'https://www.mercadopago.com.ar/subscriptions/checkout'
 
 export interface ActionUser {
   id: string
@@ -56,6 +62,8 @@ export interface ActionResponse {
 
 export interface ActionContext extends BillingContext {
   authorizer: BillingAuthorizer
+  /** Precio y frecuencia de cada plan/ciclo. Única fuente de lo que se cobra. */
+  catalog: PlanCatalog
   newId: () => string
   /** Orígenes del frontend permitidos (los mismos de la allowlist de CORS). */
   allowedOrigins: readonly string[]
@@ -68,6 +76,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const fail = (status: number, code: string, error: string): ActionResponse => ({ status, body: { error, code } })
 
 const PLAN_LABEL: Record<BillingPlan, string> = { basico: 'Básico', pro: 'Pro', full: 'Full' }
+const CYCLE_LABEL: Record<BillingCycle, string> = { monthly: 'mensual', quarterly: 'trimestral', annual: 'anual' }
 
 // ── Router ──────────────────────────────────────────────────────────────────
 
@@ -104,7 +113,8 @@ export async function handleBillingAction(ctx: ActionContext, req: ActionRequest
     }
   } catch (error) {
     if (error instanceof MpApiError) {
-      ctx.log({ event: 'mp_unavailable', action, operation: error.operation, status: error.status })
+      // `detail` es el motivo de MP ya recortado y sin emails (ver mpClient).
+      ctx.log({ event: 'mp_unavailable', action, operation: error.operation, status: error.status, detail: error.detail })
       return fail(502, 'mp_unavailable', 'No pudimos consultar a Mercado Pago. Probá de nuevo en unos minutos.')
     }
     if (error instanceof BillingStoreError) {
@@ -117,6 +127,16 @@ export async function handleBillingAction(ctx: ActionContext, req: ActionRequest
 
 // ── create ──────────────────────────────────────────────────────────────────
 
+interface CheckoutIntent {
+  businessId: string
+  plan: BillingPlan
+  billingCycle: BillingCycle
+  payerEmail: string
+  terms: CheckoutTerms
+}
+
+const IN_PROGRESS = () => fail(409, 'checkout_in_progress', 'Ya estamos preparando tu checkout. Probá de nuevo en unos segundos.')
+
 async function createCheckout(ctx: ActionContext, req: ActionRequest, businessId: string): Promise<ActionResponse> {
   const { plan, billing_cycle: billingCycle } = req.body
   if (!isBillingPlan(plan) || !isBillingCycle(billingCycle)) {
@@ -125,137 +145,203 @@ async function createCheckout(ctx: ActionContext, req: ActionRequest, businessId
   const payerEmail = req.user.email
   if (!payerEmail) return fail(400, 'no_email', 'Tu cuenta no tiene un email para asociar al pago.')
 
-  const mpPlanId = ctx.catalog.mpPlanIdFor(plan, billingCycle)
-  if (!mpPlanId) {
-    // El nombre del secret queda en el log del servidor, no en la respuesta.
-    ctx.log({ event: 'plan_not_configured', env_key: planEnvKey(plan, billingCycle) })
+  // Importe, moneda y frecuencia: del catálogo del servidor, para el plan y el
+  // ciclo validados. El navegador no aporta ninguno de los tres.
+  const terms = ctx.catalog.termsFor(plan, billingCycle)
+  if (!terms) {
+    ctx.log({ event: 'plan_not_configured', plan, billing_cycle: billingCycle })
     return fail(503, 'plan_not_configured', 'Este plan todavía no está disponible para contratar. Escribinos desde Ayuda y lo resolvemos.')
   }
 
   const business = await ctx.store.getBusinessBilling(businessId)
   if (!business) return fail(404, 'business_not_found', 'No encontramos el negocio.')
 
-  // El plan tiene que existir y estar vigente en Mercado Pago, con la frecuencia
-  // del ciclo pedido. Un secret mal cableado se detecta antes de mandar al
-  // usuario a un checkout equivocado.
-  const mpPlan = await ctx.mp.getPlan(mpPlanId)
-  const planProblem = describePlanProblem(mpPlan, billingCycle)
-  if (!mpPlan || planProblem) {
-    ctx.log({ event: 'plan_unavailable', env_key: planEnvKey(plan, billingCycle), problem: planProblem })
-    return fail(503, 'plan_unavailable', 'Este plan no está disponible en Mercado Pago en este momento. Escribinos desde Ayuda y lo resolvemos.')
-  }
-  const amount = Number(mpPlan.auto_recurring?.transaction_amount)
-  const currency = mpPlan.auto_recurring?.currency_id || 'ARS'
+  const intent: CheckoutIntent = { businessId, plan, billingCycle, payerEmail, terms }
+  const summary = { status: 'pending', plan, billing_cycle: billingCycle }
 
-  const session = await openSession(ctx, {
-    businessId, userId: req.user.id, plan, billingCycle, mpPlanId, payerEmail,
-    amount: Number.isFinite(amount) && amount >= 0 ? amount : 0, currency,
-  })
+  // 1. ¿Ya hay un checkout abierto para este plan y ciclo?
+  const open = await findOpenCheckout(ctx, intent)
+  if (open.kind === 'in_progress') return IN_PROGRESS()
+  if (open.kind === 'already_paid') {
+    // Abrir otro checkout cobraría dos veces. La activación no ocurre acá: la
+    // hacen el webhook y `reconcile`, por el camino canónico.
+    return fail(409, 'checkout_already_paid', 'Mercado Pago ya registró el pago de este plan. Tocá «Verificar pago» en Mi Suscripción para activarlo.')
+  }
+  if (open.kind === 'reuse') {
+    ctx.log({ event: 'checkout_reused', business_id: businessId, session_id: open.session.id, plan, billing_cycle: billingCycle })
+    return { status: 200, body: { init_point: open.checkoutUrl, checkout: summary } }
+  }
+
+  // 2. La intención, con una referencia que genera el servidor.
+  let session: CheckoutSessionRow
+  try {
+    session = await ctx.store.insertCheckoutSession({
+      business_id: businessId,
+      user_id: req.user.id,
+      plan_id: plan,
+      billing_cycle: billingCycle,
+      amount: terms.amount,
+      currency: terms.currency,
+      external_reference: newCheckoutReference(ctx.newId()),
+      payer_email: payerEmail,
+    })
+  } catch (error) {
+    // Dos pedidos simultáneos: `idx_scs_pending_unique` deja pasar uno solo.
+    if (error instanceof BillingStoreError && error.code === '23505') return IN_PROGRESS()
+    throw error
+  }
   const reference = parseCheckoutReference(session.external_reference)
   if (!reference) throw new BillingStoreError('sesión de checkout sin referencia válida', null)
 
-  // La URL del checkout de plan es de Mercado Pago. Que respete estos
-  // parámetros no está documentado: si no preserva `external_reference`, el
-  // pago no se podrá vincular y NO activará nada (fail-closed). Ver el runbook.
-  const planInitPoint = mpPlan.init_point
-  const base = isMercadoPagoUrl(planInitPoint)
-    && new URL(planInitPoint).searchParams.get('preapproval_plan_id') === mpPlanId
-    ? planInitPoint
-    : `${DEFAULT_CHECKOUT_BASE}?preapproval_plan_id=${encodeURIComponent(mpPlanId)}`
-  const checkout = new URL(base)
-  checkout.searchParams.set('external_reference', reference)
-  checkout.searchParams.set('payer_email', payerEmail)
-  checkout.searchParams.set('back_url', resolveBackUrl(ctx, req))
-  const checkoutUrl = checkout.toString()
+  // 3. El preapproval `pending` en Mercado Pago, creado por el servidor.
+  let created: MpPreapproval
+  try {
+    created = await ctx.mp.createPendingPreapproval({
+      reason: `TechRepair Pro - Plan ${PLAN_LABEL[plan]} (${CYCLE_LABEL[billingCycle]})`,
+      externalReference: reference,
+      payerEmail,
+      backUrl: resolveBackUrl(ctx, req),
+      frequency: terms.frequency,
+      frequencyType: terms.frequencyType,
+      amount: terms.amount,
+      currency: terms.currency,
+    })
+  } catch (error) {
+    await closeSession(ctx, session.id, 'failed')
+    throw error
+  }
 
-  ctx.log({ event: 'checkout_opened', business_id: businessId, session_id: session.id, plan, billing_cycle: billingCycle })
+  const expected: ExpectedTerms = { billingCycle, amount: terms.amount, currency: terms.currency }
+  const problem = checkoutProblem(created, reference, expected)
+  const checkoutUrl = problem ? null : preapprovalCheckoutUrl(created)
+  if (!checkoutUrl) {
+    ctx.log({ event: 'preapproval_rejected', business_id: businessId, session_id: session.id, problem: problem ?? 'no_init_point' })
+    await discardUnlinkedPreapproval(ctx, created, reference)
+    await closeSession(ctx, session.id, 'failed')
+    return fail(502, 'checkout_unavailable', 'Mercado Pago no devolvió un checkout válido. Probá de nuevo en unos minutos.')
+  }
+
+  // 4. El vínculo sesión ↔ preapproval queda escrito ANTES de responder. Sin él
+  //    ese preapproval no podría activar nada, así que tampoco se entrega su checkout.
+  try {
+    await ctx.store.updateCheckoutSession(session.id, { mp_preapproval_id: created.id }, ctx.now().toISOString())
+  } catch (error) {
+    await discardUnlinkedPreapproval(ctx, created, reference)
+    await closeSession(ctx, session.id, 'failed')
+    throw error
+  }
+
+  ctx.log({
+    event: 'checkout_opened', business_id: businessId, session_id: session.id, preapproval_id: created.id,
+    plan, billing_cycle: billingCycle,
+  })
 
   // NADA de esto tocó `businesses`: el negocio conserva su estado y su plan
-  // hasta que Mercado Pago confirme una suscripción.
-  return {
-    status: 200,
-    body: {
-      init_point: checkoutUrl,
-      preapproval_id: null,
-      checkout: { status: 'pending', plan, billing_cycle: billingCycle },
-    },
-  }
-}
-
-function describePlanProblem(mpPlan: MpPlan | null, billingCycle: BillingCycle): string | null {
-  if (!mpPlan) return 'not_found'
-  if (typeof mpPlan.status === 'string' && mpPlan.status.trim().toLowerCase() !== 'active') return 'inactive'
-  const recurring = mpPlan.auto_recurring
-  if (!recurring) return 'no_frequency'
-  // Mercado Pago expresa el mismo período de más de una forma (un anual del panel
-  // es `1 years`, no `12 months`). La tabla de equivalencias es cerrada.
-  if (!matchesBillingCycleFrequency(billingCycle, recurring.frequency, recurring.frequency_type)) return 'frequency_mismatch'
-  return null
-}
-
-interface OpenSessionInput {
-  businessId: string
-  userId: string
-  plan: BillingPlan
-  billingCycle: BillingCycle
-  mpPlanId: string
-  payerEmail: string
-  amount: number
-  currency: string
+  // hasta que Mercado Pago confirme la suscripción.
+  return { status: 200, body: { init_point: checkoutUrl, checkout: summary } }
 }
 
 /**
- * Una sesión `pending` por (negocio, plan, ciclo): pedir dos veces el mismo
- * checkout reutiliza la misma intención y la misma referencia.
+ * ¿El preapproval que devolvió Mercado Pago sirve para abrir el checkout de ESTA
+ * intención? Tiene que estar `pending`, llevar la referencia de la sesión (si
+ * devuelve alguna), cobrar lo que pidió el servidor y traer un `init_point` propio.
  */
-async function openSession(ctx: ActionContext, input: OpenSessionInput): Promise<CheckoutSessionRow> {
-  const nowIso = ctx.now().toISOString()
+function checkoutProblem(pre: MpPreapproval | null, reference: string, expected: ExpectedTerms): string | null {
+  if (!pre || typeof pre.id !== 'string' || pre.id.trim() === '') return 'no_id'
+  if (preapprovalState(pre.status) !== 'pending') return 'not_pending'
+  const reported = reportedReference(pre)
+  if (reported !== '' && reported !== reference) return 'reference_mismatch'
+  const terms = checkoutTermsProblem(expected, pre.auto_recurring)
+  if (terms) return terms
+  if (!preapprovalCheckoutUrl(pre)) return 'no_init_point'
+  return null
+}
 
-  const findReusable = async (): Promise<CheckoutSessionRow | null> => {
-    const sessions = await ctx.store.listCheckoutSessions(input.businessId, 20)
-    const pending = sessions.find((s) => s.status === 'pending' && s.plan_id === input.plan && s.billing_cycle === input.billingCycle)
-    if (!pending) return null
-    const usable = isWithinTtl(pending, ctx.now())
-      && pending.mp_preapproval_plan_id === input.mpPlanId
-      && parseCheckoutReference(pending.external_reference) !== null
-    if (usable) {
-      await ctx.store.updateCheckoutSession(pending.id, { payer_email: input.payerEmail, amount: input.amount, currency: input.currency }, nowIso)
-      return pending
-    }
-    // Vencida o emitida para otro plan de MP: no se reutiliza.
+type OpenCheckout =
+  | { kind: 'none' }
+  | { kind: 'reuse'; session: CheckoutSessionRow; checkoutUrl: string }
+  | { kind: 'in_progress' }
+  | { kind: 'already_paid' }
+
+/**
+ * Una sesión `pending` por (negocio, plan, ciclo): pedir dos veces el mismo
+ * checkout devuelve el MISMO preapproval. Una sesión que ya no sirve (vencida,
+ * de otro precio o pagador, o cuyo preapproval Mercado Pago ya no tiene
+ * pendiente) deja de estar `pending` para que se pueda emitir otra.
+ */
+async function findOpenCheckout(ctx: ActionContext, intent: CheckoutIntent): Promise<OpenCheckout> {
+  const sessions = await ctx.store.listCheckoutSessions(intent.businessId, 20)
+  const pending = sessions.find((s) => s.status === 'pending' && s.plan_id === intent.plan && s.billing_cycle === intent.billingCycle)
+  if (!pending) return { kind: 'none' }
+  const now = ctx.now()
+  const nowIso = now.toISOString()
+
+  if (!pending.mp_preapproval_id) {
+    // Insertada y todavía sin preapproval: otro request la está completando, o
+    // se cortó a mitad de camino (y entonces nadie recibió un checkout).
+    if (sessionAgeMs(pending, now) < CHECKOUT_LINK_GRACE_MS) return { kind: 'in_progress' }
     await ctx.store.updateCheckoutSession(pending.id, { status: 'expired' }, nowIso)
-    return null
+    return { kind: 'none' }
   }
 
-  const existing = await findReusable()
-  if (existing) return existing
+  const reference = parseCheckoutReference(pending.external_reference)
+  const pre = await ctx.mp.getPreapproval(pending.mp_preapproval_id)
+  const state = pre ? preapprovalState(pre.status) : 'unknown'
 
-  const row = {
-    business_id: input.businessId,
-    user_id: input.userId,
-    plan_id: input.plan,
-    billing_cycle: input.billingCycle,
-    amount: input.amount,
-    currency: input.currency,
-    external_reference: newCheckoutReference(ctx.newId()),
-    mp_preapproval_plan_id: input.mpPlanId,
-    payer_email: input.payerEmail,
+  if (pre && state === 'authorized' && !referenceConflicts(pre, pending)) return { kind: 'already_paid' }
+
+  const sameIntent = reference !== null && isWithinTtl(pending, now) && pending.payer_email === intent.payerEmail
+  if (sameIntent && pre) {
+    // Se revalida contra el catálogo de HOY: si el precio cambió, el preapproval
+    // abierto con el precio anterior ya no es el checkout de esta intención.
+    const expected: ExpectedTerms = { billingCycle: intent.billingCycle, amount: intent.terms.amount, currency: intent.terms.currency }
+    const checkoutUrl = checkoutProblem(pre, reference, expected) === null ? preapprovalCheckoutUrl(pre) : null
+    if (checkoutUrl) return { kind: 'reuse', session: pending, checkoutUrl }
   }
+
+  const closed: CheckoutSessionStatus = state === 'cancelled' ? 'canceled' : 'expired'
+  await ctx.store.updateCheckoutSession(pending.id, { status: closed }, nowIso)
+  return { kind: 'none' }
+}
+
+/** Cierra una sesión que no llegó a abrir un checkout. No tapa el error original si falla. */
+async function closeSession(ctx: ActionContext, sessionId: string, status: CheckoutSessionStatus): Promise<void> {
   try {
-    return await ctx.store.insertCheckoutSession(row)
-  } catch (error) {
-    // Dos pedidos simultáneos: `idx_scs_pending_unique` deja pasar uno solo.
-    if (error instanceof BillingStoreError && error.code === '23505') {
-      const raced = await findReusable()
-      if (raced) return raced
-    }
-    throw error
+    await ctx.store.updateCheckoutSession(sessionId, { status }, ctx.now().toISOString())
+  } catch {
+    ctx.log({ event: 'checkout_session_not_closed', session_id: sessionId })
   }
 }
 
-function isWithinTtl(session: CheckoutSessionRow, now: Date): boolean {
+/**
+ * Un preapproval recién creado que no quedó vinculado a su sesión no puede
+ * activar nada: se cancela para que tampoco se pueda pagar.
+ *
+ * Sólo se cancela el que creó ESTE request — nunca la suscripción vigente del
+ * negocio ni el preapproval de otro checkout. Si Mercado Pago lo devolvió con
+ * otra referencia, o si su id ya pertenece a otra sesión, no es nuestro y se
+ * deja como está.
+ */
+async function discardUnlinkedPreapproval(ctx: ActionContext, created: MpPreapproval | null, reference: string): Promise<void> {
+  const createdId = typeof created?.id === 'string' ? created.id.trim() : ''
+  if (!created || !createdId) return
+  const reported = reportedReference(created)
+  if (reported !== '' && reported !== reference) return
+  try {
+    if (await ctx.store.findCheckoutSessionByPreapprovalId(createdId)) return
+    await ctx.mp.cancelPreapproval(createdId)
+  } catch {
+    ctx.log({ event: 'unlinked_preapproval_not_cancelled', preapproval_id: createdId })
+  }
+}
+
+function sessionAgeMs(session: CheckoutSessionRow, now: Date): number {
   const created = new Date(session.created_at).getTime()
-  return !Number.isNaN(created) && now.getTime() - created < CHECKOUT_SESSION_TTL_MS
+  return Number.isNaN(created) ? Number.POSITIVE_INFINITY : now.getTime() - created
+}
+
+function isWithinTtl(session: CheckoutSessionRow, now: Date): boolean {
+  return sessionAgeMs(session, now) < CHECKOUT_SESSION_TTL_MS
 }
 
 /** La URL de retorno siempre apunta a `/subscription/pending` de un origen permitido. */
@@ -314,61 +400,21 @@ async function readStatus(ctx: ActionContext, businessId: string): Promise<Actio
 
 // ── reconcile ───────────────────────────────────────────────────────────────
 
-interface SessionSearch {
-  candidates: MpPreapproval[]
-  /** Quedaron suscripciones del plan sin revisar: «no encontrado» no es concluyente. */
-  truncated: boolean
-}
-
 /**
- * Preapprovals de Mercado Pago que pertenecen a UNA sesión de checkout.
+ * Lleva la base al estado que confirma Mercado Pago, sin depender del webhook.
  *
- * `/preapproval/search` no filtra por `external_reference` (no es un filtro
- * documentado), así que se busca por el plan esperado y se exige, resultado por
- * resultado, la referencia EXACTA de la sesión y el mismo plan. El email del
- * pagador no se usa: no identifica a un negocio.
+ * Cada preapproval se relee POR ID: el del negocio y el que `create` guardó en
+ * cada sesión todavía sin activar. No se busca nada por plan, email, importe ni
+ * fecha: un checkout cuyo preapproval el servidor no conoce no se puede
+ * reconciliar, y eso es deliberado.
  */
-async function findSessionPreapprovals(ctx: ActionContext, session: CheckoutSessionRow): Promise<SessionSearch> {
-  const reference = parseCheckoutReference(session.external_reference)
-  const mpPlanId = session.mp_preapproval_plan_id
-  if (!reference || !mpPlanId) return { candidates: [], truncated: false }
-
-  const matches = new Map<string, MpPreapproval>()
-  const belongs = (pre: MpPreapproval | null): pre is MpPreapproval =>
-    !!pre && typeof pre.id === 'string' && parseCheckoutReference(pre.external_reference) === reference
-
-  if (session.mp_preapproval_id) {
-    const direct = await ctx.mp.getPreapproval(session.mp_preapproval_id)
-    if (belongs(direct)) matches.set(direct.id, direct)
-  }
-
-  const seen = new Set<string>()
-  let offset = 0
-  let exhausted = false
-  for (let page = 0; page < MAX_SEARCH_PAGES && !exhausted; page++) {
-    const { results, total } = await ctx.mp.searchPreapprovalsByPlan(mpPlanId, { offset, limit: SEARCH_PAGE_SIZE })
-    let fresh = 0
-    for (const result of results) {
-      if (!result || typeof result.id !== 'string' || seen.has(result.id)) continue
-      seen.add(result.id)
-      fresh++
-      if (belongs(result) && result.preapproval_plan_id === mpPlanId) matches.set(result.id, result)
-    }
-    offset += results.length
-    // `fresh === 0`: página vacía o repetida (MP ignoró el offset).
-    if (fresh === 0 || (total !== null ? offset >= total : results.length < SEARCH_PAGE_SIZE)) exhausted = true
-  }
-
-  return { candidates: [...matches.values()], truncated: !exhausted }
-}
-
 async function reconcile(ctx: ActionContext, businessId: string): Promise<ActionResponse> {
   const before = await ctx.store.getBusinessBilling(businessId)
   if (!before) return fail(404, 'business_not_found', 'No encontramos el negocio.')
 
   const outcomes: EvidenceOutcome[] = []
-  let ambiguous = false
   let sawPending = false
+  let openMismatch = false
 
   // 1. La suscripción ya vinculada al negocio.
   if (before.mp_preapproval_id) {
@@ -376,40 +422,39 @@ async function reconcile(ctx: ActionContext, businessId: string): Promise<Action
     if (current) outcomes.push(await applyPreapprovalEvidence(ctx, current, { source: 'reconcile', expectBusinessId: businessId }))
   }
 
-  // 2. Checkouts abiertos todavía sin confirmar.
+  // 2. Checkouts de ESTE negocio que todavía no activaron. Una sesión vencida
+  //    también cuenta: si se pagó, el pago es real. De la más vieja a la más
+  //    nueva, para que la última intención sea la que quede vigente.
   const now = ctx.now()
-  const open = (await ctx.store.listCheckoutSessions(businessId, 10))
-    .filter((s) => s.status === 'pending' && isWithinTtl(s, now))
+  const sessions = await ctx.store.listCheckoutSessions(businessId, 10)
+  const unsettled = sessions
+    .filter((s) => (s.status === 'pending' || s.status === 'expired')
+      && s.mp_preapproval_id !== null && s.mp_preapproval_id !== before.mp_preapproval_id)
     .slice(0, MAX_RECONCILE_SESSIONS)
+    .reverse()
 
-  for (const session of open) {
-    const { candidates, truncated } = await findSessionPreapprovals(ctx, session)
-    const authorized = candidates.filter((c) => preapprovalState(c.status) === 'authorized')
-    if (candidates.some((c) => preapprovalState(c.status) === 'pending')) sawPending = true
-    if (truncated) ctx.log({ event: 'reconcile_search_truncated', business_id: businessId, session_id: session.id })
-
-    if (authorized.length > 1) {
-      // Dos suscripciones autorizadas para el mismo checkout: no se elige una.
-      ambiguous = true
-      ctx.log({ event: 'reconcile_ambiguous', business_id: businessId, session_id: session.id, matches: authorized.length })
-      continue
+  for (const session of unsettled) {
+    const pre = await ctx.mp.getPreapproval(session.mp_preapproval_id as string)
+    // Mercado Pago tiene que devolver ESE preapproval. Que sea de esta sesión y de
+    // este negocio lo vuelve a comprobar el camino canónico antes de escribir.
+    if (!pre || pre.id !== session.mp_preapproval_id) continue
+    if (session.status === 'pending' && preapprovalState(pre.status) === 'pending') sawPending = true
+    const applied = await applyPreapprovalEvidence(ctx, pre, { source: 'reconcile', expectBusinessId: businessId })
+    outcomes.push(applied)
+    // Sólo cuenta para el mensaje si es un checkout todavía abierto: el de una
+    // sesión vencida queda en el log y en la auditoría, no en cada verificación.
+    if (session.status === 'pending' && (applied.reason === 'terms_mismatch' || applied.reason === 'reference_mismatch')) {
+      openMismatch = true
     }
-    const target = authorized[0] ?? (candidates.length === 1 ? candidates[0] : undefined)
-    if (!target) continue
-
-    // El índice de búsqueda puede estar atrasado: se aplica sólo el preapproval
-    // releído, y sólo si sigue llevando la referencia de ESTA sesión.
-    const verified = await ctx.mp.getPreapproval(target.id)
-    if (!verified || parseCheckoutReference(verified.external_reference) !== session.external_reference) continue
-    outcomes.push(await applyPreapprovalEvidence(ctx, verified, { source: 'reconcile', expectBusinessId: businessId }))
   }
 
   const after = (await ctx.store.getBusinessBilling(businessId)) ?? before
   const [latest] = await ctx.store.listCheckoutSessions(businessId, 1)
+  const hadOpenCheckout = sessions.some((s) => s.status === 'pending' && isWithinTtl(s, now))
 
   const paidByMp = after.subscription_status === 'active'
     && after.access_source === 'mercado_pago' && after.mp_preapproval_id !== null
-  const result = describeReconcile({ outcomes, ambiguous, sawPending, hadOpenCheckout: open.length > 0, after, paidByMp })
+  const result = describeReconcile({ outcomes, sawPending, openMismatch, hadOpenCheckout, after, paidByMp })
 
   return {
     status: 200,
@@ -428,8 +473,9 @@ async function reconcile(ctx: ActionContext, businessId: string): Promise<Action
 
 interface ReconcileFacts {
   outcomes: EvidenceOutcome[]
-  ambiguous: boolean
   sawPending: boolean
+  /** Un checkout todavía abierto cuyo preapproval no coincide con lo que registró el servidor. */
+  openMismatch: boolean
   hadOpenCheckout: boolean
   after: BusinessBillingRow
   paidByMp: boolean
@@ -443,11 +489,8 @@ function describeReconcile(facts: ReconcileFacts): { outcome: string; message: s
   if (outcomes.some((o) => o.kind === 'activated')) {
     return { outcome: 'activated', message: `Mercado Pago confirmó tu suscripción${plan ? ` al plan ${plan}` : ''}.` }
   }
-  if (facts.ambiguous) {
-    return { outcome: 'ambiguous', message: 'Encontramos más de una suscripción para este pago y no podemos elegir una automáticamente. Escribinos desde Ayuda y lo resolvemos.' }
-  }
-  if (has('unknown_plan')) {
-    return { outcome: 'unknown_plan', message: 'Mercado Pago informó un plan que no reconocemos, así que no activamos nada. Escribinos desde Ayuda y lo resolvemos.' }
+  if (facts.openMismatch) {
+    return { outcome: 'mismatch', message: 'Mercado Pago informó datos que no coinciden con tu checkout, así que no activamos nada. Escribinos desde Ayuda y lo resolvemos.' }
   }
   if (has('awaiting_payment')) {
     return { outcome: 'payment_rejected', message: 'El último cobro fue rechazado. Actualizá tu medio de pago en Mercado Pago: cuando el cobro se apruebe, el acceso se restablece solo.' }
@@ -474,12 +517,17 @@ function describeReconcile(facts: ReconcileFacts): { outcome: string; message: s
 
 /**
  * ¿El preapproval que devolvió Mercado Pago es del negocio autorizado?
- * El id sale de la fila del negocio (nunca del navegador). Con datos
- * suficientes en MP se contrasta además su `external_reference`.
+ * El id sale de la fila del negocio (nunca del navegador). Además: la sesión
+ * que originó ese preapproval tiene que ser de este negocio, y lo que informe
+ * Mercado Pago no puede contradecirla.
  */
 async function preapprovalBelongsTo(ctx: ActionContext, pre: MpPreapproval, business: BusinessBillingRow): Promise<boolean> {
   if (pre.id !== business.mp_preapproval_id) return false
-  const raw = typeof pre.external_reference === 'string' ? pre.external_reference.trim() : ''
+  const origin = await ctx.store.findCheckoutSessionByPreapprovalId(pre.id)
+  if (origin) return origin.business_id === business.id && !referenceConflicts(pre, origin)
+
+  // Suscripción vinculada sin sesión de origen: se contrasta lo que informe MP.
+  const raw = reportedReference(pre)
   const reference = parseCheckoutReference(raw)
   if (reference) {
     const session = await ctx.store.findCheckoutSessionByReference(reference)
@@ -508,10 +556,11 @@ async function updatePaymentMethod(ctx: ActionContext, businessId: string): Prom
   if (preapprovalState(pre.status) === 'cancelled') {
     return fail(409, 'subscription_cancelled', 'La suscripción está cancelada. Elegí un plan para reactivarla.')
   }
-  if (!isMercadoPagoUrl(pre.init_point)) {
+  const link = preapprovalCheckoutUrl(pre)
+  if (!link) {
     return fail(502, 'no_update_link', 'Mercado Pago no devolvió un enlace para actualizar el medio de pago.')
   }
-  return { status: 200, body: { init_point: pre.init_point } }
+  return { status: 200, body: { init_point: link } }
 }
 
 // ── cancel ──────────────────────────────────────────────────────────────────

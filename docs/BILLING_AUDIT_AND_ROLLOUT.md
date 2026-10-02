@@ -2,22 +2,23 @@
 
 > Alcance Beta — Lote 1: Mercado Pago POS / Merchant Connect (`mp-oauth`, `mp-payments`) queda POST-BETA. Esto no desactiva Billing SaaS (`mp-subscription`, `mp-webhook`) ni el registro manual de pagos MP del POS. Ver [inventario y evidencia del lote](security-mp-pos-lote1-containment.md). Las correcciones de autorización de Billing corresponden a su propio lote.
 
-> **Actualización BETA-MP (2026-10-01).** Este documento es el registro histórico de la
-> auditoría de junio. Varias de sus afirmaciones sobre el flujo de Mercado Pago **ya no son
-> ciertas** en el código de BETA-MP; el documento vigente es
+> **Actualización BETA-MP (2026-10-01) y Plan B (2026-10-02).** Este documento es el registro
+> histórico de la auditoría de junio. Varias de sus afirmaciones sobre el flujo de Mercado Pago
+> **ya no son ciertas**; el documento vigente es
 > [docs/beta-mp/README.md](beta-mp/README.md) y el rollout, [docs/beta-mp/runbook-rollout.md](beta-mp/runbook-rollout.md).
 > Lo que cambió respecto de lo que dice abajo:
 >
-> | Lo que dice este documento | Estado en BETA-MP |
+> | Lo que dice este documento | Estado actual |
 > |---|---|
-> | §1: `create` arma la URL con `external_reference=<business_id>` | La referencia es `trpcs_<uuid>`, una por checkout, emitida por el servidor. Un `business_id` suelto ya no vincula nada |
-> | §1: el webhook resuelve el negocio por `mp_preapproval_id` o por `external_reference` | Por `mp_preapproval_id`, o por una sesión de `subscription_checkout_sessions` creada por el servidor |
+> | §1: modalidad «Preapproval Plan»; el alta **no** crea el preapproval por API | **Al revés.** El checkout por URL de un plan quedó CONFIRMED UNSUPPORTED (smoke real del 2026-10-02). El servidor crea el preapproval por API (`POST /preapproval`, `pending`) y guarda su id antes de devolver el checkout |
+> | §1: `create` arma la URL con `external_reference=<business_id>` | La referencia es `trpcs_<uuid>`, una por checkout, emitida por el servidor y enviada a Mercado Pago al crear el preapproval. Un `business_id` suelto no vincula nada |
+> | §1: el webhook resuelve el negocio por `mp_preapproval_id` o por `external_reference` | Sólo por `mp_preapproval_id`: el del negocio, o el que el servidor guardó en la sesión de checkout. La referencia se contrasta si Mercado Pago la devuelve; sola no vincula |
 > | §1: cancelación = `PUT` + DB `canceled` | El `PUT` se confirma releyendo Mercado Pago antes de escribir la base |
 > | §2 A2: claim idempotente por `(provider, event_type, external_id)` | Esa clave descartaba la segunda notificación de un mismo preapproval o cobro. Ahora la clave incluye `notification_id` |
-> | §3 / §8: `VITE_MP_PLAN_*` en el frontend | Eliminadas. Los ids de plan viven sólo en los secrets de las Edge Functions |
-> | §4: `uq_subscription_events_dedupe` | Reemplazado por `uq_subscription_events_notification` (migración `20261012120000`, sin aplicar) |
-> | §7: checklist de sandbox | Reemplazado por el smoke de 14 pasos del runbook de BETA-MP |
-> | §10: «verificar que MP propaga `external_reference`» | Sigue **sin verificar**. Es la primera incógnita del runbook, y ahora el fallo es cerrado: sin referencia válida no se activa nada |
+> | §3 / §8: `VITE_MP_PLAN_*` en el frontend, `MP_PLAN_*` en los secrets | Ninguno se usa. El precio y la frecuencia salen del catálogo del servidor (`planCatalog.ts`) |
+> | §4: `uq_subscription_events_dedupe` | Reemplazado por `uq_subscription_events_notification` (migración `20261012120000`, aplicada en producción) |
+> | §7: checklist de sandbox | Reemplazado por el smoke del runbook de BETA-MP |
+> | §10: «verificar que MP propaga `external_reference`» | **Verificado el 2026-10-02: no la propaga** en el checkout por URL de un plan. El fallo fue cerrado (nadie se activó) y motivó el Plan B |
 >
 > Hallazgos que la auditoría de junio no vio y BETA-MP corrige: `create` degradaba el acceso
 > antes del pago; el plan activado era el pedido por el navegador; `reconcile` no existía;

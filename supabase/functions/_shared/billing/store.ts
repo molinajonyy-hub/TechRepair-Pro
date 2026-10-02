@@ -6,7 +6,8 @@
  * que cada método escribe sólo las columnas que ese rol tiene concedidas:
  *
  *   businesses                       SELECT + UPDATE de las columnas de billing
- *   subscription_checkout_sessions   SELECT, INSERT, UPDATE   (migración 20261012120000)
+ *   subscription_checkout_sessions   SELECT, INSERT, UPDATE   (migración 20261012120000;
+ *                                    un preapproval ↔ una sesión: migración 20261013120000)
  *   subscription_events              todo
  *   payments                         todo
  *
@@ -88,17 +89,12 @@ export interface NewCheckoutSession {
   amount: number
   currency: string
   external_reference: string
-  mp_preapproval_plan_id: string
   payer_email: string
 }
 
 export interface CheckoutSessionPatch {
   status?: CheckoutSessionStatus
   mp_preapproval_id?: string
-  mp_preapproval_plan_id?: string
-  payer_email?: string
-  amount?: number
-  currency?: string
   confirmed_at?: string
 }
 
@@ -138,6 +134,12 @@ export interface BillingStore {
   findBusinessByPreapprovalId(preapprovalId: string): Promise<BusinessBillingRow | null>
   updateBusinessBilling(businessId: string, patch: BusinessBillingPatch, nowIso: string): Promise<void>
 
+  /**
+   * La sesión que originó un preapproval. El vínculo lo escribe `create`, con el
+   * id que devolvió Mercado Pago, antes de devolver el checkout. Más de una fila
+   * para el mismo preapproval es un error (lo impide `uq_scs_mp_preapproval`).
+   */
+  findCheckoutSessionByPreapprovalId(preapprovalId: string): Promise<CheckoutSessionRow | null>
   findCheckoutSessionByReference(reference: string): Promise<CheckoutSessionRow | null>
   listCheckoutSessions(businessId: string, limit: number): Promise<CheckoutSessionRow[]>
   insertCheckoutSession(row: NewCheckoutSession): Promise<CheckoutSessionRow>
@@ -228,6 +230,12 @@ export function createSupabaseBillingStore(client: SupabaseLike): BillingStore {
     async updateBusinessBilling(businessId, patch, nowIso) {
       unwrap('actualizar billing del negocio', await client
         .from('businesses').update({ ...patch, updated_at: nowIso }).eq('id', businessId))
+    },
+
+    async findCheckoutSessionByPreapprovalId(preapprovalId) {
+      return unwrap<CheckoutSessionRow | null>('buscar sesión de checkout por preapproval', await client
+        .from('subscription_checkout_sessions').select(SESSION_COLUMNS)
+        .eq('mp_preapproval_id', preapprovalId).maybeSingle())
     },
 
     async findCheckoutSessionByReference(reference) {

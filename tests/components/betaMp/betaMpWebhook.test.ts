@@ -34,8 +34,8 @@ function cobro(id: string, preapprovalId: string, estado: string, opts: { aproba
 
 describe('idempotencia', () => {
   it('la misma notificación dos veces: se procesa una sola vez', async () => {
-    const { reference } = await w.openCheckout(OWNER_A, BIZ_A, 'pro')
-    w.mpPreapproval('pre_1', { external_reference: reference })
+    await w.openCheckout(OWNER_A, BIZ_A, 'pro', 'monthly', 'pre_1')
+    w.pay('pre_1')
 
     const primera = await w.notify('subscription_preapproval', 'pre_1', 7001)
     const escrituras = w.db.writes.length
@@ -63,8 +63,8 @@ describe('idempotencia', () => {
   })
 
   it('un intento que falló a mitad de camino queda SIN procesar y el reintento lo completa', async () => {
-    const { reference } = await w.openCheckout(OWNER_A, BIZ_A, 'pro')
-    w.mpPreapproval('pre_1', { external_reference: reference })
+    await w.openCheckout(OWNER_A, BIZ_A, 'pro', 'monthly', 'pre_1')
+    w.pay('pre_1')
     w.mp.down = true
     await expect(w.notify('subscription_preapproval', 'pre_1', 7002)).rejects.toBeInstanceOf(MpApiError)
 
@@ -86,9 +86,21 @@ describe('idempotencia', () => {
     expect(w.db.events('subscription_preapproval')[0].processed).toBe(false)
   })
 
+  it('la escritura del negocio falla a mitad de camino: queda SIN procesar y el reintento activa', async () => {
+    await w.openCheckout(OWNER_A, BIZ_A, 'pro', 'monthly', 'pre_1')
+    w.pay('pre_1')
+    w.db.failOn = { table: 'businesses', op: 'update', code: 'XX000' }
+    await expect(w.notify('subscription_preapproval', 'pre_1', 7004)).rejects.toThrow(/billing del negocio/)
+    expect(w.db.events('subscription_preapproval')[0].processed).toBe(false)
+    expect(biz().subscription_status).toBe('trialing')
+
+    const reintento = await w.notify('subscription_preapproval', 'pre_1', 7004)
+    expect(reintento.result).toBe('processed')
+    expect(biz()).toMatchObject({ subscription_status: 'active', mp_preapproval_id: 'pre_1' })
+  })
+
   it('el estado NUNCA sale del cuerpo del webhook: sólo se usa data.id', async () => {
-    const { reference } = await w.openCheckout(OWNER_A, BIZ_A, 'full')
-    w.mpPreapproval('pre_1', { status: 'pending', external_reference: reference })
+    await w.openCheckout(OWNER_A, BIZ_A, 'full', 'monthly', 'pre_1')   // en Mercado Pago sigue pending
     // Un cuerpo que «dice» authorized / full no vale nada: se relee en MP.
     const n = parseNotification({ id: 1, type: 'subscription_preapproval', data: { id: 'pre_1', status: 'authorized', plan: 'full' }, status: 'authorized' })
     expect(n).toMatchObject({ topic: 'subscription_preapproval', resourceId: 'pre_1', notificationId: '1' })
@@ -130,7 +142,7 @@ describe('`payment` no es una autoridad de billing', () => {
   })
 
   it('un tipo de notificación desconocido se registra y no hace nada', async () => {
-    const out = await w.notify('subscription_preapproval_plan', 'mpplan_pro_m')
+    const out = await w.notify('subscription_preapproval_plan', 'plan_del_panel')
     expect(out.detail).toBe('ignored:unhandled_topic')
     expect(w.db.writesTo('businesses')).toEqual([])
   })
@@ -241,8 +253,8 @@ describe('cobros recurrentes (subscription_authorized_payment)', () => {
   })
 
   it('el cobro llega ANTES que el webhook del preapproval: activa igual, por el mismo camino', async () => {
-    const { reference } = await w.openCheckout(OWNER_B, BIZ_B, 'full')
-    w.mpPreapproval('pre_b', { preapproval_plan_id: 'mpplan_full_m', external_reference: reference })
+    await w.openCheckout(OWNER_B, BIZ_B, 'full', 'monthly', 'pre_b')
+    w.pay('pre_b')
     cobro('inv_b', 'pre_b', 'approved', { monto: 45000 })
     await w.notify('subscription_authorized_payment', 'inv_b')
 
@@ -265,11 +277,24 @@ describe('cobros recurrentes (subscription_authorized_payment)', () => {
     expect(w.db.tables.payments).toHaveLength(1)
   })
 
-  it('un cobro de una suscripción que no es de ningún negocio no escribe nada', async () => {
-    w.mpPreapproval('pre_ajeno', { external_reference: 'otra-app' })
+  it('un cobro de una suscripción que el servidor no creó no escribe nada', async () => {
+    // El cobro real del smoke del 2026-10-02: un preapproval del plan del panel.
+    w.mp.seedForeignPreapproval('pre_ajeno', { external_reference: '' })
     cobro('inv_x', 'pre_ajeno', 'approved')
+    const antesDelCobro = w.db.writesTo('businesses').length
     const out = await w.notify('subscription_authorized_payment', 'inv_x')
-    expect(out.detail).toBe('not_applied:no_reference')
+    expect(out.detail).toBe('not_applied:unknown_preapproval')
     expect(w.db.tables.payments).toHaveLength(0)
+    expect(w.db.writesTo('businesses').length).toBe(antesDelCobro)
+  })
+
+  it('un cobro aprobado de un checkout cuyas condiciones no coinciden no activa', async () => {
+    await w.openCheckout(OWNER_B, BIZ_B, 'full', 'monthly', 'pre_b')
+    w.pay('pre_b')
+    Object.assign(w.mp.preapprovals.get('pre_b')!.auto_recurring as Record<string, unknown>, { transaction_amount: 15000 })
+    cobro('inv_b', 'pre_b', 'approved', { monto: 15000 })
+    await w.notify('subscription_authorized_payment', 'inv_b')
+
+    expect(biz(BIZ_B)).toMatchObject({ subscription_status: 'trialing', mp_preapproval_id: null })
   })
 })

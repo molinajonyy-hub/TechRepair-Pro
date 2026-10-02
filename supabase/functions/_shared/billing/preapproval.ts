@@ -8,12 +8,18 @@
  * Entrada: un preapproval CONSULTADO en Mercado Pago por el servidor. Nunca el
  * cuerpo de un webhook, nunca un dato del navegador.
  *
- * Reglas:
- *   · El negocio se resuelve por `mp_preapproval_id` (suscripción ya vinculada) o
- *     por una sesión de checkout emitida por el servidor (`external_reference`).
- *     Un `business_id` suelto como referencia no vincula nada.
- *   · El plan sale de `preapproval_plan_id` según `planCatalog`. Un plan
- *     desconocido no activa ni cambia nada.
+ * Reglas (Plan B: el servidor crea el preapproval y conoce su id antes del pago):
+ *   · El negocio se resuelve por `mp_preapproval_id`: el del negocio (suscripción
+ *     ya vinculada) o el que `create` guardó en la sesión de checkout ANTES de
+ *     devolver el `init_point`. Un preapproval cuyo id el servidor no conoce no
+ *     activa nada, traiga la referencia que traiga.
+ *   · `external_reference` se contrasta cuando Mercado Pago la devuelve: si viene
+ *     y no es la de esa sesión, no se aplica. Si no viene, alcanza con el id.
+ *   · Email del pagador, importe y fechas NO son identidad: nunca resuelven un
+ *     negocio.
+ *   · El plan otorgado es el de la sesión que originó ESE preapproval, y sólo si
+ *     el importe, la moneda y la frecuencia que informa Mercado Pago son los de
+ *     esa sesión.
  *   · Sólo `authorized` otorga acceso. `pending` nunca lo quita a quien no lo
  *     tenía por esta suscripción.
  *   · Un evento más viejo que el último aplicado no pisa nada.
@@ -21,7 +27,8 @@
  */
 import type { MpClient, MpPreapproval, PreapprovalState } from './mpClient.ts'
 import { preapprovalState } from './mpClient.ts'
-import type { BillingPlan, PlanCatalog, PlanCatalogEntry } from './planCatalog.ts'
+import { checkoutTermsProblem } from './planCatalog.ts'
+import type { BillingPlan } from './planCatalog.ts'
 import type {
   BillingStore, BusinessBillingPatch, BusinessBillingRow, CheckoutSessionRow, SubscriptionStatus,
 } from './store.ts'
@@ -49,6 +56,22 @@ export function parseCheckoutReference(raw: unknown): string | null {
   return CHECKOUT_REFERENCE_RE.test(value) ? value : null
 }
 
+/** La referencia tal como la informa Mercado Pago; `''` si no informa ninguna. */
+export function reportedReference(pre: MpPreapproval): string {
+  const raw = pre.external_reference
+  if (typeof raw === 'string') return raw.trim()
+  return typeof raw === 'number' ? String(raw) : ''
+}
+
+/**
+ * Mercado Pago devolvió una referencia y NO es la de la sesión. Que no devuelva
+ * ninguna no es un conflicto: el vínculo es el id que guardó el servidor.
+ */
+export function referenceConflicts(pre: MpPreapproval, session: CheckoutSessionRow): boolean {
+  const reported = reportedReference(pre)
+  return reported !== '' && reported !== session.external_reference
+}
+
 // ── Contexto y resultado ────────────────────────────────────────────────────
 
 export interface BillingLogEvent {
@@ -59,7 +82,6 @@ export interface BillingLogEvent {
 export interface BillingContext {
   store: BillingStore
   mp: MpClient
-  catalog: PlanCatalog
   now: () => Date
   /** Sólo ids, estados y códigos. Nunca emails, tokens ni cuerpos de Mercado Pago. */
   log: (event: BillingLogEvent) => void
@@ -69,11 +91,11 @@ export type EvidenceSource = 'webhook' | 'reconcile' | 'cancel' | 'payment'
 
 export type EvidenceReason =
   | 'stale'                  // evento más viejo que el último aplicado
-  | 'unknown_plan'           // el plan de MP no está en el catálogo
   | 'unknown_status'         // estado de MP que no conocemos
-  | 'no_reference'           // sin external_reference, o con un formato ajeno
-  | 'unknown_reference'      // la referencia no corresponde a ninguna sesión
-  | 'reference_consumed'     // la sesión ya activó OTRA suscripción
+  | 'unknown_preapproval'    // ninguna sesión del servidor originó este preapproval
+  | 'reference_mismatch'     // MP devuelve una referencia que no es la de esa sesión
+  | 'terms_mismatch'         // importe, moneda o frecuencia distintos de los del checkout
+  | 'unknown_plan'           // suscripción vinculada sin plan y sin sesión de la que tomarlo
   | 'superseded_preapproval' // esta suscripción ya fue reemplazada por otra
   | 'foreign_business'       // la evidencia no es del negocio esperado
   | 'business_missing'
@@ -92,8 +114,6 @@ export interface EvidenceOutcome {
   status: SubscriptionStatus | null
   plan: BillingPlan | null
   sessionId: string | null
-  /** El plan que confirmó MP no es el que pidió el checkout. Prevalece MP. */
-  planMismatch: boolean
 }
 
 export interface ApplyOptions {
@@ -152,7 +172,7 @@ function outcome(
   pre: MpPreapproval, mpState: PreapprovalState, partial: Partial<EvidenceOutcome> & Pick<EvidenceOutcome, 'kind'>,
 ): EvidenceOutcome {
   return {
-    reason: null, businessId: null, status: null, plan: null, sessionId: null, planMismatch: false,
+    reason: null, businessId: null, status: null, plan: null, sessionId: null,
     ...partial,
     preapprovalId: pre.id,
     mpState,
@@ -165,12 +185,11 @@ export async function applyPreapprovalEvidence(
   ctx: BillingContext, pre: MpPreapproval, options: ApplyOptions,
 ): Promise<EvidenceOutcome> {
   const mpState = preapprovalState(pre.status)
-  const entry = ctx.catalog.byMpPlanId(pre.preapproval_plan_id)
   const bound = await ctx.store.findBusinessByPreapprovalId(pre.id)
 
   const result = bound
-    ? await applyToBound(ctx, pre, mpState, entry, bound, options)
-    : await applyToUnbound(ctx, pre, mpState, entry, options)
+    ? await applyToBound(ctx, pre, mpState, bound, options)
+    : await applyToUnbound(ctx, pre, mpState, options)
 
   ctx.log({
     event: 'preapproval_evidence', source: options.source, kind: result.kind, reason: result.reason,
@@ -182,7 +201,7 @@ export async function applyPreapprovalEvidence(
 // ── Suscripción ya vinculada a un negocio ───────────────────────────────────
 
 async function applyToBound(
-  ctx: BillingContext, pre: MpPreapproval, mpState: PreapprovalState, entry: PlanCatalogEntry | null,
+  ctx: BillingContext, pre: MpPreapproval, mpState: PreapprovalState,
   business: BusinessBillingRow, options: ApplyOptions,
 ): Promise<EvidenceOutcome> {
   const base = { businessId: business.id, status: business.subscription_status, plan: business.subscription_plan }
@@ -197,8 +216,17 @@ async function applyToBound(
   if (mpState === 'unknown') {
     return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: 'unknown_status' })
   }
-  if (mpState === 'authorized' && !entry) {
-    return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: 'unknown_plan' })
+
+  // El plan se fijó al vincular, desde la sesión que originó este preapproval.
+  // No se reescribe en cada evento: un cambio de plan hecho por un admin sobre
+  // la misma suscripción no se pisa. Sólo se repone si falta.
+  let restoredPlan: BillingPlan | null = null
+  if (mpState === 'authorized' && business.subscription_plan === null) {
+    const origin = await ctx.store.findCheckoutSessionByPreapprovalId(pre.id)
+    if (!origin || origin.business_id !== business.id) {
+      return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: 'unknown_plan' })
+    }
+    restoredPlan = origin.plan_id
   }
 
   const now = ctx.now()
@@ -223,13 +251,7 @@ async function applyToBound(
       patch.subscription_provider = 'mercadopago'
       patch.access_source = 'mercado_pago'
       patch.grace_until = null
-      // El plan lo define MP. Se reescribe cuando cambia el plan de MP registrado
-      // (o falta), no en cada evento: un cambio de plan hecho por un admin sobre
-      // la misma suscripción no se pisa.
-      if (business.mp_preapproval_plan_id !== entry!.mpPlanId || business.subscription_plan === null) {
-        patch.subscription_plan = entry!.plan
-        patch.mp_preapproval_plan_id = entry!.mpPlanId
-      }
+      if (restoredPlan) patch.subscription_plan = restoredPlan
     }
   } else if (mpState === 'paused' || mpState === 'pending') {
     if (current === 'active') {
@@ -285,28 +307,28 @@ async function applyToBound(
 async function settleSession(
   ctx: BillingContext, pre: MpPreapproval, businessId: string, nowIso: string,
 ): Promise<string | null> {
-  const reference = parseCheckoutReference(pre.external_reference)
-  if (!reference) return null
-  const session = await ctx.store.findCheckoutSessionByReference(reference)
+  const session = await ctx.store.findCheckoutSessionByPreapprovalId(pre.id)
   if (!session || session.business_id !== businessId) return null
-  if (session.status !== 'paid' && (session.mp_preapproval_id === null || session.mp_preapproval_id === pre.id)) {
-    await ctx.store.updateCheckoutSession(session.id, { status: 'paid', mp_preapproval_id: pre.id, confirmed_at: nowIso }, nowIso)
+  if (session.status !== 'paid') {
+    await ctx.store.updateCheckoutSession(session.id, { status: 'paid', confirmed_at: nowIso }, nowIso)
   }
   return session.id
 }
 
-// ── Suscripción nueva: se resuelve por la sesión de checkout ────────────────
+// ── Suscripción nueva: se resuelve por la sesión que la originó ─────────────
 
 async function applyToUnbound(
-  ctx: BillingContext, pre: MpPreapproval, mpState: PreapprovalState, entry: PlanCatalogEntry | null,
-  options: ApplyOptions,
+  ctx: BillingContext, pre: MpPreapproval, mpState: PreapprovalState, options: ApplyOptions,
 ): Promise<EvidenceOutcome> {
-  const reference = parseCheckoutReference(pre.external_reference)
-  if (!reference) return outcome(pre, mpState, { kind: 'not_applied', reason: 'no_reference' })
+  // El único vínculo válido es el id que `create` guardó al crear el preapproval.
+  // No se busca por referencia, email, importe ni fecha.
+  const session = await ctx.store.findCheckoutSessionByPreapprovalId(pre.id)
+  if (!session) return outcome(pre, mpState, { kind: 'not_applied', reason: 'unknown_preapproval' })
 
-  const session = await ctx.store.findCheckoutSessionByReference(reference)
-  if (!session) return outcome(pre, mpState, { kind: 'not_applied', reason: 'unknown_reference' })
-
+  if (referenceConflicts(pre, session)) {
+    // No se devuelve el negocio: la evidencia se contradice sobre a quién pertenece.
+    return outcome(pre, mpState, { kind: 'not_applied', reason: 'reference_mismatch' })
+  }
   if (options.expectBusinessId && options.expectBusinessId !== session.business_id) {
     return outcome(pre, mpState, { kind: 'not_applied', reason: 'foreign_business' })
   }
@@ -320,33 +342,40 @@ async function applyToUnbound(
   const nowIso = ctx.now().toISOString()
 
   if (mpState !== 'authorized') {
-    // Ningún cambio de acceso. La sesión anota lo que vio para que `reconcile`
-    // pueda consultar el preapproval directamente.
-    await noteUnauthorized(ctx, session, pre, mpState, nowIso)
+    // Ningún cambio de acceso: una intención sin pagar no otorga nada.
+    await noteUnauthorized(ctx, session, mpState, nowIso)
     return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: mpState === 'unknown' ? 'unknown_status' : 'not_authorized' })
   }
-  if (!entry) return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: 'unknown_plan' })
+
+  // Lo que Mercado Pago dice que cobra tiene que ser lo que el servidor pidió
+  // para ESTA sesión. Sin eso no se sabe qué plan se pagó.
+  const termsProblem = checkoutTermsProblem(
+    { billingCycle: session.billing_cycle, amount: session.amount, currency: session.currency }, pre.auto_recurring,
+  )
+  if (termsProblem) {
+    ctx.log({ event: 'terms_mismatch', preapproval_id: pre.id, session_id: session.id, problem: termsProblem })
+    return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: 'terms_mismatch' })
+  }
 
   if (session.status === 'paid') {
-    // Una sesión activa UNA suscripción. La misma, ya reemplazada, o una segunda
-    // con la misma referencia: ninguna vuelve a vincular.
-    const reason: EvidenceReason = session.mp_preapproval_id === pre.id ? 'superseded_preapproval' : 'reference_consumed'
-    return outcome(pre, mpState, { ...base, kind: 'not_applied', reason })
+    // Esta sesión ya activó este preapproval y el negocio pasó a otra suscripción.
+    return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: 'superseded_preapproval' })
   }
 
   const previousPreapproval = business.mp_preapproval_id
   const previousStatus = business.subscription_status
-  const planMismatch = session.plan_id !== entry.plan || session.billing_cycle !== entry.billingCycle
 
   // 1. El negocio. Si otro negocio ya tiene este preapproval, el índice único
   //    `uq_businesses_mp_preapproval_id` rechaza la escritura y no se sigue.
   await ctx.store.updateBusinessBilling(business.id, {
     subscription_status: 'active',
-    subscription_plan: entry.plan,
+    // El plan es el de la intención que el SERVIDOR registró al crear este preapproval.
+    subscription_plan: session.plan_id,
     subscription_provider: 'mercadopago',
     access_source: 'mercado_pago',
     mp_preapproval_id: pre.id,
-    mp_preapproval_plan_id: entry.mpPlanId,
+    // Plan B: la suscripción no cuelga de un plan de Mercado Pago.
+    mp_preapproval_plan_id: null,
     mp_payer_email: typeof pre.payer_email === 'string' && pre.payer_email ? pre.payer_email : null,
     mp_last_modified: isoOrNull(pre.last_modified) ?? nowIso,
     // Período informado por MP. Lo que MP no informa queda vacío, no inventado.
@@ -360,17 +389,18 @@ async function applyToUnbound(
   }, nowIso)
 
   // 2. La sesión queda consumida.
-  await ctx.store.updateCheckoutSession(session.id, { status: 'paid', mp_preapproval_id: pre.id, confirmed_at: nowIso }, nowIso)
+  await ctx.store.updateCheckoutSession(session.id, { status: 'paid', confirmed_at: nowIso }, nowIso)
 
   // 3. Auditoría.
   await ctx.store.recordEvent({
     business_id: business.id, event_type: 'billing_state_applied', external_id: pre.id, processed: true,
     raw_payload: {
       source: options.source, mp_status: mpState, session_id: session.id,
+      linked_by: 'preapproval_id',
+      // ¿Mercado Pago devolvió la referencia que el servidor mandó al crearlo?
+      reference_echoed: reportedReference(pre) !== '',
       from: { status: previousStatus, plan: business.subscription_plan },
-      to: { status: 'active', plan: entry.plan, billing_cycle: entry.billingCycle },
-      requested: { plan: session.plan_id, billing_cycle: session.billing_cycle },
-      plan_mismatch: planMismatch,
+      to: { status: 'active', plan: session.plan_id, billing_cycle: session.billing_cycle },
     },
   })
 
@@ -391,18 +421,15 @@ async function applyToUnbound(
   }
 
   return outcome(pre, mpState, {
-    kind: 'activated', businessId: business.id, status: 'active', plan: entry.plan, sessionId: session.id, planMismatch,
+    kind: 'activated', businessId: business.id, status: 'active', plan: session.plan_id, sessionId: session.id,
   })
 }
 
 async function noteUnauthorized(
-  ctx: BillingContext, session: CheckoutSessionRow, pre: MpPreapproval, mpState: PreapprovalState, nowIso: string,
+  ctx: BillingContext, session: CheckoutSessionRow, mpState: PreapprovalState, nowIso: string,
 ): Promise<void> {
-  if (session.status !== 'pending') return
-  if (mpState === 'pending' && session.mp_preapproval_id !== pre.id) {
-    await ctx.store.updateCheckoutSession(session.id, { mp_preapproval_id: pre.id }, nowIso)
-  } else if (mpState === 'cancelled' && (session.mp_preapproval_id === null || session.mp_preapproval_id === pre.id)) {
-    await ctx.store.updateCheckoutSession(session.id, { status: 'canceled', mp_preapproval_id: pre.id }, nowIso)
+  if (session.status === 'pending' && mpState === 'cancelled') {
+    await ctx.store.updateCheckoutSession(session.id, { status: 'canceled' }, nowIso)
   }
 }
 

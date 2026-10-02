@@ -1,8 +1,9 @@
 -- ============================================================================
 -- BETA-MP · la sesion de checkout es autoridad del servidor.
 --
--- Contrato de la migracion 20261012120000 medido en PostgreSQL real, ejecutando
--- como los roles de la API (SET LOCAL ROLE + request.jwt.claim.sub):
+-- Contrato de las migraciones 20261012120000 (BETA-MP) y 20261013120000 (Plan B)
+-- medido en PostgreSQL real, ejecutando como los roles de la API
+-- (SET LOCAL ROLE + request.jwt.claim.sub):
 --
 --   A  el navegador (authenticated / anon) no inserta, no lee y no se marca
 --      `paid` una sesion de checkout: ni la propia ni la de otro negocio;
@@ -11,9 +12,11 @@
 --   D  la referencia del checkout es unica y hay una sola sesion pending por
 --      (negocio, plan, ciclo);
 --   E  subscription_events deduplica por NOTIFICACION: dos notificaciones del
---      mismo recurso entran las dos; la misma notificacion dos veces, no.
+--      mismo recurso entran las dos; la misma notificacion dos veces, no;
+--   F  payments admite el upsert del webhook;
+--   G  Plan B: el preapproval que crea el backend pertenece a UNA sesion.
 --
--- Requiere la migracion aplicada. Corre dentro de BEGIN ... ROLLBACK.
+-- Requiere las dos migraciones aplicadas. Corre dentro de BEGIN ... ROLLBACK.
 -- RUN: docker cp ... && psql -X -v ON_ERROR_STOP=1 -f
 -- ============================================================================
 BEGIN;
@@ -235,6 +238,62 @@ SELECT pg_temp.assert(
     $$INSERT INTO public.payments(business_id, provider, external_payment_id, type, amount, status)
       VALUES ('00000000-0000-4000-8000-0000000be7a1', 'mercadopago', 'inv_fabricado', 'recurring', 1, 'approved')$$) = '42501',
   'F4 · authenticated NO fabrica un pago en el ledger');
+
+-- ============================================================================
+-- G · Plan B: un preapproval pertenece a UNA sesion (migracion 20261013120000)
+-- ============================================================================
+-- El backend crea el preapproval en Mercado Pago y guarda su id en la sesion
+-- antes de devolver el checkout. Ese id es la identidad del pago: no puede
+-- quedar en dos sesiones (ni, por uq_businesses_mp_preapproval_id, en dos negocios).
+SELECT pg_temp.assert(
+  pg_temp.como('service_role', NULL,
+    $$UPDATE public.subscription_checkout_sessions SET mp_preapproval_id = 'pre_plan_b_1', updated_at = now()
+       WHERE id = '00000000-0000-4000-8000-0000000be7a5'$$) = 'OK',
+  'G1 · service_role vincula a la sesion el preapproval que creo en Mercado Pago');
+
+SELECT pg_temp.assert(
+  pg_temp.como('service_role', NULL,
+    $$UPDATE public.subscription_checkout_sessions SET mp_preapproval_id = 'pre_plan_b_1', updated_at = now()
+       WHERE id = '00000000-0000-4000-8000-0000000be7b5'$$) = '23505',
+  'G2 · el MISMO preapproval no se puede vincular a la sesion de otro negocio');
+
+SELECT pg_temp.assert(
+  pg_temp.como('service_role', NULL,
+    $$INSERT INTO public.subscription_checkout_sessions(business_id, plan_id, billing_cycle, amount, external_reference, status, mp_preapproval_id)
+      VALUES ('00000000-0000-4000-8000-0000000be7b1', 'basico', 'annual', 144000, 'trpcs_00000000-0000-4000-8000-0000000be7e5', 'pending', 'pre_plan_b_1')$$) = '23505',
+  'G3 · ni entrar en una sesion nueva');
+
+SELECT pg_temp.assert(
+  (SELECT mp_preapproval_id IS NULL FROM public.subscription_checkout_sessions WHERE id = :'SES_B')
+  AND (SELECT count(*) FROM public.subscription_checkout_sessions WHERE mp_preapproval_id = 'pre_plan_b_1') = 1,
+  'G4 · tras los intentos el preapproval sigue en una sola sesion, la de su negocio');
+
+SELECT pg_temp.assert(
+  pg_temp.como('service_role', NULL,
+    $$INSERT INTO public.subscription_checkout_sessions(business_id, plan_id, billing_cycle, amount, external_reference, status)
+      VALUES ('00000000-0000-4000-8000-0000000be7b1', 'basico', 'annual', 144000, 'trpcs_00000000-0000-4000-8000-0000000be7f5', 'pending')$$) = 'OK',
+  'G5 · las sesiones todavia sin preapproval (NULL) conviven: el indice es parcial');
+
+SELECT pg_temp.assert(
+  pg_temp.como('authenticated', :'OWN_A',
+    $$UPDATE public.subscription_checkout_sessions SET mp_preapproval_id = 'pre_del_navegador' WHERE id = '00000000-0000-4000-8000-0000000be7a5'$$) = '42501',
+  'G6 · authenticated NO vincula un preapproval a una sesion');
+
+SELECT pg_temp.assert(
+  to_regclass('public.idx_scs_mp_preapproval') IS NULL
+  AND EXISTS (SELECT 1 FROM pg_index i WHERE i.indexrelid = to_regclass('public.uq_scs_mp_preapproval')
+                 AND i.indrelid = 'public.subscription_checkout_sessions'::regclass
+                 AND i.indisunique AND i.indisvalid AND i.indpred IS NOT NULL),
+  'G7 · uq_scs_mp_preapproval es unico, valido y parcial; el indice no unico ya no existe');
+
+SELECT pg_temp.assert(
+  EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = 'public.businesses'::regclass AND i.indisunique AND i.indisvalid
+             AND pg_get_indexdef(i.indexrelid) LIKE '%(mp_preapproval_id)%'),
+  'G8 · businesses conserva su indice unico sobre mp_preapproval_id: un preapproval, un negocio');
+
+SELECT pg_temp.assert(
+  EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = '20261013120000'),
+  'G9 · la migracion del Plan B esta registrada');
 
 DO $$ BEGIN RAISE NOTICE 'ALL BETA-MP CHECKOUT AUTHORITY TESTS PASSED'; END $$;
 

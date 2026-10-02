@@ -7,15 +7,18 @@
 // sobre lo que esos tests no pueden probar:
 //
 //   · PostgREST real + supabase-js real, con el rol `service_role` y sus GRANT
-//     reales (columna por columna) y los índices únicos de la migración;
+//     reales (columna por columna) y los índices únicos de las migraciones
+//     (incluido `uq_scs_mp_preapproval`: un preapproval, una sesión);
 //   · la autoridad real: `current_user_can_in_business(..., 'subscription')`
 //     evaluada por la base con un JWT de usuario firmado;
 //   · el navegador (`authenticated`) contra `subscription_checkout_sessions`.
 //
 // Mercado Pago sigue SIMULADO (tests/components/betaMp/fakeMercadoPago.ts): esto
-// certifica la mitad nuestra del contrato, no la de Mercado Pago.
+// certifica la mitad nuestra del contrato, no la de Mercado Pago. El simulador
+// crea el preapproval en `POST /preapproval` (Plan B) y puede omitir la
+// `external_reference`, como se midió en el smoke real del 2026-10-02.
 //
-// Requiere la migración 20261012120000 aplicada y Node >= 22.18 (importa los
+// Requiere las migraciones 20261012120000 y 20261013120000 aplicadas y Node >= 22.18 (importa los
 // módulos .ts tal cual). Deja la base como la encontró.
 //
 //   node scripts/billing/beta-mp-local.mjs
@@ -30,7 +33,7 @@ import { buildPlanCatalog } from '../../supabase/functions/_shared/billing/planC
 import { createCapabilityAuthorizer, createSupabaseBillingStore } from '../../supabase/functions/_shared/billing/store.ts'
 import { BILLING_ACTIONS, handleBillingAction } from '../../supabase/functions/_shared/billing/subscriptionActions.ts'
 import { parseNotification, processWebhookNotification } from '../../supabase/functions/_shared/billing/webhook.ts'
-import { FAKE_MP_TOKEN, FakeMercadoPago, PLAN_ENV, TEST_PLANS } from '../../tests/components/betaMp/fakeMercadoPago.ts'
+import { FAKE_MP_TOKEN, FakeMercadoPago } from '../../tests/components/betaMp/fakeMercadoPago.ts'
 
 const project = readFileSync('supabase/config.toml', 'utf8').match(/^project_id = "([a-z0-9-]+)"/m)?.[1]
 if (!project) throw new Error('No se pudo identificar el proyecto Supabase local')
@@ -58,10 +61,11 @@ const main = async () => {
   const baseUrl = `http://127.0.0.1:${hostPort}`
   assert(/^http:\/\/127\.0\.0\.1:\d+$/.test(baseUrl), 'El destino no es local')
 
-  // La migracion tiene que estar aplicada: si no, cada rechazo "pasaria" por otra razon.
+  // Las migraciones tienen que estar aplicadas: si no, cada rechazo "pasaria" por otra razon.
   const applied = sql(`SELECT (to_regclass('public.uq_subscription_events_notification') IS NOT NULL)::int
-    + (SELECT count(*) FROM pg_attribute WHERE attrelid = 'public.subscription_checkout_sessions'::regclass AND attname = 'mp_preapproval_plan_id');`)
-  assert(applied === '2', 'La migracion 20261012120000 (BETA-MP) no esta aplicada en la base local')
+    + (SELECT count(*) FROM pg_attribute WHERE attrelid = 'public.subscription_checkout_sessions'::regclass AND attname = 'mp_preapproval_id')
+    + (to_regclass('public.uq_scs_mp_preapproval') IS NOT NULL)::int;`)
+  assert(applied === '3', 'Las migraciones BETA-MP (20261012120000) y Plan B (20261013120000) no estan aplicadas en la base local')
 
   let signingKey = Buffer.from(vars.PGRST_JWT_SECRET)
   if (vars.PGRST_JWT_SECRET.trim().startsWith('{')) {
@@ -85,18 +89,17 @@ const main = async () => {
   })
 
   const mp = new FakeMercadoPago(() => new Date())
-  mp.seedPlans(TEST_PLANS)
   const logs = []
   const billing = () => ({
     store: createSupabaseBillingStore(serviceClient),
     mp: createMpClient({ fetchImpl: mp.fetchImpl, accessToken: () => FAKE_MP_TOKEN }),
-    catalog: buildPlanCatalog((key) => PLAN_ENV[key]),
     now: () => new Date(),
     log: (event) => { logs.push(event) },
   })
   const call = (actor, body) => handleBillingAction({
     ...billing(),
     authorizer: createCapabilityAuthorizer(userClient(actor)),
+    catalog: buildPlanCatalog(),
     newId: () => randomUUID(),
     allowedOrigins: [ORIGIN],
     appOrigin: ORIGIN,
@@ -112,7 +115,9 @@ const main = async () => {
     mp_preapproval_id, mp_preapproval_plan_id, last_payment_status, trial_ends_at, current_period_end, grace_until FROM public.businesses WHERE id = '${ids[biz]}') b;`))
   const huella = (biz) => sql(`SELECT md5(b::text) FROM public.businesses b WHERE id = '${ids[biz]}';`)
   const count = (table, where) => Number(sql(`SELECT count(*) FROM public.${table} WHERE ${where};`))
-  const reference = (res) => new URL(String(res.body.init_point)).searchParams.get('external_reference')
+  // El id del preapproval sale del enlace; la sesión, de la base (por ese id).
+  const preOf = (res) => new URL(String(res.body.init_point)).searchParams.get('preapproval_id')
+  const session = (preapprovalId) => JSON.parse(sql(`SELECT row_to_json(s) FROM public.subscription_checkout_sessions s WHERE mp_preapproval_id = '${preapprovalId}';`))
   const pre = (name) => `pre_${run}_${name}`
 
   // ── Fixture (como postgres, triggers apagados: es semilla, no el contrato) ──
@@ -169,53 +174,97 @@ const main = async () => {
   b = await browser('PATCH', `/businesses?id=eq.${ids.A}`, { subscription_status: 'active', subscription_plan: 'full' })
   check(b.status >= 400 && business('A').subscription_status === 'trialing', `el owner NO se activa escribiendo businesses (${b.status})`)
 
-  // ── 3. Abrir un checkout no cambia el negocio ────────────────────────────
-  section('3. create: la intención queda en la sesión, el negocio no cambia')
+  // ── 3. create: el servidor crea el preapproval y lo vincula ───────────────
+  section('3. create: preapproval creado por el servidor, vinculado antes de responder; el negocio no cambia')
   const antesA = huella('A')
-  r = await call('ownerA', { action: 'create', business_id: ids.A, plan: 'pro', billing_cycle: 'monthly', payer_email: 'otro@evil.test' })
-  check(r.status === 200 && reference(r)?.startsWith('trpcs_'), `create propio: 200 con referencia del servidor (${r.status})`)
-  const refA = reference(r)
+  mp.nextIds.push(pre('a'))
+  r = await call('ownerA', { action: 'create', business_id: ids.A, plan: 'pro', billing_cycle: 'monthly',
+    payer_email: 'otro@evil.test', amount: 1, transaction_amount: 1, external_reference: `cliente-${run}`, preapproval_id: 'pre_del_navegador' })
+  check(r.status === 200 && preOf(r) === pre('a'), `create propio: 200 con el init_point del preapproval que creó el servidor (${r.status})`)
+  check(Object.keys(r.body).sort().join(',') === 'checkout,init_point', 'la respuesta sólo trae el enlace y el resumen: ni el id del preapproval ni la referencia como dato')
   check(huella('A') === antesA, 'la fila de businesses es idéntica: trial, plan y estado intactos')
-  const sesionA = JSON.parse(sql(`SELECT row_to_json(s) FROM public.subscription_checkout_sessions s WHERE external_reference = '${refA}';`))
+  const sesionA = session(pre('a'))
   check(sesionA.business_id === ids.A && sesionA.user_id === ids.ownerA && sesionA.plan_id === 'pro' && sesionA.billing_cycle === 'monthly'
-    && sesionA.status === 'pending' && sesionA.mp_preapproval_plan_id === 'mpplan_pro_m' && Number(sesionA.amount) === 25000
-    && sesionA.payer_email === `ownera@${TAG}`, 'la sesión registra negocio, usuario, plan, ciclo, plan de MP esperado, importe y el email del JWT')
+    && sesionA.status === 'pending' && Number(sesionA.amount) === 25000 && sesionA.currency === 'ARS'
+    && sesionA.payer_email === `ownera@${TAG}` && sesionA.mp_preapproval_plan_id === null
+    && /^trpcs_[0-9a-f-]{36}$/.test(sesionA.external_reference),
+  'la sesión (base real) tiene el id del preapproval, negocio, usuario, plan, ciclo, importe del catálogo, email del JWT y referencia del servidor')
+  const enviado = mp.created()[0].body
+  check(enviado.status === 'pending' && enviado.external_reference === sesionA.external_reference && enviado.payer_email === `ownera@${TAG}`
+    && enviado.auto_recurring.transaction_amount === 25000 && enviado.auto_recurring.frequency === 1 && enviado.auto_recurring.frequency_type === 'months'
+    && enviado.back_url === `${ORIGIN}/subscription/pending` && enviado.preapproval_plan_id === undefined,
+  'a Mercado Pago le llegó lo que decidió el servidor: importe, email, referencia y back_url (lo del navegador se ignoró)')
   r = await call('ownerA', { action: 'create', business_id: ids.A, plan: 'pro', billing_cycle: 'monthly' })
-  check(reference(r) === refA && count('subscription_checkout_sessions', `business_id = '${ids.A}'`) === 1, 'pedir el mismo plan reutiliza la misma sesión (índice único real)')
+  check(preOf(r) === pre('a') && count('subscription_checkout_sessions', `business_id = '${ids.A}'`) === 1 && mp.created().length === 1,
+    'pedir el mismo plan reutiliza la misma sesión y el MISMO preapproval (índice único real, un solo POST)')
 
   // ── 4. Webhook: pending → authorized, por notificación ───────────────────
   section('4. Webhook canónico sobre la base real')
-  mp.seedPreapproval(pre('a'), { status: 'pending', preapproval_plan_id: 'mpplan_pro_m', external_reference: refA })
   let n = await notify('subscription_preapproval', pre('a'), `${run}-created`)
-  check(n.result === 'processed' && business('A').subscription_status === 'trialing', 'pending: procesada, sin acceso nuevo y sin degradar el trial')
-  Object.assign(mp.preapprovals.get(pre('a')), { status: 'authorized', last_modified: new Date().toISOString() })
+  check(n.result === 'processed' && n.detail === 'not_applied:not_authorized' && business('A').subscription_status === 'trialing',
+    'pending: procesada, sin acceso nuevo y sin degradar el trial')
+  mp.authorize(pre('a'))
   n = await notify('subscription_preapproval', pre('a'), `${run}-updated`)
   let A = business('A')
   check(n.result === 'processed' && A.subscription_status === 'active' && A.subscription_plan === 'pro'
-    && A.access_source === 'mercado_pago' && A.mp_preapproval_id === pre('a') && A.mp_preapproval_plan_id === 'mpplan_pro_m',
-  'authorized (segunda notificación del MISMO preapproval): active + plan de MP + access_source mercado_pago')
+    && A.access_source === 'mercado_pago' && A.mp_preapproval_id === pre('a') && A.mp_preapproval_plan_id === null,
+  'authorized (segunda notificación del MISMO preapproval): active + plan de la sesión + access_source mercado_pago')
   check(A.current_period_end !== null, 'current_period_end sale de next_payment_date')
-  check(sql(`SELECT status || ':' || mp_preapproval_id || ':' || (confirmed_at IS NOT NULL) FROM public.subscription_checkout_sessions WHERE external_reference = '${refA}';`) === `paid:${pre('a')}:true`, 'la sesión queda paid con el preapproval confirmado')
+  check(sql(`SELECT status || ':' || mp_preapproval_id || ':' || (confirmed_at IS NOT NULL) FROM public.subscription_checkout_sessions WHERE mp_preapproval_id = '${pre('a')}';`) === `paid:${pre('a')}:true`, 'la sesión queda paid con el preapproval confirmado')
   check(count('subscription_events', `external_id = '${pre('a')}' AND event_type = 'subscription_preapproval' AND processed`) === 2, 'las dos notificaciones quedaron registradas y procesadas')
-  check(count('subscription_events', `business_id = '${ids.A}' AND event_type = 'billing_state_applied'`) === 1, 'un evento de auditoría por el cambio de acceso')
+  check(sql(`SELECT raw_payload->>'linked_by' || ':' || (raw_payload->>'reference_echoed') FROM public.subscription_events WHERE business_id = '${ids.A}' AND event_type = 'billing_state_applied';`) === 'preapproval_id:true',
+    'un evento de auditoría por el cambio de acceso, con cómo se vinculó')
   const antesDup = huella('A')
   n = await notify('subscription_preapproval', pre('a'), `${run}-updated`)
   check(n.result === 'duplicate' && huella('A') === antesDup, 'la misma notificación reenviada: duplicate (índice único real), sin cambios')
 
-  // ── 5. Plan pagado = plan otorgado ───────────────────────────────────────
-  section('5. El navegador pide Full, Mercado Pago confirma Básico')
+  // ── 5. Identidad: sólo el id que vinculó el servidor ──────────────────────
+  section('5. Identidad de un pago: el id del preapproval, y nada más')
+  mp.nextIds.push(pre('b'))
   r = await call('ownerB', { action: 'create', business_id: ids.B, plan: 'full', billing_cycle: 'monthly' })
-  mp.seedPreapproval(pre('b'), { preapproval_plan_id: 'mpplan_basico_m', external_reference: reference(r) })
-  n = await notify('subscription_preapproval', pre('b'))
-  const B = business('B')
-  check(B.subscription_status === 'active' && B.subscription_plan === 'basico', `B queda en Básico, jamás Full (${B.subscription_plan})`)
-  mp.seedPreapproval(pre('x'), { preapproval_plan_id: 'mpplan_de_otra_app', external_reference: reference(r) })
-  n = await notify('subscription_preapproval', pre('x'))
-  check(n.detail === 'not_applied:reference_consumed' || n.detail === 'not_applied:unknown_plan', `un preapproval ajeno con la misma referencia no vincula (${n.detail})`)
-  mp.seedPreapproval(pre('y'), { preapproval_plan_id: 'mpplan_full_m', external_reference: ids.C })
+  const sesionB = session(pre('b'))
+  const antesB = huella('B')
+  // Lo que dejó el Plan A en producción: un preapproval authorized que el servidor no creó.
+  mp.seedForeignPreapproval(pre('smoke'), { external_reference: '', payer_email: `ownerb@${TAG}`, date_created: sesionB.created_at,
+    auto_recurring: { frequency: 1, frequency_type: 'months', transaction_amount: 45000, currency_id: 'ARS' } })
+  n = await notify('subscription_preapproval', pre('smoke'))
+  check(n.detail === 'not_applied:unknown_preapproval' && huella('B') === antesB, 'un preapproval desconocido con el mismo email, importe y fecha NO activa')
+  mp.seedForeignPreapproval(pre('copia'), { external_reference: sesionB.external_reference })
+  n = await notify('subscription_preapproval', pre('copia'))
+  check(n.detail === 'not_applied:unknown_preapproval' && huella('B') === antesB, 'un id desconocido con la referencia válida de un checkout abierto tampoco')
+  mp.seedForeignPreapproval(pre('y'), { external_reference: ids.C })
   const antesC = huella('C')
   n = await notify('subscription_preapproval', pre('y'))
-  check(n.detail === 'not_applied:no_reference' && huella('C') === antesC, 'un business_id suelto como referencia no activa a ese negocio')
+  check(n.detail === 'not_applied:unknown_preapproval' && huella('C') === antesC, 'un business_id suelto como referencia no activa a ese negocio')
+
+  // El índice único real: el preapproval de A no se puede vincular a una sesión de C.
+  const preA = mp.preapprovals.get(pre('a'))
+  mp.tamperCreated = (row) => { row.id = pre('a'); row.init_point = `https://www.mercadopago.com.ar/subscriptions/checkout?preapproval_id=${pre('a')}` }
+  r = await call('ownerC', { action: 'create', business_id: ids.C, plan: 'pro', billing_cycle: 'annual' })
+  mp.tamperCreated = null
+  check(r.status === 503 && r.body.init_point === undefined && session(pre('a')).business_id === ids.A
+    && count('subscription_checkout_sessions', `business_id = '${ids.C}' AND status = 'failed' AND mp_preapproval_id IS NULL`) === 1,
+  'el preapproval de A no se vincula a una sesión de C: 23505 real, 503 sin checkout, sesión failed')
+  mp.preapprovals.set(pre('a'), preA)
+
+  // Condiciones distintas de las de la sesión: no activa.
+  mp.nextIds.push(pre('c0'))
+  r = await call('ownerC', { action: 'create', business_id: ids.C, plan: 'basico', billing_cycle: 'monthly' })
+  mp.authorize(pre('c0'))
+  mp.preapprovals.get(pre('c0')).auto_recurring.transaction_amount = 1
+  n = await notify('subscription_preapproval', pre('c0'))
+  check(n.detail === 'not_applied:terms_mismatch' && huella('C') === antesC, 'authorized con otro importe que el de la sesión: no activa (sin drift silencioso)')
+
+  // Lo medido en el smoke real: Mercado Pago no devuelve la referencia.
+  mp.dropsExternalReference = true
+  mp.authorize(pre('b'))
+  n = await notify('subscription_preapproval', pre('b'))
+  mp.dropsExternalReference = false
+  const B = business('B')
+  check(n.detail === null && B.subscription_status === 'active' && B.subscription_plan === 'full' && B.mp_preapproval_id === pre('b'),
+    `external_reference vacía en Mercado Pago: B activa igual, por el id vinculado (${B.subscription_plan})`)
+  check(sql(`SELECT raw_payload->>'reference_echoed' FROM public.subscription_events WHERE business_id = '${ids.B}' AND event_type = 'billing_state_applied';`) === 'false',
+    'y la auditoría registra que la referencia no volvió')
 
   // ── 6. Cobro recurrente → ledger ─────────────────────────────────────────
   section('6. Cobro recurrente: ledger payments + último pago')
@@ -225,7 +274,7 @@ const main = async () => {
   mp.payments.set(`pay_${run}`, { id: `pay_${run}`, status: 'approved', status_detail: 'accredited', transaction_amount: 25000, currency_id: 'ARS', date_created: pagadoEn, date_approved: pagadoEn, payer: { identification: { number: '00000000' } } })
   n = await notify('subscription_authorized_payment', inv)
   const pago = JSON.parse(sql(`SELECT row_to_json(p) FROM public.payments p WHERE external_payment_id = '${inv}';`))
-  check(pago.business_id === ids.A && pago.status === 'approved' && pago.type === 'recurring' && Number(pago.amount) === 25000 && pago.subscription_plan === 'pro', 'una fila aprobada en payments, del negocio y con el plan de MP')
+  check(pago.business_id === ids.A && pago.status === 'approved' && pago.type === 'recurring' && Number(pago.amount) === 25000 && pago.subscription_plan === 'pro', 'una fila aprobada en payments, del negocio y con su plan')
   check(!JSON.stringify(pago.raw_payload).includes('identification'), 'el ledger guarda un recorte: sin datos del pagador')
   check(business('A').last_payment_status === 'approved', 'last_payment_status = approved')
   n = await notify('subscription_authorized_payment', inv)
@@ -234,19 +283,32 @@ const main = async () => {
   check(count('payments', `business_id = '${ids.A}'`) === 1, 'la notificación `payment` no agrega una segunda fila al ledger')
 
   // ── 7. reconcile ─────────────────────────────────────────────────────────
-  section('7. reconcile')
+  section('7. reconcile: recupera sin webhook, por id, y es idempotente')
   const antesRec = huella('A')
   r = await call('ownerA', { action: 'reconcile', business_id: ids.A })
   check(r.status === 200 && r.body.activated === true && r.body.outcome === 'already_active' && huella('A') === antesRec, 'suscripción ya sincronizada: idempotente, la fila no cambia')
+  mp.nextIds.push(pre('c'))
   r = await call('ownerC', { action: 'create', business_id: ids.C, plan: 'full', billing_cycle: 'annual' })
-  mp.seedPreapproval(pre('c'), { preapproval_plan_id: 'mpplan_full_a', external_reference: reference(r) })
-  mp.seedPreapproval(pre('c_ruido'), { preapproval_plan_id: 'mpplan_full_a', external_reference: null, payer_email: `ownerc@${TAG}` })
+  check(r.status === 200 && mp.created().at(-1).body.auto_recurring.transaction_amount === 432000 && mp.created().at(-1).body.auto_recurring.frequency === 12,
+    'anual: el servidor pide 432000 cada 12 months')
+  // Paga; Mercado Pago lo informa como 1 / years y NO manda ninguna notificación.
+  mp.authorize(pre('c'))
+  Object.assign(mp.preapprovals.get(pre('c')).auto_recurring, { frequency: 1, frequency_type: 'years' })
+  mp.calls.length = 0
   r = await call('ownerC', { action: 'reconcile', business_id: ids.C })
   const C = business('C')
   check(r.status === 200 && r.body.activated === true && r.body.outcome === 'activated' && r.body.checkout?.status === 'paid'
     && C.subscription_status === 'active' && C.subscription_plan === 'full' && C.mp_preapproval_id === pre('c'),
-  'webhook perdido: reconcile encuentra el preapproval por plan + referencia exacta y activa Full anual')
+  'webhook perdido: reconcile lee el preapproval por el id de la sesión y activa Full anual')
+  check(mp.calls.every((c) => c.method === 'GET' && /^\/preapproval\/[^/?]+$/.test(c.path)), 'reconcile sólo hizo lecturas directas por id (ninguna búsqueda)')
   check(count('subscription_events', `business_id = '${ids.C}' AND event_type = 'billing_state_applied' AND raw_payload->>'source' = 'reconcile'`) === 1, 'el cambio queda auditado con origen reconcile')
+  const despuesRec = huella('C')
+  r = await call('ownerC', { action: 'reconcile', business_id: ids.C })
+  check(r.body.activated === true && r.body.outcome === 'already_active' && huella('C') === despuesRec
+    && count('subscription_events', `business_id = '${ids.C}' AND event_type = 'billing_state_applied'`) === 1, 'doble reconcile: idempotente, sin un segundo cambio de acceso')
+  n = await notify('subscription_preapproval', pre('c'))
+  check(n.result === 'processed' && count('subscription_events', `business_id = '${ids.C}' AND event_type = 'billing_state_applied'`) === 1
+    && business('C').mp_preapproval_id === pre('c'), 'el webhook llega después: converge al mismo estado, sin otro cambio')
 
   // ── 8. Medio de pago y cancelación ───────────────────────────────────────
   section('8. update_payment_method y cancel')
