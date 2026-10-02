@@ -2,6 +2,28 @@
 
 > Alcance Beta — Lote 1: Mercado Pago POS / Merchant Connect (`mp-oauth`, `mp-payments`) queda POST-BETA. Esto no desactiva Billing SaaS (`mp-subscription`, `mp-webhook`) ni el registro manual de pagos MP del POS. Ver [inventario y evidencia del lote](security-mp-pos-lote1-containment.md). Las correcciones de autorización de Billing corresponden a su propio lote.
 
+> **Actualización BETA-MP (2026-10-01).** Este documento es el registro histórico de la
+> auditoría de junio. Varias de sus afirmaciones sobre el flujo de Mercado Pago **ya no son
+> ciertas** en el código de BETA-MP; el documento vigente es
+> [docs/beta-mp/README.md](beta-mp/README.md) y el rollout, [docs/beta-mp/runbook-rollout.md](beta-mp/runbook-rollout.md).
+> Lo que cambió respecto de lo que dice abajo:
+>
+> | Lo que dice este documento | Estado en BETA-MP |
+> |---|---|
+> | §1: `create` arma la URL con `external_reference=<business_id>` | La referencia es `trpcs_<uuid>`, una por checkout, emitida por el servidor. Un `business_id` suelto ya no vincula nada |
+> | §1: el webhook resuelve el negocio por `mp_preapproval_id` o por `external_reference` | Por `mp_preapproval_id`, o por una sesión de `subscription_checkout_sessions` creada por el servidor |
+> | §1: cancelación = `PUT` + DB `canceled` | El `PUT` se confirma releyendo Mercado Pago antes de escribir la base |
+> | §2 A2: claim idempotente por `(provider, event_type, external_id)` | Esa clave descartaba la segunda notificación de un mismo preapproval o cobro. Ahora la clave incluye `notification_id` |
+> | §3 / §8: `VITE_MP_PLAN_*` en el frontend | Eliminadas. Los ids de plan viven sólo en los secrets de las Edge Functions |
+> | §4: `uq_subscription_events_dedupe` | Reemplazado por `uq_subscription_events_notification` (migración `20261012120000`, sin aplicar) |
+> | §7: checklist de sandbox | Reemplazado por el smoke de 14 pasos del runbook de BETA-MP |
+> | §10: «verificar que MP propaga `external_reference`» | Sigue **sin verificar**. Es la primera incógnita del runbook, y ahora el fallo es cerrado: sin referencia válida no se activa nada |
+>
+> Hallazgos que la auditoría de junio no vio y BETA-MP corrige: `create` degradaba el acceso
+> antes del pago; el plan activado era el pedido por el navegador; `reconcile` no existía;
+> `status` y `update_payment_method` no verificaban el negocio; el `upsert` de `payments` fallaba
+> con `42P10`; `service_role` no podía insertar sesiones de checkout.
+
 Proyecto Supabase: `vrdxxmjzxhfgqlnxmbwx` (techrepair-pro, Postgres 17).
 **Nada de esto se aplicó en producción.** Todo es código + migraciones idempotentes
 para revisión y rollout por etapas.

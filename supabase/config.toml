@@ -506,6 +506,14 @@ verify_jwt = false
 [functions.mp-payments]
 verify_jwt = false
 
+# BETA-MP: webhook de Billing SaaS. Mercado Pago lo llama SIN un JWT de Supabase;
+# su seguridad es la firma HMAC (x-signature), que la funcion exige siempre. Esta
+# desplegada con verify_jwt = false (medido el 2026-10-01) y no figuraba aca: como
+# el default de `supabase functions deploy` es TRUE, un redeploy la habria cerrado
+# y Mercado Pago habria recibido 401 en cada notificacion.
+[functions.mp-webhook]
+verify_jwt = false
+
 # P0 EDGE CORS (2026-09-11): browser-called functions redeployed for the client
 # metadata headers. Each value mirrors production as measured that day, so a
 # redeploy can never flip the gateway flag (the CLI default is verify_jwt = TRUE).

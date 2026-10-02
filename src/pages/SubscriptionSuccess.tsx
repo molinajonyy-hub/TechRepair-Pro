@@ -6,15 +6,17 @@ import { PLAN_DISPLAY } from '../config/planFeatures'
 
 export function SubscriptionSuccess() {
   const navigate = useNavigate()
-  const { currentPlan, isActive, refresh } = useSubscription()
+  const { subscription, currentPlan, isActive, refresh } = useSubscription()
 
   useEffect(() => { refresh() }, [refresh])
 
   const planInfo = currentPlan ? PLAN_DISPLAY[currentPlan] : null
 
   // NEVER claim activation from a return URL alone. We only show "activada" when
-  // our DB (updated by the webhook) confirms the subscription is active.
-  const confirmed = isActive
+  // our DB confirms an active subscription that came from a verified Mercado Pago
+  // payment. `active` alone is not enough: a manual grant or a previous plan is
+  // also `active`, and neither is "tu pago se confirmó".
+  const confirmed = isActive && subscription?.access_source === 'mercado_pago'
 
   return (
     <div style={{

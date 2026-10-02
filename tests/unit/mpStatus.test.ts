@@ -5,7 +5,6 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   normalizeMercadoPagoStatus,
-  mapPreapprovalToInternal,
   isTrialExpired,
   hasTrialAccess,
   hasActivePaidAccess,
@@ -22,21 +21,9 @@ test('normalizeMercadoPagoStatus: valores conocidos + fallback a pending', () =>
   assert.equal(normalizeMercadoPagoStatus(undefined), 'pending')
 })
 
-test('mapPreapprovalToInternal: authorized→active, paused→past_due, cancelled→canceled', () => {
-  assert.equal(mapPreapprovalToInternal('authorized', 'pending_activation'), 'active')
-  assert.equal(mapPreapprovalToInternal('paused', 'active'), 'past_due')
-  assert.equal(mapPreapprovalToInternal('cancelled', 'active'), 'canceled')
-})
-
-test('mapPreapprovalToInternal: pending depende del estado actual', () => {
-  assert.equal(mapPreapprovalToInternal('pending', 'active'), 'past_due')
-  assert.equal(mapPreapprovalToInternal('pending', 'trialing'), 'pending_activation')
-})
-
-test('mapPreapprovalToInternal: estado desconocido conserva el actual', () => {
-  assert.equal(mapPreapprovalToInternal('???', 'active'), 'active')
-  assert.equal(mapPreapprovalToInternal(null, 'suspended'), 'suspended')
-})
+// BETA-MP: `mapPreapprovalToInternal` se eliminó del cliente. El mapeo del estado
+// de un preapproval es del servidor (`_shared/billing/preapproval.ts`) y lo
+// cubre tests/components/betaMpPreapprovalAuthority.test.ts.
 
 const NOW = new Date('2026-06-23T12:00:00Z')
 const PAST = '2026-06-10T00:00:00Z'

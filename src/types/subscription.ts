@@ -32,9 +32,6 @@ export interface PlanDefinition {
   price_quarterly: number
   price_annual: number
   currency: 'ARS'
-  mp_plan_id_monthly: string
-  mp_plan_id_quarterly: string
-  mp_plan_id_annual: string
   features: string[]
   limits: {
     orders_per_month: number | 'unlimited'
@@ -128,6 +125,10 @@ export interface MPPayment {
 }
 
 // ─── Create subscription request (frontend → edge fn) ─────────
+// BETA-MP: esto es una PROPUESTA. El servidor valida `business_id` contra la
+// capacidad del usuario, resuelve el plan de Mercado Pago por sus secrets, toma
+// el email del pagador del JWT (ignora `payer_email`) y sólo acepta `back_url`
+// si apunta a `/subscription/pending` de un origen permitido.
 export interface CreateSubscriptionRequest {
   business_id: string
   plan: SubscriptionPlan
@@ -138,7 +139,32 @@ export interface CreateSubscriptionRequest {
 
 export interface CreateSubscriptionResponse {
   init_point: string
-  preapproval_id: string
+  /** Siempre `null`: la suscripción todavía no existe cuando se abre el checkout. */
+  preapproval_id: string | null
+}
+
+// ─── Checkout y reconciliación (edge fn → frontend) ───────────
+/** Estado de la última intención de compra, tal como la registra el servidor. */
+export type CheckoutStatus = 'pending' | 'paid' | 'failed' | 'expired' | 'canceled'
+
+export interface CheckoutSummary {
+  status: CheckoutStatus
+  plan: SubscriptionPlan
+  billing_cycle: BillingCycle
+  created_at: string
+  confirmed_at: string | null
+}
+
+/**
+ * Resultado de «Verificar pago». `activated` sólo es `true` cuando el servidor
+ * consultó Mercado Pago y hay una suscripción activa: nunca por una URL de
+ * retorno ni por lo que haya elegido el navegador.
+ */
+export interface ReconcileResult {
+  activated: boolean
+  message: string
+  /** `paid` únicamente cuando Mercado Pago confirmó ESE checkout. */
+  checkout: CheckoutSummary | null
 }
 
 // ─── Plan catalog ─────────────────────────────────────────────
@@ -152,9 +178,6 @@ export const PLANS: PlanDefinition[] = [
     price_quarterly: 39_000,   // ~$13.000/mes
     price_annual:   144_000,   // $12.000/mes — 20% off
     currency: 'ARS',
-    mp_plan_id_monthly:   import.meta.env.VITE_MP_PLAN_BASICO_MONTHLY   || '',
-    mp_plan_id_quarterly: import.meta.env.VITE_MP_PLAN_BASICO_QUARTERLY || '',
-    mp_plan_id_annual:    import.meta.env.VITE_MP_PLAN_BASICO_ANNUAL    || '',
     features: [
       'Órdenes de servicio ilimitadas',
       'Clientes con historial básico',
@@ -183,9 +206,6 @@ export const PLANS: PlanDefinition[] = [
     price_quarterly: 64_500,   // ~$21.500/mes
     price_annual:   240_000,   // $20.000/mes — 20% off
     currency: 'ARS',
-    mp_plan_id_monthly:   import.meta.env.VITE_MP_PLAN_PRO_MONTHLY   || '',
-    mp_plan_id_quarterly: import.meta.env.VITE_MP_PLAN_PRO_QUARTERLY || '',
-    mp_plan_id_annual:    import.meta.env.VITE_MP_PLAN_PRO_ANNUAL    || '',
     features: [
       'Todo lo del plan Básico',
       'Facturación electrónica ARCA / CAE',
@@ -216,9 +236,6 @@ export const PLANS: PlanDefinition[] = [
     price_quarterly: 117_000,  // ~$39.000/mes
     price_annual:   432_000,   // $36.000/mes — 20% off
     currency: 'ARS',
-    mp_plan_id_monthly:   import.meta.env.VITE_MP_PLAN_FULL_MONTHLY   || '',
-    mp_plan_id_quarterly: import.meta.env.VITE_MP_PLAN_FULL_QUARTERLY || '',
-    mp_plan_id_annual:    import.meta.env.VITE_MP_PLAN_FULL_ANNUAL    || '',
     features: [
       'Todo lo del plan Pro',
       'Multi-sucursal: stock, caja y métricas por local',
