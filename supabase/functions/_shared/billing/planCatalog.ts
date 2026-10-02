@@ -29,8 +29,41 @@ export function isBillingCycle(value: unknown): value is BillingCycle {
   return typeof value === 'string' && (BILLING_CYCLES as readonly string[]).includes(value)
 }
 
-/** Meses entre cobros de cada ciclo. Se contrasta con la frecuencia del plan en MP. */
-export const CYCLE_MONTHS: Record<BillingCycle, number> = { monthly: 1, quarterly: 3, annual: 12 }
+export type MpFrequencyType = 'months' | 'years'
+
+/**
+ * Frecuencias de Mercado Pago que equivalen a cada ciclo. Es una lista cerrada:
+ * lo que no figura acá no es ese ciclo.
+ *
+ * Evidencia real (preflight del 2026-10-01/02, `GET /preapproval_plan/search`):
+ * los planes ANUALES creados desde el panel oficial vuelven como
+ * `frequency = 1, frequency_type = "years"`; los mensuales, `1` / `"months"`.
+ * Un plan anual creado por API puede expresarse como `12` / `"months"`: son el
+ * mismo período, así que se aceptan las dos formas. Mensual y trimestral tienen
+ * una sola.
+ */
+export const CYCLE_FREQUENCIES: Record<BillingCycle, readonly { frequency: number; frequencyType: MpFrequencyType }[]> = {
+  monthly:   [{ frequency: 1, frequencyType: 'months' }],
+  quarterly: [{ frequency: 3, frequencyType: 'months' }],
+  annual:    [{ frequency: 12, frequencyType: 'months' }, { frequency: 1, frequencyType: 'years' }],
+}
+
+/**
+ * ¿La frecuencia que informa Mercado Pago para un plan es la del ciclo pedido?
+ *
+ * Fail-closed: una cantidad que no sea un entero positivo, una unidad que no
+ * sea exactamente `months` o `years`, o una combinación fuera de la tabla → `false`.
+ * No hay conversión entre unidades más allá de las equivalencias listadas
+ * (`2 years`, `24 months`, `365 days`, `1 years` para un mensual: todas `false`).
+ */
+export function matchesBillingCycleFrequency(billingCycle: BillingCycle, frequency: unknown, frequencyType: unknown): boolean {
+  const amount = typeof frequency === 'number'
+    ? frequency
+    : typeof frequency === 'string' && /^\d+$/.test(frequency.trim()) ? Number(frequency.trim()) : NaN
+  if (!Number.isInteger(amount) || amount <= 0) return false
+  const unit = typeof frequencyType === 'string' ? frequencyType.trim().toLowerCase() : ''
+  return (CYCLE_FREQUENCIES[billingCycle] ?? []).some((f) => f.frequency === amount && f.frequencyType === unit)
+}
 
 export interface PlanCatalogEntry {
   plan: BillingPlan

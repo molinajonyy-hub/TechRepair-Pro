@@ -33,9 +33,11 @@ de forma contradictoria:
    Es el punto del que depende toda la activación. Si MP no la conserva, ningún pago se vincula:
    el webhook registra `not_applied:no_reference` y **no activa nada** (fail-closed). Ver
    [Plan B](#plan-b-si-mercado-pago-no-conserva-la-referencia).
-2. Que `GET /preapproval_plan/{id}` devuelva `status`, `auto_recurring` e `init_point` como dice la
-   referencia. `create` falla cerrado (503) si el plan no existe, no está activo o su frecuencia
-   no coincide con el ciclo: un supuesto equivocado se ve en el paso 1 del smoke.
+2. Que `GET /preapproval_plan/{id}` devuelva `status` e `init_point` como dice la referencia.
+   `create` falla cerrado (503) si el plan no existe, no está activo o su frecuencia no coincide
+   con el ciclo: un supuesto equivocado se ve en el paso 1 del smoke. **La parte de la frecuencia
+   ya se midió y el supuesto original estaba mal**: ver
+   [Evidencia real del preflight](#evidencia-real-del-preflight-2026-10-0102).
 3. Que `GET /preapproval/search?preapproval_plan_id=…` acepte `offset` y `limit`. El código
    tolera que los ignore, pero entonces `reconcile` sólo ve la primera página.
 4. Que `PUT /preapproval/{id}` con `status: "cancelled"` cancele. La referencia usa `cancelled`
@@ -48,7 +50,43 @@ de forma contradictoria:
    notificación `payment` ahora es sólo auditoría: si MP mandara los cobros únicamente por
    `payment`, el ledger quedaría vacío (el acceso no se ve afectado: lo decide el preapproval).
 7. La firma del webhook para notificaciones de suscripciones (el manifiesto usa `data.id`).
-8. Que los importes de los planes en Mercado Pago coincidan con los de la pantalla de Planes.
+8. Que los importes de los planes en Mercado Pago coincidan con los de la pantalla de Planes. Los
+   tres anuales ya se midieron y coinciden; faltan los mensuales.
+
+### Evidencia real del preflight (2026-10-01/02)
+
+Lo único de esta lista que ya dejó de ser un supuesto. La midió el owner contra la cuenta real
+con `GET /preapproval_plan/search`; no se desplegó ni se cobró nada.
+
+| Plan | `frequency` | `frequency_type` | `transaction_amount` |
+|---|---|---|---|
+| Básico Anual | 1 | `years` | 144000 |
+| Pro Anual | 1 | `years` | 240000 |
+| Full Anual | 1 | `years` | 432000 |
+| Mensuales | 1 | `months` | — |
+
+**Los planes anuales creados desde el panel oficial de Mercado Pago son `1` / `years`, no
+`12` / `months`.** La primera versión de este PR sólo aceptaba meses: un anual real habría dado
+`frequency_mismatch` y `create` habría respondido 503 a todo el que eligiera el ciclo anual.
+
+Corrección: la frecuencia se valida contra una tabla cerrada de equivalencias
+(`matchesBillingCycleFrequency` en `supabase/functions/_shared/billing/planCatalog.ts`).
+
+| Ciclo | Frecuencias de Mercado Pago aceptadas |
+|---|---|
+| mensual | `1` / `months` |
+| trimestral | `3` / `months` |
+| anual | `12` / `months` **o** `1` / `years` |
+
+Cualquier otra combinación sigue fallando cerrado: `2` / `years`, `24` / `months`, `365` / `days`,
+un mensual que venga como `1` / `years`, una unidad desconocida o una cantidad que no sea un
+entero positivo. No se relajó nada más: el plan tiene que existir, estar `active`, el id tiene
+que ser el del secret, y el plan que se otorga sigue saliendo del `preapproval_plan_id` de la
+suscripción.
+
+Lo que esta evidencia **no** cubre: salió de `/preapproval_plan/search`, no de
+`GET /preapproval_plan/{id}`, que es la llamada que hace `create`. Se asume que las dos devuelven
+`auto_recurring` igual; el paso 1 del smoke lo confirma con un checkout anual.
 
 ---
 
@@ -112,11 +150,19 @@ curl -s -H "Authorization: Bearer $MP_ACCESS_TOKEN" "https://api.mercadopago.com
 | Plan | Ciclo | `auto_recurring.frequency` / `frequency_type` | `transaction_amount` | `status` |
 |---|---|---|---|---|
 | Básico | mensual | 1 / `months` | 15000 | `active` |
-| Básico | anual | 12 / `months` | 144000 | `active` |
+| Básico | anual | 1 / `years` (medido) · también vale 12 / `months` | 144000 | `active` |
 | Pro | mensual | 1 / `months` | 25000 | `active` |
-| Pro | anual | 12 / `months` | 240000 | `active` |
+| Pro | anual | 1 / `years` (medido) · también vale 12 / `months` | 240000 | `active` |
 | Full | mensual | 1 / `months` | 45000 | `active` |
-| Full | anual | 12 / `months` | 432000 | `active` |
+| Full | anual | 1 / `years` (medido) · también vale 12 / `months` | 432000 | `active` |
+
+La frecuencia de los anuales y de los mensuales, y el importe de los tres anuales, ya están
+medidos (ver [Evidencia real del preflight](#evidencia-real-del-preflight-2026-10-0102)). Falta
+anotar acá el importe de los mensuales y el `status` de los seis.
+
+Una frecuencia fuera de esta tabla hace que `create` responda 503 para ese plan: es un secret
+apuntando al plan equivocado o un plan creado con otro período. No se corrige ampliando la tabla
+sin evidencia.
 
 Los importes son los de `src/types/subscription.ts` (`PLANS`). Si alguno difiere, es drift de
 precios: **reportarlo antes de seguir**, no corregirlo sobre la marcha. Anotar también el

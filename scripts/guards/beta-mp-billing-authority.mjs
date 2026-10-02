@@ -88,6 +88,17 @@ function inspectEdge(s) {
   if (/updateBusinessBilling\(/.test(actions)) f.push('subscriptionActions escribe businesses fuera del camino canonico')
   if (!/const payerEmail = req\.user\.email\n/.test(actions)) f.push('el email del pagador dejo de salir del JWT')
 
+  // El plan de MP se valida contra el ciclo pedido con una tabla CERRADA de
+  // equivalencias (anual = 12 months o 1 years; mensual y trimestral, una sola).
+  if (!/if \(!matchesBillingCycleFrequency\(billingCycle, recurring\.frequency, recurring\.frequency_type\)\) return 'frequency_mismatch'/.test(actions)) {
+    f.push('create dejo de validar la frecuencia del plan de Mercado Pago contra el ciclo pedido')
+  }
+  const catalog = codigo(s.catalog)
+  const tabla = tramo(catalog, 'export const CYCLE_FREQUENCIES', '\n}\n').replace(/\s+/g, ' ')
+  const esperada = "monthly: [{ frequency: 1, frequencyType: 'months' }], quarterly: [{ frequency: 3, frequencyType: 'months' }], annual: [{ frequency: 12, frequencyType: 'months' }, { frequency: 1, frequencyType: 'years' }],"
+  if (!tabla.includes(esperada)) f.push('la tabla de frecuencias equivalentes cambio (se amplio o se achico sin evidencia de Mercado Pago)')
+  if (!/\.some\(\(f\) => f\.frequency === amount && f\.frequencyType === unit\)/.test(catalog)) f.push('la frecuencia dejo de compararse de forma exacta contra la tabla')
+
   // Un solo camino escribe el acceso, y el plan sale de Mercado Pago.
   if (/subscription_plan:\s*session\.plan_id|subscription_plan\s*=\s*session\.plan_id/.test(pre + webhook)) f.push('el plan otorgado sale de la sesion (lo que pidio el navegador) y no de Mercado Pago')
   if (!/const entry = ctx\.catalog\.byMpPlanId\(pre\.preapproval_plan_id\)/.test(pre)) f.push('el plan dejo de resolverse por el preapproval_plan_id de Mercado Pago')
@@ -183,6 +194,7 @@ function estado() {
     preapproval: read(`${BILLING}/preapproval.ts`),
     webhook: read(`${BILLING}/webhook.ts`),
     store: read(`${BILLING}/store.ts`),
+    catalog: read(`${BILLING}/planCatalog.ts`),
     service: read('src/services/subscriptionService.ts'),
     pendingPage: read('src/pages/PaymentPending.tsx'),
     successPage: read('src/pages/SubscriptionSuccess.tsx'),
@@ -221,6 +233,10 @@ if (process.argv.includes('--self-test')) {
     ['create: escribe el negocio', con('actions', "  ctx.log({ event: 'checkout_opened'", "  await ctx.store.updateBusinessBilling(businessId, { subscription_plan: plan }, ctx.now().toISOString())\n  ctx.log({ event: 'checkout_opened'"), 'abrir un checkout'],
     ['create: cancela la suscripcion vigente', con('actions', "  ctx.log({ event: 'checkout_opened'", "  if (business.mp_preapproval_id) await ctx.mp.cancelPreapproval(business.mp_preapproval_id)\n  ctx.log({ event: 'checkout_opened'"), 'abrir un checkout'],
     ['create: email del body', con('actions', 'const payerEmail = req.user.email\n', 'const payerEmail = String(req.body.payer_email)\n'), 'payer_email'],
+    ['create: sin validar la frecuencia', con('actions', "  if (!matchesBillingCycleFrequency(billingCycle, recurring.frequency, recurring.frequency_type)) return 'frequency_mismatch'\n", ''), 'validar la frecuencia'],
+    ['frecuencia: cualquier cantidad de years es anual', con('catalog', 'f.frequency === amount && f.frequencyType === unit', 'f.frequencyType === unit'), 'forma exacta'],
+    ['frecuencia: mensual acepta 1 years', con('catalog', "monthly:   [{ frequency: 1, frequencyType: 'months' }],", "monthly:   [{ frequency: 1, frequencyType: 'months' }, { frequency: 1, frequencyType: 'years' }],"), 'tabla de frecuencias'],
+    ['frecuencia: el anual pierde 1 years', con('catalog', ", { frequency: 1, frequencyType: 'years' }],", '],'), 'tabla de frecuencias'],
     ['plan desde la sesion', con('preapproval', "    subscription_plan: entry.plan,\n    subscription_provider: 'mercadopago',", "    subscription_plan: session.plan_id,\n    subscription_provider: 'mercadopago',"), 'lo que pidio el navegador'],
     ['plan desconocido activa', con('preapproval', "  if (!entry) return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: 'unknown_plan' })\n\n  if (session.status === 'paid')", "  if (session.status === 'paid')"), 'plan desconocido'],
     ['sin referencia vincula igual', con('preapproval', "  if (!reference) return outcome(pre, mpState, { kind: 'not_applied', reason: 'no_reference' })\n", ''), 'sin referencia'],

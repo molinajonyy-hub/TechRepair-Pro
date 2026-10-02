@@ -80,13 +80,13 @@ export class FakeMercadoPago {
     return json({ message: 'not found' }, 404)
   }
 
-  /** Planes de prueba: `[id, importe, meses]`. */
-  seedPlans(plans: [string, number, number][]): void {
-    for (const [id, amount, frequency] of plans) {
+  /** Planes de prueba: `[id, importe, frecuencia, unidad]`, como los devuelve Mercado Pago. */
+  seedPlans(plans: TestPlan[]): void {
+    for (const [id, amount, frequency, frequencyType] of plans) {
       this.plans.set(id, {
         id, status: 'active',
         init_point: `https://www.mercadopago.com.ar/subscriptions/checkout?preapproval_plan_id=${id}`,
-        auto_recurring: { frequency, frequency_type: 'months', transaction_amount: amount, currency_id: 'ARS' },
+        auto_recurring: { frequency, frequency_type: frequencyType, transaction_amount: amount, currency_id: 'ARS' },
       })
     }
   }
@@ -116,8 +116,17 @@ export const PLAN_ENV: Record<string, string> = {
   MP_PLAN_FULL_ANNUAL: 'mpplan_full_a',
 }
 
-export const TEST_PLANS: [string, number, number][] = [
-  ['mpplan_basico_m', 15000, 1], ['mpplan_basico_a', 144000, 12],
-  ['mpplan_pro_m', 25000, 1], ['mpplan_pro_a', 240000, 12],
-  ['mpplan_full_m', 45000, 1], ['mpplan_full_a', 432000, 12],
+export type TestPlan = [id: string, amount: number, frequency: number, frequencyType: string]
+
+/**
+ * Los planes tal como los devolvió Mercado Pago en el preflight real del
+ * 2026-10-01/02 (`GET /preapproval_plan/search`): los mensuales son
+ * `1` / `"months"` y los ANUALES creados desde el panel son `1` / `"years"`,
+ * no `12` / `"months"`. Los importes anuales son los medidos (144000 / 240000 /
+ * 432000).
+ */
+export const TEST_PLANS: TestPlan[] = [
+  ['mpplan_basico_m', 15000, 1, 'months'], ['mpplan_basico_a', 144000, 1, 'years'],
+  ['mpplan_pro_m', 25000, 1, 'months'], ['mpplan_pro_a', 240000, 1, 'years'],
+  ['mpplan_full_m', 45000, 1, 'months'], ['mpplan_full_a', 432000, 1, 'years'],
 ]

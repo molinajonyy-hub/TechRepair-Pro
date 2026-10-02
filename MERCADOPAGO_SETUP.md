@@ -49,11 +49,11 @@ Panel → **Suscripciones → Planes** → nuevo plan. Uno por cada combinación
 | Plan | Ciclo | Importe ARS | Frecuencia |
 |---|---|---|---|
 | Básico | Mensual | $15.000 | 1 mes |
-| Básico | Anual | $144.000 | 12 meses |
+| Básico | Anual | $144.000 | 1 año |
 | Pro | Mensual | $25.000 | 1 mes |
-| Pro | Anual | $240.000 | 12 meses |
+| Pro | Anual | $240.000 | 1 año |
 | Full | Mensual | $45.000 | 1 mes |
-| Full | Anual | $432.000 | 12 meses |
+| Full | Anual | $432.000 | 1 año |
 
 Planes ofrece hoy mensual y anual. El ciclo trimestral ($39.000 / $64.500 / $117.000, cada 3
 meses) está en el modelo pero no en la pantalla: sus secrets son opcionales.
@@ -63,7 +63,11 @@ meses) está en el modelo pero no en la pantalla: sus secrets son opcionales.
 > usuario. Si se cambia un precio, se cambia en los dos lugares.
 >
 > La frecuencia del plan también importa: al abrir un checkout el servidor consulta el plan y
-> rechaza (503) uno cuya frecuencia no coincide con el ciclo pedido.
+> rechaza (503) uno cuya frecuencia no coincide con el ciclo pedido. La API de Mercado Pago
+> devuelve un plan anual creado desde el panel como `frequency = 1`, `frequency_type = "years"`
+> (medido el 2026-10-01/02), y uno creado por API puede venir como `12` / `"months"`: se aceptan
+> las dos formas. Mensual es `1` / `"months"` y trimestral `3` / `"months"`. Cualquier otra
+> combinación se rechaza.
 
 ---
 

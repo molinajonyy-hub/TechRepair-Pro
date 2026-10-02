@@ -18,7 +18,7 @@
  */
 import { MpApiError, isMercadoPagoUrl, preapprovalState } from './mpClient.ts'
 import type { MpPlan, MpPreapproval } from './mpClient.ts'
-import { CYCLE_MONTHS, isBillingCycle, isBillingPlan, planEnvKey } from './planCatalog.ts'
+import { isBillingCycle, isBillingPlan, matchesBillingCycleFrequency, planEnvKey } from './planCatalog.ts'
 import type { BillingCycle, BillingPlan } from './planCatalog.ts'
 import { applyPreapprovalEvidence, newCheckoutReference, parseCheckoutReference } from './preapproval.ts'
 import type { BillingContext, EvidenceOutcome } from './preapproval.ts'
@@ -187,8 +187,9 @@ function describePlanProblem(mpPlan: MpPlan | null, billingCycle: BillingCycle):
   if (typeof mpPlan.status === 'string' && mpPlan.status.trim().toLowerCase() !== 'active') return 'inactive'
   const recurring = mpPlan.auto_recurring
   if (!recurring) return 'no_frequency'
-  const frequencyType = typeof recurring.frequency_type === 'string' ? recurring.frequency_type.trim().toLowerCase() : ''
-  if (frequencyType !== 'months' || Number(recurring.frequency) !== CYCLE_MONTHS[billingCycle]) return 'frequency_mismatch'
+  // Mercado Pago expresa el mismo período de más de una forma (un anual del panel
+  // es `1 years`, no `12 months`). La tabla de equivalencias es cerrada.
+  if (!matchesBillingCycleFrequency(billingCycle, recurring.frequency, recurring.frequency_type)) return 'frequency_mismatch'
   return null
 }
 

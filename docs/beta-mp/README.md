@@ -139,7 +139,8 @@ respuesta es 503: nunca permite.
 ### Checkout
 
 `create` valida plan y ciclo, resuelve el plan de MP por secret, lo consulta en Mercado Pago
-(`GET /preapproval_plan/{id}`: debe existir, estar activo y tener la frecuencia del ciclo), crea
+(`GET /preapproval_plan/{id}`: debe existir, estar activo y tener una frecuencia equivalente al
+ciclo — un anual es `12 months` o `1 years`, que es como lo devuelve MP para los planes del panel), crea
 o reutiliza una fila en `subscription_checkout_sessions` con `service_role` y devuelve el
 `init_point`. **No escribe `businesses` y no cancela nada en Mercado Pago.**
 
@@ -222,15 +223,16 @@ el del cuerpo: lo firmado y lo procesado no pueden diferir. `mp-webhook` ahora f
 
 | Gate | Qué corre | Dónde |
 |---|---|---|
-| `npm run test:beta-mp` | Guard estático (36 sabotajes en su self-test) + guard read-only de los SQL del runbook + 24 contratos de fuente + 199 tests de integración sobre el código real de las Edge Functions | CI, job `quality` |
+| `npm run test:beta-mp` | Guard estático (40 sabotajes en su self-test) + guard read-only de los SQL del runbook + 24 contratos de fuente + 253 tests de integración sobre el código real de las Edge Functions | CI, job `quality` |
 | `npm run test:beta-mp:local` | 24 aserciones SQL como los roles de la API + 44 comprobaciones del mismo código sobre PostgreSQL / PostgREST / supabase-js reales, con el RPC de capacidad real | CI, job `beta-mp-billing` |
 | `tests/deno/mpWebhookSignature.test.ts` | El handler real de `mp-webhook` en Deno: sin secret → 500; firma ausente, incorrecta o de otro recurso → 401 sin tocar nada; firma válida → recién ahí reclama el evento | CI, `npm run test:deno` |
 | `npm run test:beta1` | Regresión de BETA-1. Una aserción cambió: fijaba «`Subscription.tsx` tiene 2 `alert()`» y ahora exige 0 | CI, job `quality` |
 
 Los tests de integración usan un PostgREST en memoria que conoce columnas, CHECK, índices únicos
-y los GRANT de `service_role`, y un Mercado Pago simulado a nivel HTTP. Diecinueve mutaciones
+y los GRANT de `service_role`, y un Mercado Pago simulado a nivel HTTP. Los planes del simulador
+tienen la forma medida en el preflight real (anuales `1` / `years`). Veinticuatro mutaciones
 deliberadas del código (sin autorización, plan desde el pedido, referencia débil, dedupe por
-recurso, etc.) hacen fallar la suite.
+recurso, frecuencia sólo en meses, etc.) hacen fallar la suite.
 
 ---
 

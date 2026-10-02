@@ -8,6 +8,7 @@
 // en Mercado Pago. El plan pedido queda en la sesión, no en el negocio.
 // ─────────────────────────────────────────────────────────────────────────────
 import { beforeEach, describe, expect, it } from 'vitest'
+import { CYCLE_FREQUENCIES, matchesBillingCycleFrequency } from '../../../supabase/functions/_shared/billing/planCatalog.ts'
 import { parseCheckoutReference } from '../../../supabase/functions/_shared/billing/preapproval.ts'
 import { BIZ_A, BIZ_B, DAY, HOUR, ORIGIN, OWNER_A, OWNER_B, World } from './harness.ts'
 
@@ -246,12 +247,13 @@ describe('plan y ciclo: validados por el servidor, fail-closed', () => {
     expect((await create('pro')).status).toBe(503)
   })
 
-  it('un secret mal cableado (mensual apuntando a un plan anual) → 503', async () => {
+  it('un secret mal cableado (mensual apuntando a un plan anual, `1 years`) → 503', async () => {
     w.env.MP_PLAN_PRO_MONTHLY = 'mpplan_basico_a'
     w.env.MP_PLAN_BASICO_ANNUAL = ''
     const res = await create('pro', 'monthly')
     expect(res.status).toBe(503)
     expect(res.body.code).toBe('plan_unavailable')
+    expect(w.logs.at(-1)).toMatchObject({ event: 'plan_unavailable', problem: 'frequency_mismatch' })
   })
 
   it('el mismo id de plan bajo dos secrets no se vende: no se sabría qué se pagó', async () => {
@@ -275,5 +277,140 @@ describe('plan y ciclo: validados por el servidor, fail-closed', () => {
     const res = await w.call(OWNER_A, { action: 'create', business_id: BIZ_A, plan: 'pro', billing_cycle: 'monthly' }, { email: null })
     expect(res.status).toBe(400)
     expect(res.body.code).toBe('no_email')
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Frecuencia del plan. Evidencia real del preflight del 2026-10-01/02
+// (`GET /preapproval_plan/search`): los planes anuales creados desde el panel de
+// Mercado Pago vuelven como `1` / `"years"`, no `12` / `"months"`. Antes de este
+// ajuste ese anual real daba `frequency_mismatch` y `create` respondía 503.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('frecuencia del plan: equivalencias de Mercado Pago, lista cerrada', () => {
+  it.each([
+    // ciclo, frequency, frequency_type, ¿coincide?
+    ['monthly', 1, 'months', true],
+    ['annual', 12, 'months', true],
+    ['annual', 1, 'years', true],          // lo que devuelve MP para un anual del panel
+    ['quarterly', 3, 'months', true],
+    ['annual', 2, 'years', false],
+    ['monthly', 1, 'years', false],
+    // La cantidad puede llegar como texto numérico; la unidad, con otra caja.
+    ['annual', '1', 'years', true],
+    ['annual', ' 12 ', 'months', true],
+    ['annual', 1, 'YEARS', true],
+    // Otro ciclo con una frecuencia válida para OTRO ciclo.
+    ['monthly', 12, 'months', false],
+    ['monthly', 3, 'months', false],
+    ['annual', 1, 'months', false],
+    ['annual', 3, 'months', false],
+    ['annual', 24, 'months', false],
+    ['quarterly', 1, 'months', false],
+    ['quarterly', 12, 'months', false],
+    ['quarterly', 1, 'years', false],      // trimestral no se amplía
+    // Unidades desconocidas: no hay conversión, aunque «den» el mismo período.
+    ['annual', 365, 'days', false],
+    ['annual', 52, 'weeks', false],
+    ['monthly', 30, 'days', false],
+    ['monthly', 4, 'weeks', false],
+    ['annual', 1, 'year', false],
+    ['annual', 1, 'anual', false],
+    ['annual', 1, '', false],
+    ['annual', 1, null, false],
+    ['annual', 1, undefined, false],
+    ['annual', 1, 12, false],
+    // Cantidades que no son un entero positivo.
+    ['annual', null, 'years', false],
+    ['annual', undefined, 'years', false],
+    ['annual', '', 'years', false],
+    ['annual', 0, 'years', false],
+    ['annual', -1, 'years', false],
+    ['annual', 1.5, 'years', false],
+    ['annual', '1.0', 'years', false],
+    ['annual', '1e0', 'years', false],
+    ['annual', true, 'years', false],
+    ['annual', [1], 'years', false],
+    ['annual', Number.NaN, 'years', false],
+    ['annual', Number.POSITIVE_INFINITY, 'years', false],
+    // Un ciclo que no existe nunca coincide.
+    ['weekly', 1, 'weeks', false],
+  ])('%s + %j / %j → %j', (cycle, frequency, frequencyType, esperado) => {
+    expect(matchesBillingCycleFrequency(cycle as 'annual', frequency, frequencyType)).toBe(esperado)
+  })
+
+  it('la tabla de equivalencias es la que se documenta, ni más ni menos', () => {
+    expect(CYCLE_FREQUENCIES).toEqual({
+      monthly: [{ frequency: 1, frequencyType: 'months' }],
+      quarterly: [{ frequency: 3, frequencyType: 'months' }],
+      annual: [{ frequency: 12, frequencyType: 'months' }, { frequency: 1, frequencyType: 'years' }],
+    })
+  })
+
+  /** Reemplaza la frecuencia que «informa Mercado Pago» para un plan. */
+  const planCon = (mpPlanId: string, frequency: unknown, frequencyType: unknown) => {
+    Object.assign(w.mp.plans.get(mpPlanId)!.auto_recurring as Record<string, unknown>, { frequency, frequency_type: frequencyType })
+  }
+
+  it('anual real del panel (1 / years) → 200, con la sesión anual y el importe de MP', async () => {
+    expect(w.mp.plans.get('mpplan_full_a')!.auto_recurring).toMatchObject({ frequency: 1, frequency_type: 'years' })
+    const res = await create('full', 'annual')
+    expect(res.status).toBe(200)
+    expect(sessions()[0]).toMatchObject({ plan_id: 'full', billing_cycle: 'annual', mp_preapproval_plan_id: 'mpplan_full_a', amount: 432000 })
+  })
+
+  it('anual expresado como 12 / months → 200', async () => {
+    planCon('mpplan_pro_a', 12, 'months')
+    const res = await create('pro', 'annual')
+    expect(res.status).toBe(200)
+    expect(sessions()[0]).toMatchObject({ billing_cycle: 'annual', amount: 240000 })
+  })
+
+  it('mensual 1 / months → 200', async () => {
+    expect(w.mp.plans.get('mpplan_pro_m')!.auto_recurring).toMatchObject({ frequency: 1, frequency_type: 'months' })
+    expect((await create('pro', 'monthly')).status).toBe(200)
+  })
+
+  it('trimestral configurado con 3 / months → 200', async () => {
+    w.env.MP_PLAN_PRO_QUARTERLY = 'mpplan_pro_q'
+    w.mp.seedPlans([['mpplan_pro_q', 64500, 3, 'months']])
+    const res = await create('pro', 'quarterly')
+    expect(res.status).toBe(200)
+    expect(sessions()[0]).toMatchObject({ billing_cycle: 'quarterly', mp_preapproval_plan_id: 'mpplan_pro_q' })
+  })
+
+  it.each([
+    ['anual que MP informa como 2 / years', 'pro', 'annual', 'mpplan_pro_a', 2, 'years'],
+    ['mensual que MP informa como 1 / years', 'pro', 'monthly', 'mpplan_pro_m', 1, 'years'],
+    ['anual en una unidad desconocida (365 / days)', 'pro', 'annual', 'mpplan_pro_a', 365, 'days'],
+    ['mensual en una unidad desconocida (4 / weeks)', 'pro', 'monthly', 'mpplan_pro_m', 4, 'weeks'],
+    ['anual sin unidad', 'pro', 'annual', 'mpplan_pro_a', 1, null],
+    ['anual sin cantidad', 'pro', 'annual', 'mpplan_pro_a', null, 'years'],
+    ['anual que MP informa como 1 / months', 'pro', 'annual', 'mpplan_pro_a', 1, 'months'],
+  ])('%s → 503, sin sesión y sin tocar el negocio', async (_caso, plan, cycle, mpPlanId, frequency, frequencyType) => {
+    planCon(mpPlanId, frequency, frequencyType)
+    const antes = w.snapshot(BIZ_A)
+    const res = await create(plan, cycle)
+
+    expect(res.status).toBe(503)
+    expect(res.body.code).toBe('plan_unavailable')
+    expect(res.body.init_point).toBeUndefined()
+    expect(sessions()).toHaveLength(0)
+    expect(w.snapshot(BIZ_A)).toEqual(antes)
+    expect(w.logs.at(-1)).toMatchObject({ event: 'plan_unavailable', problem: 'frequency_mismatch' })
+  })
+
+  it('aceptar 1 / years no relaja el resto: un anual dado de baja o inexistente sigue en 503', async () => {
+    w.mp.plans.get('mpplan_full_a')!.status = 'cancelled'
+    expect((await create('full', 'annual')).status).toBe(503)
+    w.mp.plans.delete('mpplan_pro_a')
+    expect((await create('pro', 'annual')).status).toBe(503)
+    expect(sessions()).toHaveLength(0)
+  })
+
+  it('el plan otorgado sigue saliendo del id de plan de MP: un anual 1 / years activa su plan y no otro', async () => {
+    const { reference } = await w.openCheckout(OWNER_A, BIZ_A, 'basico', 'annual')
+    w.mpPreapproval('pre_anual', { preapproval_plan_id: 'mpplan_basico_a', external_reference: reference, auto_recurring: { frequency: 1, frequency_type: 'years' } })
+    await w.notify('subscription_preapproval', 'pre_anual')
+    expect(w.db.business(BIZ_A)).toMatchObject({ subscription_status: 'active', subscription_plan: 'basico', mp_preapproval_plan_id: 'mpplan_basico_a' })
   })
 })
