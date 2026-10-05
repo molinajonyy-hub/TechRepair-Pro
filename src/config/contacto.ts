@@ -13,9 +13,10 @@
  *
  * BETA-UX-1A — NO es un canal de soporte. El owner confirmó (2026-10-05) que
  * esta casilla no se atiende como soporte: es el contacto institucional/legal.
- * El nombre de la constante es histórico (lo lee el guard de las plantillas de
- * Auth). Ninguna pantalla de producto la ofrece como ayuda, y `canalSoporte()`
- * ya no cae acá cuando falta el WhatsApp.
+ * El nombre de la constante es histórico. Ninguna pantalla de producto la
+ * ofrece como ayuda, `canalSoporte()` ya no cae acá cuando falta el WhatsApp, y
+ * tampoco va en los correos de Auth: el guard de las plantillas la lee sólo
+ * para detectar que reaparezca.
  */
 export const CONTACTO_SOPORTE = 'techrepairpro.soporte@gmail.com'
 
@@ -33,6 +34,12 @@ export const CONTACTO_SOPORTE = 'techrepairpro.soporte@gmail.com'
 // transposición de `+549`) y la regla anterior, «10 a 15 dígitos», lo dejó
 // pasar. El build productivo además falla antes de publicar (ver
 // `scripts/guards/support-contact.mjs`).
+//
+// Única excepción a «el número sale de la variable»: los correos de Supabase
+// Auth (`supabase/templates/*.html`). GoTrue renderiza un HTML estático y no
+// puede leer esta variable, así que el número va ESCRITO en las plantillas y en
+// `scripts/guards/auth-email-templates.mjs`. Tiene que ser el mismo valor: si
+// cambia el número de soporte hay que cambiarlo en los dos lados.
 
 /**
  * Deja un teléfono en el formato que `wa.me` exige: sólo dígitos, con código de

@@ -9,7 +9,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
-import { mailpitPortFromToml } from '../e2e/setup/mailpit.ts'
+import { fileURLToPath } from 'node:url'
+import { enlaceSoporteDePlantilla, mailpitPortFromToml } from '../e2e/setup/mailpit.ts'
 
 const TOML = readFileSync(new URL('../../supabase/config.toml', import.meta.url), 'utf8')
 
@@ -41,6 +42,17 @@ test('M4. plantillas token_hash cableadas a archivos que existen', () => {
     assert.match(bloque, new RegExp(`content_path = "\\./supabase/templates/${archivo}"`), nombre)
     assert.match(bloque, /subject = ".+TechRepair Pro"/, nombre)
     assert.ok(existsSync(new URL(`../../supabase/templates/${archivo}`, import.meta.url)), archivo)
+  }
+})
+
+// BETA-UX-1A — los E2E comparan el correo real contra el enlace de ayuda que
+// está versionado en la plantilla (WhatsApp, mensaje fijo y codificado).
+test('M6. el enlace de ayuda de las plantillas se lee del archivo versionado', () => {
+  const dir = fileURLToPath(new URL('../../supabase/templates', import.meta.url))
+  for (const nombre of ['confirmation', 'recovery'] as const) {
+    const href = enlaceSoporteDePlantilla(nombre, dir)
+    assert.match(href, /^https:\/\/wa\.me\/549\d{10}\?text=Hola%2C%20/, nombre)
+    assert.doesNotMatch(href, /\{\{|@|\s|&/, nombre)
   }
 })
 

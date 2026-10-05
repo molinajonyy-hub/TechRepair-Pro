@@ -121,7 +121,10 @@ jobs:
       # mensaje precargado es un texto fijo bien codificado y sin datos del
       # usuario, y que una sola fuente (`config/contacto.ts`) lee la variable.
       # Las suites que ya cubrían estas pantallas (BETA-1, PRE-BETA-2D) corren
-      # en sus propios steps con el contrato nuevo.
+      # en sus propios steps con el contrato nuevo. Los correos de Supabase Auth
+      # también ofrecen el WhatsApp canónico (número escrito en la plantilla:
+      # GoTrue no lee la variable): lo fija `guard:auth-email-templates` en el
+      # step de PRE-BETA-2D, y el job `e2e-local` lee el correo real.
       - name: BETA-UX-1A — support channel (build guard + canonical WhatsApp)
         run: npm run test:beta-ux-1a
 

@@ -11,7 +11,8 @@
 //   M  mensaje: texto fijo de un conjunto cerrado, bien codificado y sin datos
 //      del usuario ni del negocio
 //   P  pantallas previas al negocio: usan el canal canónico
-//   U  todas las superficies de ayuda terminan en el mismo número
+//   U  todas las superficies de ayuda terminan en el mismo número, incluidos
+//      los correos de Supabase Auth (que lo llevan escrito en la plantilla)
 //   G  control de fuente: una sola autoridad, sin teléfonos en el código
 //
 // El guard de BUILD (que `vite build` falle con un valor inválido) se prueba en
@@ -85,6 +86,7 @@ import { ResetPassword } from '../../src/pages/ResetPassword'
 import { Ayuda } from '../../src/pages/Ayuda'
 import { LandingPage } from '../../src/pages/LandingPage'
 import { PremiumErrorBoundary } from '../../src/components/ui/PremiumErrorBoundary'
+import { PLANTILLAS, WHATSAPP_SOPORTE as WHATSAPP_PLANTILLAS, enlaceSoporteDe } from '../../scripts/guards/auth-email-templates.mjs'
 
 const MOTIVOS = Object.keys(MENSAJES_SOPORTE) as MotivoSoporte[]
 
@@ -375,6 +377,20 @@ describe('U · todas las superficies de ayuda terminan en el mismo número', () 
     enRouter(<LandingPage />, '/landing')
     expect(screen.queryByTestId('landing-whatsapp')).toBeNull()
     expect(document.querySelector('a[href*="wa.me"]')).toBeNull()
+  })
+
+  it('correos de Auth (confirmación y recovery): el mismo número, escrito en la plantilla', () => {
+    // Supabase Auth renderiza un HTML estático y no lee VITE_CONTACT_WHATSAPP:
+    // el número está versionado en las plantillas y en su guard. Si este test
+    // falla, la variable y los correos dejaron de apuntar al mismo WhatsApp.
+    expect(WHATSAPP_PLANTILLAS).toBe(SOPORTE)
+    for (const { archivo, tipo, ayuda } of Object.values(PLANTILLAS)) {
+      const html = readFileSync(archivo, 'utf8')
+      expect(enlaceSoporteDe(tipo), archivo).toBe(`${BASE}${encodeURIComponent(ayuda)}`)
+      expect(html, archivo).toContain(`href="${BASE}${encodeURIComponent(ayuda)}"`)
+      expect(html, archivo).not.toMatch(/mailto:/i)
+      expect(html, archivo).not.toContain(CONTACTO_SOPORTE)
+    }
   })
 
   it('el muro de suscripción sale por /ayuda, que usa el mismo canal', () => {
