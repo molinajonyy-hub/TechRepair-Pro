@@ -9,7 +9,6 @@
 //
 // Un valor desconocido NO se muestra: cae al mensaje genérico.
 // ─────────────────────────────────────────────────────────────────────────────
-import { CONTACTO_SOPORTE } from '../config/contacto.ts'
 import { isWeakPasswordError, weakPasswordMessage } from './passwordPolicy.ts'
 
 interface AuthErrorShape {
@@ -85,7 +84,9 @@ export const SIGNUP_ERROR_MESSAGE: Record<Exclude<SignUpFailure, 'weak_password'
   already_registered: 'No pudimos completar el registro. Si ya tenés una cuenta, iniciá sesión o recuperá tu contraseña.',
   rate_limited: 'Hiciste varios intentos seguidos. Esperá unos minutos y volvé a probar.',
   invalid_email: 'Revisá el email: no parece una dirección válida.',
-  email_send_failed: `No pudimos enviar el correo de confirmación. Probá de nuevo en unos minutos. Si sigue fallando, escribinos a ${CONTACTO_SOPORTE}.`,
+  // BETA-UX-1A — sin casilla de contacto en el texto: la salida de ayuda es un
+  // enlace al canal canónico que la pantalla agrega junto al mensaje (Login).
+  email_send_failed: 'No pudimos enviar el correo de confirmación. Probá de nuevo en unos minutos.',
   network: 'No pudimos conectarnos. Revisá tu conexión e intentá de nuevo.',
   unknown: 'No pudimos crear la cuenta. Intentá nuevamente en unos minutos.',
 }

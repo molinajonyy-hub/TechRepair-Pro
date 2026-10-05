@@ -5,7 +5,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { provisionMyBusiness } from '../services/provisioningService';
 import { peekInviteToken, acceptInviteePath } from '../lib/pendingInvite';
 import { logger } from '../lib/logger';
-import { CONTACTO_SOPORTE } from '../config/contacto';
+import { canalSoporte } from '../config/contacto';
+import { SupportContactLink } from '../components/ui/SupportContactButton';
 import {
   AuthFlowShell, AuthFlowLoading, AuthFlowForm, AuthFlowField, AuthFlowError,
   AuthFlowActions, AuthFlowPrimaryButton, AuthFlowSecondaryButton, AuthFlowTextButton,
@@ -145,7 +146,10 @@ export function NoBusiness() {
   // Va ANTES de la invitación: un usuario desactivado no sale de este estado
   // aceptando otra cosa ni creando un negocio. La autoridad sigue siendo el
   // servidor (`is_active` + RLS); esta pantalla sólo lo explica.
+  // BETA-UX-1A — la salida de ayuda es el canal canónico (WhatsApp), no la
+  // casilla institucional. Esta pantalla no tiene `/ayuda` (vive en MainLayout).
   if (authState === 'AUTH_ERROR' && profileErrorKind === 'inactive') {
+    const soporte = canalSoporte('accesoDesactivado');
     return (
       <AuthFlowShell
         cardTestId="no-business-inactive"
@@ -156,10 +160,12 @@ export function NoBusiness() {
         description={
           <>
             <p>Un administrador del negocio desactivó tu usuario. Si creés que es un error, pedile que te vuelva a habilitar.</p>
-            <p>
-              Si sos el titular del negocio, escribinos a{' '}
-              <a href={`mailto:${CONTACTO_SOPORTE}`}>{CONTACTO_SOPORTE}</a>.
-            </p>
+            {soporte.tipo === 'whatsapp' && (
+              <p data-testid="no-business-inactive-soporte">
+                Si sos el titular del negocio,{' '}
+                <SupportContactLink canal={soporte}>escribinos por WhatsApp</SupportContactLink>.
+              </p>
+            )}
           </>
         }
       >
@@ -204,6 +210,7 @@ export function NoBusiness() {
   // ── C. Estado inconsistente: reintentar, NUNCA crear ─────────────────────
   if (authState === 'AUTH_ERROR') {
     const esVinculo = profileErrorKind === 'link_failed';
+    const soporte = canalSoporte('negocioNoCarga');
     return (
       <AuthFlowShell
         cardTestId="no-business-error"
@@ -211,9 +218,21 @@ export function NoBusiness() {
         tone="warning"
         icon={<AlertTriangle size={26} />}
         title="No pudimos cargar tu negocio"
-        description={esVinculo
-          ? 'Tu cuenta existe pero no pudimos vincularla a su negocio. Escribinos y lo resolvemos.'
-          : 'Puede ser un problema de conexión. Probá de nuevo en unos segundos.'}
+        description={
+          <>
+            <p>
+              {esVinculo
+                ? 'Tu cuenta existe pero no pudimos vincularla a su negocio.'
+                : 'Puede ser un problema de conexión. Probá de nuevo en unos segundos.'}
+            </p>
+            {soporte.tipo === 'whatsapp' && (
+              <p data-testid="no-business-error-soporte">
+                {esVinculo ? 'Para resolverlo, ' : 'Si sigue igual, '}
+                <SupportContactLink canal={soporte}>escribinos por WhatsApp</SupportContactLink>.
+              </p>
+            )}
+          </>
+        }
       >
         {/* A propósito NO se ofrece «crear negocio» acá: no sabemos si el usuario
             ya tiene uno, y crear otro sería duplicar su tenant. */}

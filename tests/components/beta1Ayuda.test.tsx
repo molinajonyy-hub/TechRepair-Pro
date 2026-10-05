@@ -178,14 +178,18 @@ describe('A4 · página de Ayuda', () => {
     expect(screen.getByTestId('support-contact-cta').style.minHeight).toBe('44px')
   })
 
-  it('sin WhatsApp configurado la página no queda sin salida: cae al correo', () => {
+  // BETA-UX-1A cambió este contrato: sin WhatsApp la página caía al correo
+  // institucional, que nadie atiende como soporte. Ahora lo dice y no enlaza.
+  it('sin WhatsApp configurado NO cae al correo: avisa que el canal no está disponible', () => {
     vi.stubEnv('VITE_CONTACT_WHATSAPP', '')
     montar()
-    const cta = screen.getByTestId('support-contact-cta')
-    expect(cta).toHaveTextContent('Escribir por correo')
-    expect(cta).toHaveAttribute('href', `mailto:${CONTACTO_SOPORTE}`)
-    expect(cta).not.toHaveAttribute('target')
-    expect(cta).toHaveAttribute('data-support-channel', 'email')
+    expect(screen.queryByTestId('support-contact-cta')).toBeNull()
+    const aviso = screen.getByTestId('support-contact-unavailable')
+    expect(aviso).toHaveTextContent('La ayuda por WhatsApp no está disponible en este momento.')
+    expect(aviso).toHaveAttribute('data-support-channel', 'no_disponible')
+    expect(screen.queryAllByRole('link')).toHaveLength(0)
+    expect(document.querySelector('a[href^="mailto:"]')).toBeNull()
+    expect(document.body.textContent).not.toContain(CONTACTO_SOPORTE)
   })
 })
 

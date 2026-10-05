@@ -145,7 +145,7 @@ interface FullFallbackProps {
 
 function FullFallback({ error, errorInfo, context, retryCount, onRetry }: FullFallbackProps) {
   const isDev = import.meta.env.DEV
-  const soporte = canalSoporte('Hola, TechRepair Pro me muestra un error y no puedo continuar.')
+  const soporte = canalSoporte('error')
 
   return (
     // data-theme="dark": pantalla de error de marca, deliberadamente oscura en
@@ -204,19 +204,23 @@ function FullFallback({ error, errorInfo, context, retryCount, onRetry }: FullFa
 
         {/* BETA-1 — salida a Ayuda. Enlace plano a propósito: esta pantalla se
             muestra cuando el árbol de React (router incluido) ya falló, así
-            que no puede depender de `navigate` ni de otra ruta de la app. */}
-        <p style={{ margin: 0, textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem', lineHeight: 1.6 }}>
-          ¿Sigue fallando?{' '}
-          <a
-            href={soporte.url}
-            target={soporte.tipo === 'whatsapp' ? '_blank' : undefined}
-            rel={soporte.tipo === 'whatsapp' ? 'noopener noreferrer' : undefined}
-            data-testid="error-boundary-help"
-            style={{ color: '#a5b4fc', fontWeight: 700 }}
-          >
-            {soporte.etiqueta}
-          </a>
-        </p>
+            que no puede depender de `navigate` ni de otra ruta de la app.
+            BETA-UX-1A — sin canal configurado la línea no se muestra: no hay
+            correo de respaldo. */}
+        {soporte.tipo === 'whatsapp' && (
+          <p style={{ margin: 0, textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem', lineHeight: 1.6 }}>
+            ¿Sigue fallando?{' '}
+            <a
+              href={soporte.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-testid="error-boundary-help"
+              style={{ color: '#a5b4fc', fontWeight: 700 }}
+            >
+              {soporte.etiqueta}
+            </a>
+          </p>
+        )}
 
         {/* Detalle técnico (solo dev) */}
         {isDev && error && (

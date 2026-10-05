@@ -8,9 +8,11 @@
 //
 // BETA-1 cambió SC1: la pantalla mostraba `CONTACTO_SOPORTE` como mailto, pero
 // esa casilla es el contacto LEGAL y no un canal atendido. Ahora la línea de
-// soporte lleva a /ayuda, que resuelve el canal con `canalSoporte()` (WhatsApp
-// cuando está configurado; el correo queda sólo como respaldo). La autoridad
-// sigue siendo `config/contacto.ts`.
+// soporte lleva a /ayuda, que resuelve el canal con `canalSoporte()`. La
+// autoridad sigue siendo `config/contacto.ts`.
+//
+// BETA-UX-1A: el correo dejó de ser respaldo del canal de ayuda. Sigue siendo el
+// contacto institucional de las plantillas de Auth (SC3), que no cambian acá.
 // ─────────────────────────────────────────────────────────────────────────────
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'

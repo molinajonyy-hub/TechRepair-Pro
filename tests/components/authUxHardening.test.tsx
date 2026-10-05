@@ -26,8 +26,9 @@
 //   C1  /auth/callback con error_description arbitrario → jamás reflejado
 //   C2  /auth/callback access_denied → copy conocido
 //   V1  /verificar-email: reenvío fallido → estado propio + soporte canónico
+//   L8b/L8c/V2 (BETA-UX-1A) el soporte canónico es WhatsApp; sin canal, nada
 // ─────────────────────────────────────────────────────────────────────────────
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom'
 import { AuthProvider, rememberPendingConfirmationEmail } from '../../src/contexts/AuthContext'
@@ -35,9 +36,9 @@ import { Login } from '../../src/pages/Login'
 import { AuthCallback } from '../../src/pages/AuthCallback'
 import { VerifyEmail } from '../../src/pages/VerifyEmail'
 import { COMPROMISED_PASSWORD_MESSAGE } from '../../src/lib/passwordPolicy'
-import { GOOGLE_START_ERROR_MESSAGE } from '../../src/lib/authErrors'
+import { GOOGLE_START_ERROR_MESSAGE, SIGNUP_ERROR_MESSAGE } from '../../src/lib/authErrors'
 import { RECOVERY_REQUEST_MARKER_KEY } from '../../src/lib/passwordRecovery'
-import { CONTACTO_SOPORTE } from '../../src/config/contacto'
+import { CONTACTO_SOPORTE, canalSoporte } from '../../src/config/contacto'
 
 const estado = vi.hoisted(() => ({
   signUpError: null as unknown,
@@ -132,6 +133,12 @@ beforeEach(() => {
   window.localStorage.clear()
   window.sessionStorage.clear()
   window.history.replaceState({}, '', '/')
+  // Número de fantasía (no asignable) con el formato productivo.
+  vi.stubEnv('VITE_CONTACT_WHATSAPP', '5490000000000')
+})
+
+afterEach(() => {
+  vi.unstubAllEnvs()
 })
 
 describe('PRE-BETA-2D · Login — registro', () => {
@@ -204,6 +211,31 @@ describe('PRE-BETA-2D · Login — registro', () => {
     await registrar('segura-123')
     expect((await screen.findByTestId('login-error')).textContent).toContain('No pudimos crear la cuenta')
     expect(texto()).not.toMatch(/Database error/i)
+  })
+
+  // BETA-UX-1A: el fallo del SMTP mostraba la casilla institucional como texto.
+  it('L8b. fallo al enviar el correo → copy propio + ayuda por el canal canónico (WhatsApp)', async () => {
+    estado.signUpError = { name: 'AuthApiError', status: 500, code: 'unexpected_failure', message: 'Error sending confirmation email' }
+    montar('/login?modo=registro')
+    await registrar('abcd1234')
+    const alerta = await screen.findByTestId('login-error')
+    expect(alerta.textContent).toContain(SIGNUP_ERROR_MESSAGE.email_send_failed)
+    const ayuda = screen.getByTestId('login-error-soporte')
+    expect(ayuda.getAttribute('href')).toBe(canalSoporte('correoNoLlega').url)
+    expect(ayuda.getAttribute('href')).toMatch(/^https:\/\/wa\.me\/5490000000000\?text=/)
+    // El mensaje precargado es fijo: el email que se tipeó no viaja en la URL.
+    expect(decodeURIComponent(ayuda.getAttribute('href') ?? '')).not.toContain('qa@example.test')
+    expect(texto()).not.toContain(CONTACTO_SOPORTE)
+    expect(document.querySelector('a[href^="mailto:"]')).toBeNull()
+    expect(texto()).not.toMatch(/Error sending/)
+  })
+
+  it('L8c. los demás errores del alta NO ofrecen el canal de ayuda', async () => {
+    estado.signUpError = { name: 'AuthApiError', status: 429, code: 'over_email_send_rate_limit', message: 'email rate limit exceeded' }
+    montar('/login?modo=registro')
+    await registrar('abcd1234')
+    await screen.findByTestId('login-error')
+    expect(screen.queryByTestId('login-error-soporte')).toBeNull()
   })
 
   it('L15. el plan de la landing sobrevive: post_login_redirect y localStorage para otra pestaña', async () => {
@@ -303,9 +335,24 @@ describe('PRE-BETA-2D · /verificar-email', () => {
     montar('/verificar-email')
     fireEvent.click(await screen.findByTestId('verify-email-reenviar'))
     await waitFor(() => expect(screen.getByTestId('verify-email-estado').getAttribute('data-estado')).toBe('RESEND_FAILED'))
+    // BETA-UX-1A: el soporte canónico es WhatsApp, no la casilla institucional.
     const soporte = screen.getByTestId('verify-email-soporte')
-    expect(soporte.textContent).toContain(CONTACTO_SOPORTE)
-    expect(soporte.querySelector('a')?.getAttribute('href')).toBe(`mailto:${CONTACTO_SOPORTE}`)
+    expect(soporte.textContent).toBe('Si sigue sin llegar, escribinos por WhatsApp.')
+    expect(soporte.querySelector('a')?.getAttribute('href')).toBe(canalSoporte('correoNoLlega').url)
+    expect(soporte.querySelector('a')?.getAttribute('href')).toMatch(/^https:\/\/wa\.me\/5490000000000\?text=/)
+    expect(texto()).not.toContain(CONTACTO_SOPORTE)
+    expect(document.querySelector('a[href^="mailto:"]')).toBeNull()
     expect(texto()).not.toMatch(/Error sending/)
+  })
+
+  it('V2. sin canal configurado el reenvío fallido no ofrece un contacto (ni cae al correo)', async () => {
+    vi.stubEnv('VITE_CONTACT_WHATSAPP', '')
+    rememberPendingConfirmationEmail('qa@example.test')
+    estado.resendError = { name: 'AuthApiError', status: 500, code: 'unexpected_failure', message: 'Error sending confirmation email' }
+    montar('/verificar-email')
+    fireEvent.click(await screen.findByTestId('verify-email-reenviar'))
+    await waitFor(() => expect(screen.getByTestId('verify-email-estado').getAttribute('data-estado')).toBe('RESEND_FAILED'))
+    expect(screen.queryByTestId('verify-email-soporte')).toBeNull()
+    expect(texto()).not.toContain(CONTACTO_SOPORTE)
   })
 })

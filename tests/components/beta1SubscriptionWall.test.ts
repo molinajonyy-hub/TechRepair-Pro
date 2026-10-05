@@ -22,6 +22,7 @@ import {
 import {
   CONTACTO_SOPORTE,
   MENSAJE_SOPORTE_DEFAULT,
+  MENSAJES_SOPORTE,
   canalSoporte,
   normalizarWhatsApp,
   whatsappSoporte,
@@ -197,19 +198,26 @@ describe('C · canal de soporte canónico', () => {
 
   it('el mensaje precargado va codificado y es el que pide la pantalla', () => {
     vi.stubEnv('VITE_CONTACT_WHATSAPP', WHATSAPP_TEST)
-    const canal = canalSoporte('Hola, me aparece un error & no puedo seguir')
-    expect(new URL(canal.url).searchParams.get('text')).toBe('Hola, me aparece un error & no puedo seguir')
+    // BETA-UX-1A: la pantalla elige una clave de un conjunto cerrado de textos fijos.
+    const canal = canalSoporte('error')
+    expect(new URL(canal.url ?? '').searchParams.get('text')).toBe(MENSAJES_SOPORTE.error)
   })
 
-  it('sin WhatsApp configurado cae al correo: la pantalla nunca queda sin salida', () => {
+  // BETA-UX-1A cambió este contrato: antes caía al correo institucional, que
+  // nadie atiende como soporte. Ahora el canal queda `no_disponible`.
+  it('sin WhatsApp configurado NO cae al correo: el canal queda no disponible', () => {
     vi.stubEnv('VITE_CONTACT_WHATSAPP', '')
     expect(whatsappSoporte()).toBeNull()
-    expect(canalSoporte()).toEqual({ tipo: 'email', url: `mailto:${CONTACTO_SOPORTE}`, etiqueta: 'Escribir por correo' })
+    const canal = canalSoporte()
+    expect(canal.tipo).toBe('no_disponible')
+    expect(canal.url).toBeNull()
+    expect(JSON.stringify(canal)).not.toMatch(/mailto|@/)
+    expect(JSON.stringify(canal)).not.toContain(CONTACTO_SOPORTE)
   })
 
   it('un valor roto en la variable no produce un link roto', () => {
     vi.stubEnv('VITE_CONTACT_WHATSAPP', 'pendiente')
-    expect(canalSoporte().tipo).toBe('email')
+    expect(canalSoporte()).toMatchObject({ tipo: 'no_disponible', url: null })
   })
 })
 

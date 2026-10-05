@@ -10,25 +10,35 @@
  * Es también el email del publisher de la extensión en el Chrome Web Store, que
  * lo exige verificado y lo muestra públicamente en la ficha. Los tres usos —la
  * política, el pie, y la ficha del Store— tienen que decir lo mismo.
+ *
+ * BETA-UX-1A — NO es un canal de soporte. El owner confirmó (2026-10-05) que
+ * esta casilla no se atiende como soporte: es el contacto institucional/legal.
+ * El nombre de la constante es histórico (lo lee el guard de las plantillas de
+ * Auth). Ninguna pantalla de producto la ofrece como ayuda, y `canalSoporte()`
+ * ya no cae acá cuando falta el WhatsApp.
  */
 export const CONTACTO_SOPORTE = 'techrepairpro.soporte@gmail.com'
 
-// ─── BETA-1 · Canal de ayuda del producto ────────────────────────────────────
+// ─── Canal de ayuda del producto (BETA-1 · BETA-UX-1A) ───────────────────────
 //
-// La casilla de arriba es el contacto LEGAL (política, Store, plantillas de
-// Auth). No es un canal de soporte atendido, así que la Ayuda de la app no la
-// presenta como primera opción: durante la beta el canal monitoreado es
-// WhatsApp.
+// Durante la beta el único canal de soporte atendido es WhatsApp.
 //
-// El número sale de `VITE_CONTACT_WHATSAPP`, la misma variable que publica el
-// pie de la landing, para que el producto y la landing no puedan decir números
-// distintos. Este archivo es el ÚNICO lugar de la app que la convierte en un
-// enlace de ayuda: los componentes piden `canalSoporte()` y no arman URLs.
+// El número sale de `VITE_CONTACT_WHATSAPP`. Este archivo es el ÚNICO lugar de
+// la app que lo lee y lo convierte en un enlace: la Ayuda, la pantalla global de
+// error, el muro de fin de prueba, las pantallas previas al negocio y el pie de
+// la landing piden `canalSoporte()` y no arman URLs ni conocen el teléfono.
+//
+// La variable se valida con una regla ESTRICTA (celular argentino). Un valor
+// que no la cumple no produce un enlace: en producción se publicó `+594…` (una
+// transposición de `+549`) y la regla anterior, «10 a 15 dígitos», lo dejó
+// pasar. El build productivo además falla antes de publicar (ver
+// `scripts/guards/support-contact.mjs`).
 
 /**
- * Deja el número en el formato que `wa.me` exige: sólo dígitos, con código de
- * país y sin `+`. PURA. Devuelve `null` si no parece un teléfono internacional
- * (10 a 15 dígitos, E.164): un link roto es peor que no ofrecer el canal.
+ * Deja un teléfono en el formato que `wa.me` exige: sólo dígitos, con código de
+ * país y sin `+`. PURA y GENÉRICA (10 a 15 dígitos, E.164): no decide si el
+ * número es el de soporte. Para la configuración productiva usar
+ * `validarWhatsAppSoporte`.
  */
 export function normalizarWhatsApp(valor: string | null | undefined): string | null {
   if (typeof valor !== 'string') return null
@@ -36,36 +46,114 @@ export function normalizarWhatsApp(valor: string | null | undefined): string | n
   return digitos.length >= 10 && digitos.length <= 15 ? digitos : null
 }
 
-/** Número de WhatsApp de soporte ya normalizado, o `null` si no está configurado. */
-export function whatsappSoporte(): string | null {
-  // `?.` a propósito: este módulo también se carga bajo `node --test`
-  // (authErrors), donde `import.meta.env` no existe.
-  return normalizarWhatsApp(import.meta.env?.VITE_CONTACT_WHATSAPP)
+/** Celular argentino para `wa.me`: 54 (país) + 9 (móvil) + 10 dígitos nacionales. */
+const WHATSAPP_AR_MOVIL = /^549\d{10}$/
+
+/** Lo único que puede acompañar a los dígitos: separadores de formato legible. */
+const SOLO_TELEFONO = /^\+?[\d\s().-]+$/
+
+export type ResultadoWhatsAppSoporte =
+  | { ok: true; numero: string }
+  | { ok: false; motivo: string }
+
+/**
+ * Regla de la configuración productiva de soporte. PURA.
+ *
+ * El valor canónico es `549XXXXXXXXXX` (13 dígitos). Se tolera el formato
+ * legible (`+54 9 3574 404419`): los separadores se descartan y lo que se
+ * publica es siempre el número normalizado. Lo que NO se tolera es que los
+ * dígitos no sean un celular argentino: `594…`, `54` sin el `9`, un número
+ * truncado, vacío o con letras.
+ */
+export function validarWhatsAppSoporte(valor: string | null | undefined): ResultadoWhatsAppSoporte {
+  if (typeof valor !== 'string' || valor.trim() === '') {
+    return { ok: false, motivo: 'está vacío' }
+  }
+  const limpio = valor.trim()
+  if (!SOLO_TELEFONO.test(limpio)) {
+    return { ok: false, motivo: 'tiene caracteres que no son de un teléfono' }
+  }
+  const digitos = limpio.replace(/\D/g, '')
+  if (WHATSAPP_AR_MOVIL.test(digitos)) return { ok: true, numero: digitos }
+
+  if (digitos.startsWith('594')) {
+    return { ok: false, motivo: 'empieza con 594 (Guayana Francesa): parece una transposición de 549' }
+  }
+  if (digitos.startsWith('54') && digitos[2] !== '9') {
+    return { ok: false, motivo: 'le falta el 9 de celular después del 54' }
+  }
+  if (!digitos.startsWith('549')) {
+    return { ok: false, motivo: 'no empieza con 549 (Argentina, celular)' }
+  }
+  return { ok: false, motivo: `tiene ${digitos.length} dígitos y se esperan 13 (54 + 9 + 10)` }
 }
 
-export const MENSAJE_SOPORTE_DEFAULT = 'Hola, necesito ayuda con TechRepair Pro.'
+/** Número de WhatsApp de soporte ya normalizado, o `null` si falta o es inválido. */
+export function whatsappSoporte(): string | null {
+  // `?.` a propósito: este módulo también se carga fuera de Vite (el guard de
+  // build y `node --test`), donde `import.meta.env` no existe.
+  const resultado = validarWhatsAppSoporte(import.meta.env?.VITE_CONTACT_WHATSAPP)
+  return resultado.ok ? resultado.numero : null
+}
 
-export interface CanalSoporte {
-  tipo: 'whatsapp' | 'email'
+/**
+ * Mensajes precargados, uno por superficie. Conjunto CERRADO y de texto fijo:
+ * `canalSoporte` sólo acepta una de estas claves, así que ningún componente
+ * puede interpolar el email del usuario, el nombre del negocio ni un id en la
+ * URL de WhatsApp.
+ */
+export const MENSAJES_SOPORTE = {
+  general: 'Hola, necesito ayuda con TechRepair Pro.',
+  error: 'Hola, TechRepair Pro me muestra un error y no puedo continuar.',
+  accesoDesactivado: 'Hola, mi acceso a TechRepair Pro figura desactivado y soy titular del negocio.',
+  negocioNoCarga: 'Hola, TechRepair Pro no puede cargar mi negocio.',
+  correoNoLlega: 'Hola, no me llega el correo de confirmación de TechRepair Pro.',
+  recuperarContrasena: 'Hola, no me llega el correo para restablecer mi contraseña de TechRepair Pro.',
+  landing: 'Hola, quiero hacer una consulta sobre TechRepair Pro.',
+} as const
+
+export type MotivoSoporte = keyof typeof MENSAJES_SOPORTE
+
+export const MENSAJE_SOPORTE_DEFAULT = MENSAJES_SOPORTE.general
+
+export interface CanalSoporteWhatsApp {
+  tipo: 'whatsapp'
   /** Destino listo para un `href`. */
   url: string
   /** Texto del CTA. */
   etiqueta: string
 }
 
+export interface CanalSoporteNoDisponible {
+  tipo: 'no_disponible'
+  url: null
+  /** Texto que se muestra en lugar del CTA. */
+  etiqueta: string
+}
+
+export type CanalSoporte = CanalSoporteWhatsApp | CanalSoporteNoDisponible
+
 /**
- * Canal de ayuda vigente. WhatsApp cuando está configurado; si no, cae al
- * correo para que la pantalla nunca quede sin salida. El mensaje se precarga
- * sólo en WhatsApp y no lleva datos del usuario ni del negocio.
+ * Canal de ayuda vigente.
+ *
+ * WhatsApp cuando la variable es un celular argentino válido. Si falta o es
+ * inválida (desarrollo, o un error de configuración que el guard de build no
+ * haya visto) el canal queda `no_disponible`: la pantalla lo dice o no ofrece
+ * el enlace, pero NUNCA deriva a la casilla institucional, que nadie atiende
+ * como soporte.
  */
-export function canalSoporte(mensaje: string = MENSAJE_SOPORTE_DEFAULT): CanalSoporte {
+export function canalSoporte(motivo: MotivoSoporte = 'general'): CanalSoporte {
   const numero = whatsappSoporte()
-  if (numero) {
+  if (!numero) {
     return {
-      tipo: 'whatsapp',
-      url: `https://wa.me/${numero}?text=${encodeURIComponent(mensaje)}`,
-      etiqueta: 'Hablar por WhatsApp',
+      tipo: 'no_disponible',
+      url: null,
+      etiqueta: 'La ayuda por WhatsApp no está disponible en este momento.',
     }
   }
-  return { tipo: 'email', url: `mailto:${CONTACTO_SOPORTE}`, etiqueta: 'Escribir por correo' }
+  return {
+    tipo: 'whatsapp',
+    url: `https://wa.me/${numero}?text=${encodeURIComponent(MENSAJES_SOPORTE[motivo])}`,
+    etiqueta: 'Hablar por WhatsApp',
+  }
 }

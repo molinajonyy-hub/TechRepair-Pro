@@ -110,6 +110,21 @@ jobs:
       - name: BETA-1 — trial end + Mercado Pago self-service + help
         run: npm run test:beta1
 
+      # BETA-UX-1A: el WhatsApp de ayuda de producción fue `+594…` (una
+      # transposición de `+549`) y ningún gate lo miraba. El self-test del guard
+      # resuelve el `vite.config.ts` REAL con cada valor: `vite build` tiene que
+      # fallar con 594, sin el 9 de celular, truncado, con basura, y con la
+      # variable ausente en un deploy productivo (VERCEL_ENV=production); un
+      # plugin descableado hace fallar el self-test. La suite fija que el canal
+      # NUNCA cae a la casilla institucional (que no se atiende como soporte),
+      # que las pantallas previas al negocio usan el canal canónico, que el
+      # mensaje precargado es un texto fijo bien codificado y sin datos del
+      # usuario, y que una sola fuente (`config/contacto.ts`) lee la variable.
+      # Las suites que ya cubrían estas pantallas (BETA-1, PRE-BETA-2D) corren
+      # en sus propios steps con el contrato nuevo.
+      - name: BETA-UX-1A — support channel (build guard + canonical WhatsApp)
+        run: npm run test:beta-ux-1a
+
       # BETA-MP: Billing SaaS por Mercado Pago. El frontend propone, Mercado Pago
       # confirma, el backend decide. Corre el código REAL de las Edge Functions
       # (`supabase/functions/_shared/billing`) contra un PostgREST en memoria que
@@ -253,6 +268,9 @@ jobs:
           # Dummy values — build only checks bundling/TS, not runtime
           VITE_SUPABASE_URL: https://placeholder.supabase.co
           VITE_SUPABASE_ANON_KEY: placeholder-anon-key
+          # BETA-UX-1A: número de fantasía con el formato productivo, para que
+          # el build completo pase por el guard del canal de soporte.
+          VITE_CONTACT_WHATSAPP: '5490000000000'
 
       # AFIP-S3A: prueba criptográfica en el MISMO runtime que las Edge Functions.
       # Deno resuelve npm:node-forge por su cuenta (--node-modules-dir=auto), así
