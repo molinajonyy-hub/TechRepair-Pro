@@ -1942,7 +1942,22 @@ tbody tr:hover td {
   to   { opacity: 1; transform: translateX(0); }
 }
 
-.animate-fade-in       { animation: fadeIn 0.28s ease forwards; }
+/* `.animate-fade-in` NO lleva `forwards`, y es a propósito.
+   Con `forwards` el último fotograma queda aplicado para siempre, y ese
+   fotograma trae un `transform`. Aunque sea la identidad, un `transform`
+   distinto de `none` convierte al elemento en el bloque contenedor de sus
+   descendientes `position: fixed` y abre un contexto de apilamiento: una página
+   envuelta en esta clase atrapaba a sus modales, que se medían contra la página
+   y quedaban debajo del header (medido en el smoke de BETA-UX-1B: el POS abierto
+   desde una orden ocupaba 1042×1630 en un viewport de 1366×768).
+   Terminar el keyframe en `transform: none` NO lo arregla: medido en Chromium, el
+   valor retenido es la lista interpolada y `getComputedStyle` sigue devolviendo
+   `matrix(1, 0, 0, 1, 0, 0)`. Sin `forwards` la animación simplemente termina y
+   el elemento vuelve a su estado natural, que es idéntico al fotograma final
+   (opacidad 1, sin desplazamiento): la entrada se ve igual y no queda nada.
+   Lo vigilan `tests/components/betaUx1bModalViewport.test.tsx` (estructura) y
+   `tests/e2e/m7/pos-viewport-containment.spec.ts` (valor computado real). */
+.animate-fade-in       { animation: fadeIn 0.28s ease; }
 .animate-fade-in-fast  { animation: fadeInFast 0.16s ease forwards; }
 .animate-slide-in      { animation: slideIn 0.28s ease forwards; }
 .animate-slide-up      { animation: slideUp 0.28s ease forwards; }

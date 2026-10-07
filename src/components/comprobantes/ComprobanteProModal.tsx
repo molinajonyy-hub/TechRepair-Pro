@@ -35,6 +35,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { useWholesaleAccess } from '../../hooks/useWholesaleAccess'
 import { useCaja } from '../../contexts/CajaContext'
 import { InlineCashOpenDialog } from '../caja/InlineCashOpenDialog'
+import { ModalPortal } from '../ui/ModalPortal'
 import { formatDisplayMessage } from '../../utils/formatMessage'
 import {
   comprobanteService,
@@ -1415,8 +1416,16 @@ export function ComprobanteProModal({
   const showCartEmpty = filledLineas.length === 0 && !manualRows
 
   // ── JSX ───────────────────────────────────────────────────────────────────
+  // PORTAL a <body>: el POS y TODAS sus capas hermanas (toast, spotlight,
+  // producto manual, confirmaciones) se montan juntos fuera de la página que lo
+  // abre. Abierto desde una orden quedaba atrapado en el wrapper animado de
+  // `OrderDetail` y se medía contra la página, no contra el viewport (ver
+  // `ModalPortal`). Van todas en el MISMO portal a propósito: conservan entre sí
+  // el orden y los z-index de siempre, y una confirmación de cierre nunca puede
+  // quedar debajo del POS. Sólo cambia el punto de montaje: estado, contexto y
+  // eventos de React son los mismos.
   return (
-    <>
+    <ModalPortal>
     <div
       className={`cpm-root${sheetOpen ? ' cpm-sheet-open' : ''}`}
       // Fase 2A: el POS es theme-aware — hereda el tema global vía los tokens
@@ -2412,6 +2421,9 @@ export function ComprobanteProModal({
         color: 'var(--pos-on-accent)', fontSize: '0.8rem', fontWeight: 700, whiteSpace: 'nowrap' as const,
         boxShadow: `0 8px 24px ${toast.ok ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.4)'}`,
         animation: 'toastUp 0.18s ease',
+        // Explícita desde el portal: antes la heredaba del shell de la app y en
+        // <body> heredaría otra. Es la única capa hermana que no la declaraba.
+        fontFamily: F,
       }}>
         {toast.msg}
       </div>
@@ -2661,6 +2673,6 @@ export function ComprobanteProModal({
         </div>
       </div>
     )}
-    </>
+    </ModalPortal>
   )
 }

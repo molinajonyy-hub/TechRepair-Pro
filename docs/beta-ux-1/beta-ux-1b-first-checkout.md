@@ -311,6 +311,61 @@ Con un negocio de prueba y la caja **cerrada**:
    con «La caja ya estaba abierta».
 6. **Override**: un técnico con `finance: true` ve **Abrir caja**; un cajero con `finance: false` no.
 
+## 10 bis. Smoke manual — modal viewport containment
+
+Hallazgo del smoke manual. **No es un fallo de la lógica de BETA-UX-1B** (el flujo funcional pasó):
+es infraestructura de modales, y se corrige en este mismo PR sin tocar caja, checkout ni permisos.
+
+**Síntoma.** Abierto desde una orden, el POS aparecía corrido hacia abajo, con parte del contenido
+fuera de la pantalla; el fondo oscuro empezaba dentro del área de la página, no en el borde de la
+ventana.
+
+**Causa raíz (medida).** `OrderDetail` envuelve la página en `.animate-fade-in`
+(`animation: fadeIn 0.28s ease forwards`). Con `forwards` el último fotograma (`translateY(0)`) queda
+aplicado para siempre, y un `transform` distinto de `none` —aunque sea la identidad— convierte al
+elemento en el bloque contenedor de sus descendientes `position: fixed` y abre un contexto de
+apilamiento. Sobre el build anterior, a 1366×768: wrapper con `transform: matrix(1, 0, 0, 1, 0, 0)`
+y rectángulo (top 129, left 292, 1042×1630); el overlay del POS medía **exactamente eso** y el shell
+quedaba entre y=575 e y=1313. Desde `/comprobantes` no pasaba porque esa página no usa el wrapper —
+por eso los gates existentes del POS no lo veían.
+
+**Solución.**
+
+1. **Portal.** `src/components/ui/ModalPortal.tsx` (`createPortal(children, document.body)`, sin
+   comportamiento propio). `ComprobanteProModal` monta ahí el POS **y todas sus capas hermanas**
+   (toast, spotlight, producto manual, confirmaciones) en un único portal, así conservan entre sí el
+   orden y los z-index de siempre. Sólo cambia el punto de montaje: estado, contexto y eventos de
+   React son los mismos. `InlineCashOpenDialog` sigue dentro de `.cpm-root`.
+2. **Transform residual.** `.animate-fade-in` ya no lleva `forwards`: la animación termina y el
+   elemento vuelve a su estado natural, idéntico al fotograma final. La entrada se ve igual.
+   Terminar el keyframe en `transform: none` **no alcanzó**: medido en Chromium con
+   `to { transform: none }` + `forwards`, `getComputedStyle` siguió devolviendo la matriz identidad.
+
+Sin offsets, sin cálculos por scroll, sin excepciones para `OrderDetail`.
+
+**Pruebas agregadas.**
+
+| Suite | Qué mide |
+|---|---|
+| `tests/components/betaUx1bModalViewport.test.tsx` (18) | POS montado dentro de un ancestro transformado: `.cpm-root` es hijo de `<body>`; capas hermanas por el mismo portal; cerrar / Escape / fondo / confirmación; «Abrir caja» dentro del POS y sin desmontarlo; guard estructural de `.animate-fade-in` |
+| `tests/e2e/m7/pos-viewport-containment.spec.ts` (8) | Desde una orden y desde `/comprobantes`, a 1366×768, 1920×1080 y 390×844, contra `window.innerWidth/innerHeight`: overlay en (0,0) cubriendo todo, shell entero y centrado, cerrar y acción principal tocables, independiente del scroll, `transform === 'none'` real en el wrapper, «Abrir caja» por encima |
+
+El spec E2E falla sobre el build anterior (control). Los 7 controles negativos de componentes
+(revertir el portal, volver a `forwards`, un offset en vez del portal, etc.) son detectados.
+
+**Otros modales potencialmente afectados (no migrados en este PR).** 33 archivos pintan overlays
+`position: fixed` a pantalla completa sin portal. Los que se abren desde páginas con el wrapper
+animado quedaron liberados por la corrección de CSS: `ModalAgregarItem`, `OrderPrintPreviewModal`,
+`WarrantyFormModal`, `ProductFormModal` (desde la orden) y `ModalPagarCC` (desde el cliente).
+Backlog: migrarlos a `ModalPortal` / `ResponsiveDialog` para que no dependan de sus ancestros.
+Siguen dejando transform residual, hoy sin consumidores afectados: `.animate-slide-in/-up/-right` y
+`.stagger > *` (sin usos), y `modalIn` sobre `.modal-content-responsive`.
+
+**Hallazgo aparte (preexistente, no tocado).** Las capas hermanas del POS usan tokens `--pos-*`, que
+sólo existen bajo `.cpm-root`: la confirmación «Cambios sin guardar», «Borrador encontrado», el
+spotlight y el toast no los resuelven (panel con fondo transparente y texto oscuro sobre el fondo
+oscuro en tema claro). Medido antes y después del portal: idéntico.
+
 ## 11. Fuera de alcance — hallazgos
 
 Detectados durante el lote, **no modificados**:
