@@ -2343,6 +2343,221 @@ tbody tr:hover td {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
+   BETA-UX-1B — Caja cerrada en el checkout + diálogo «Abrir caja»
+   Todo vive DENTRO de .cpm-root: hereda los tokens --pos-*, el 16px anti-zoom
+   de .cpm-input16, --cpm-keyboard-offset y la regla de movimiento reducido.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Aviso en el footer de cobro. Con permiso lleva la acción; sin permiso no. */
+.cpm-caja-closed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.625rem;
+  margin-bottom: 0.5rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: 0.625rem;
+  background: rgba(234, 179, 8, 0.08);
+  border: 1px solid rgba(234, 179, 8, 0.28);
+}
+.cpm-caja-closed--blocked {
+  background: rgba(239, 68, 68, 0.07);
+  border-color: rgba(239, 68, 68, 0.22);
+}
+.cpm-caja-closed__text {
+  flex: 1 1 11rem;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  color: var(--pos-text-primary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.cpm-caja-closed__text svg { flex-shrink: 0; margin-top: 0.1rem; color: var(--pos-amber); }
+.cpm-caja-closed--blocked .cpm-caja-closed__text svg { color: var(--pos-danger); }
+.cpm-caja-closed__cta {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 0 0.875rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border-radius: 0.625rem;
+  border: 1px solid var(--pos-accent);
+  background: var(--pos-accent-soft);
+  color: var(--pos-accent-2);
+  font-size: 0.82rem;
+  font-weight: 800;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+/* Los hover de este bloque van sólo con puntero real: en táctil el :hover queda
+   pegado después del toque y el CTA parecería seguir «apretado». */
+@media (hover: hover) {
+  .cpm-caja-closed__cta:hover { background: var(--pos-accent); color: var(--pos-on-accent); }
+  .cpm-caja-close:hover:not(:disabled) { background: var(--pos-soft-bg); color: var(--pos-text-primary); }
+  .cpm-caja-btn--ghost:hover:not(:disabled) { background: var(--pos-soft-bg); color: var(--pos-text-primary); }
+}
+
+/* Diálogo. Centrado en desktop/tablet; hoja inferior en teléfono. */
+.cpm-caja-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;                 /* sobre el sheet (50) y el éxito (60) del POS */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.6);
+  animation: cpmFade 0.16s ease;
+}
+.cpm-caja-dialog {
+  width: 100%;
+  max-width: 460px;
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  outline: none;
+  background: var(--pos-surface-elevated);
+  border: 1px solid var(--pos-border);
+  border-radius: 1.125rem;
+  box-shadow: var(--pos-shadow-pop);
+  color: var(--pos-text-primary);
+  animation: cpmCajaIn 0.18s ease;
+}
+@keyframes cpmCajaIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+.cpm-caja-form { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+.cpm-caja-head { display: flex; align-items: flex-start; gap: 0.75rem; padding: 1.125rem 1.125rem 0.875rem; flex-shrink: 0; }
+.cpm-caja-icon {
+  width: 40px; height: 40px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 0.75rem;
+  background: var(--pos-accent-soft);
+  color: var(--pos-accent-2);
+}
+.cpm-caja-titles { flex: 1; min-width: 0; }
+.cpm-caja-titles h2 { margin: 0; font-size: 1.0625rem; font-weight: 800; line-height: 1.25; color: var(--pos-text-primary); }
+.cpm-caja-titles p  { margin: 0.25rem 0 0; font-size: 0.84rem; line-height: 1.4; color: var(--pos-text-secondary); }
+.cpm-caja-close {
+  flex-shrink: 0;
+  width: 44px; height: 44px;
+  margin: -0.375rem -0.375rem 0 0;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 0.625rem;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--pos-text-muted);
+}
+
+.cpm-caja-body {
+  flex: 1; min-height: 0;
+  overflow-y: auto;
+  display: flex; flex-direction: column; gap: 0.875rem;
+  padding: 0 1.125rem 1rem;
+}
+/* auto-fit: dos columnas mientras cada una conserve ~152px; una sola por debajo.
+   Nunca un 1fr 1fr fijo, que a 320px aprieta los montos. */
+.cpm-caja-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr)); gap: 0.75rem; }
+.cpm-caja-field { min-width: 0; display: flex; flex-direction: column; gap: 0.3rem; }
+.cpm-caja-field label { display: flex; align-items: center; gap: 0.35rem; margin: 0; font-size: 0.8rem; font-weight: 700; color: var(--pos-text-secondary); }
+/* El input ES el campo (fondo y borde van inline, con tokens del POS, porque
+   el reset global de inputs gana por especificidad). Así el anillo de foco
+   estándar del POS rodea el campo entero y no un input pelado adentro. */
+.cpm-caja-input { position: relative; }
+.cpm-caja-input > span {
+  position: absolute; left: 0.75rem; top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  font-size: 0.85rem; font-weight: 700;
+  color: var(--pos-text-muted);
+}
+.cpm-caja-input input {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 0.75rem 0 2.75rem;
+  border-radius: 0.625rem;
+  font-size: 1rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.cpm-caja-input input::-webkit-outer-spin-button,
+.cpm-caja-input input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.cpm-caja-hint { margin: 0; font-size: 0.75rem; color: var(--pos-text-muted); font-variant-numeric: tabular-nums; }
+
+.cpm-caja-error {
+  display: flex; align-items: flex-start; gap: 0.4rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: 0.625rem;
+  background: rgba(239, 68, 68, 0.07);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: var(--pos-danger);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+.cpm-caja-error svg { flex-shrink: 0; margin-top: 0.15rem; }
+
+.cpm-caja-actions {
+  flex-shrink: 0;
+  display: flex; gap: 0.625rem;
+  padding: 0.875rem 1.125rem 1.125rem;
+  border-top: 1px solid var(--pos-border-subtle);
+}
+.cpm-caja-btn {
+  min-height: 48px;
+  padding: 0 1rem;
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem;
+  border-radius: 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 800;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+.cpm-caja-btn:disabled { opacity: 0.6; }
+.cpm-caja-btn--ghost { flex: 0 0 auto; background: transparent; border: 1px solid var(--pos-border); color: var(--pos-text-secondary); }
+/* Mismo relleno que «Cobrar»: es la acción primaria del POS. */
+.cpm-caja-btn--primary {
+  flex: 1 1 auto;
+  border: none;
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  color: var(--pos-on-accent);
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.35);
+}
+.cpm-caja-spin { animation: tr-spin 0.8s linear infinite; }
+
+.cpm-caja-closed__cta:focus-visible,
+.cpm-caja-close:focus-visible,
+.cpm-caja-btn:focus-visible {
+  outline: 2px solid var(--pos-accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 767px) {
+  /* Hoja inferior. El offset del teclado virtual la mantiene a la vista
+     mientras se tipea un monto (iOS no achica el layout viewport). */
+  .cpm-caja-overlay {
+    align-items: flex-end;
+    padding: 0 0 var(--cpm-keyboard-offset, 0px);
+  }
+  .cpm-caja-dialog {
+    max-width: none;
+    max-height: calc(100vh - 1.5rem);
+    max-height: calc(100dvh - 1.5rem - var(--cpm-keyboard-offset, 0px));
+    border-radius: 1.125rem 1.125rem 0 0;
+    border-bottom: none;
+  }
+  .cpm-caja-actions { padding-bottom: max(1rem, env(safe-area-inset-bottom, 0px)); }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
    LOGIN
    ══════════════════════════════════════════════════════════════════════════ */
 

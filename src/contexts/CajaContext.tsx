@@ -18,7 +18,14 @@ interface CajaContextValue {
   isOpen: boolean
   cajaId: string | null
   loading: boolean
-  refresh: () => Promise<void>
+  /**
+   * Relee la caja abierta y devuelve lo que LEYÓ (o `null` si no hay ninguna).
+   *
+   * BETA-UX-1B: el valor de retorno existe para quien necesita decidir en el
+   * mismo paso si la caja quedó abierta — el estado del contexto recién se ve
+   * en el render siguiente. No es una segunda fuente: es la misma lectura.
+   */
+  refresh: () => Promise<ActiveCaja | null>
   /**
    * P0-P6 — ¿Este actor puede operar caja?
    *
@@ -40,7 +47,7 @@ const CajaContext = createContext<CajaContextValue>({
   isOpen: false,
   cajaId: null,
   loading: true,
-  refresh: async () => {},
+  refresh: async () => null,
   canUseCaja: false,
 })
 
@@ -82,7 +89,7 @@ export function CajaProvider({ children }: { children: ReactNode }) {
     //
     // Cortar acá es lo que hace que el gate sea real: si sólo escondiéramos los
     // botones, la request seguiría saliendo y el dato seguiría llegando.
-    if (!businessId || !necesitaConocerCaja) { setActiveCaja(null); setLoading(false); return }
+    if (!businessId || !necesitaConocerCaja) { setActiveCaja(null); setLoading(false); return null }
     const { data } = await supabase
       .from('cajas')
       .select('id, business_id, opened_at, opened_by, status')
@@ -91,8 +98,10 @@ export function CajaProvider({ children }: { children: ReactNode }) {
       .order('opened_at', { ascending: false })
       .limit(1)
       .maybeSingle()
-    setActiveCaja((data as ActiveCaja | null) ?? null)
+    const caja = (data as ActiveCaja | null) ?? null
+    setActiveCaja(caja)
     setLoading(false)
+    return caja
   }, [businessId, necesitaConocerCaja])
 
   useEffect(() => { refresh() }, [refresh])

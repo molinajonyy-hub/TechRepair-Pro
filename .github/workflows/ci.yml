@@ -128,6 +128,29 @@ jobs:
       - name: BETA-UX-1A — support channel (build guard + canonical WhatsApp)
         run: npm run test:beta-ux-1a
 
+      # BETA-UX-1B: el POS exigía una caja abierta y lo decía recién al tocar
+      # «Cobrar», sin salida: había que abandonar la venta e ir a Caja. La suite
+      # monta el POS REAL con los providers reales de sesión y de caja (la
+      # capacidad sale de `usePermissions`: defaults del rol + overrides) y fija
+      # que con `finance` aparece «Abrir caja» y que «Cobrar» abre el diálogo SIN
+      # empezar el checkout (ni key de idempotencia, ni comprobante); que sin
+      # `finance` no hay CTA, ni diálogo, ni llamada, ni enlace a /caja; que la
+      # apertura va por `open_cash_session_atomic` y por ninguna escritura
+      # directa; que al volver la venta está intacta (líneas, cantidades, pagos,
+      # cliente, observaciones, tipo) y que abrir la caja NUNCA cobra, ni con un
+      # doble toque; que «Ya hay una caja abierta» + caja efectivamente abierta
+      # es prerequisito cumplido y cualquier otro error se queda en el diálogo
+      # con el texto canónico, sin SQL en pantalla. `betaUx1bServerAuthority`
+      # ata al repo la conclusión del discovery: el wrapper de Lote 3 exige
+      # `finance`, ninguna migración posterior redefine open/close, y el cuerpo
+      # que sirve producción (snapshot versionado del catálogo) es ese wrapper.
+      # Va con `cajaCapabilityGate`, el contrato de `canUseCaja` que el POS
+      # consume. La geometría a 390 px, el estado final en base y la carrera
+      # contra el servidor real viven en `m7/pos-open-caja.spec.ts` (job
+      # `e2e-local`).
+      - name: BETA-UX-1B — open cash session without losing checkout
+        run: npm run test:beta-ux-1b
+
       # BETA-MP: Billing SaaS por Mercado Pago. El frontend propone, Mercado Pago
       # confirma, el backend decide. Corre el código REAL de las Edge Functions
       # (`supabase/functions/_shared/billing`) contra un PostgREST en memoria que
