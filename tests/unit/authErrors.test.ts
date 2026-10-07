@@ -49,11 +49,16 @@ test('A3. alta: email ya registrado se CLASIFICA igual, pero la UI no confirma q
   }
 })
 
-test('A4. alta: fallo del SMTP → copy propio con el soporte canónico', () => {
+// BETA-UX-1A: el copy ya no trae la casilla institucional (no es un canal de
+// soporte). La salida de ayuda es un enlace de WhatsApp que agrega la pantalla;
+// lo fija tests/components/authUxHardening.test.tsx (L8b).
+test('A4. alta: fallo del SMTP → copy propio, sin ninguna casilla de contacto', () => {
   const err = api(500, 'unexpected_failure', 'Error sending confirmation email')
   assert.equal(e.classifySignUpError(err), 'email_send_failed')
   const msg = e.signUpErrorMessage(err)
-  assert.ok(msg.includes(CONTACTO_SOPORTE))
+  assert.equal(msg, 'No pudimos enviar el correo de confirmación. Probá de nuevo en unos minutos.')
+  assert.ok(!msg.includes(CONTACTO_SOPORTE))
+  assert.doesNotMatch(msg, /@|mailto/)
   assert.doesNotMatch(msg, /Error sending/)
   assert.equal(e.classifySignUpError(api(400, 'email_address_not_authorized', 'Email address "x" cannot be used as it is not authorized')), 'email_send_failed')
 })

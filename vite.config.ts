@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { execSync } from 'node:child_process'
+import { supportContactGuard } from './scripts/guards/support-contact-build.mjs'
 
 const BUILD_TIME = new Date().toISOString()
 
@@ -21,6 +22,9 @@ const BUILD_COMMIT = resolveBuildCommit()
 export default defineConfig({
   plugins: [
     react(),
+    // BETA-UX-1A: `vite build` falla si VITE_CONTACT_WHATSAPP no es un celular
+    // argentino válido (o si falta en un deploy productivo). Sólo aplica al build.
+    supportContactGuard(),
     {
       name: 'generate-version-file',
       // generateBundle corre solo en `vite build` y emite el archivo directo a dist/

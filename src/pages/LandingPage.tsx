@@ -9,7 +9,7 @@ import {
 import { PLANS, type SubscriptionPlan } from '../types/subscription'
 import { initLandingAnalytics, track } from '../lib/analytics'
 import { useTheme } from '../hooks/useTheme'
-import { CONTACTO_SOPORTE } from '../config/contacto'
+import { CONTACTO_SOPORTE, canalSoporte } from '../config/contacto'
 import { signupPath } from '../lib/signupIntent'
 import '../css/landing.css'
 
@@ -39,15 +39,17 @@ function useThemedAccent() {
 // Se leen de variables de entorno (ver .env.example). NO hay valores por defecto:
 // si una variable no está configurada, el enlace simplemente no se renderiza, para
 // no mostrar contactos ficticios o rotos en producción.
+//
+// BETA-UX-1A — el WhatsApp ya no se lee acá: el pie usa `canalSoporte()` de
+// `config/contacto.ts`, el mismo de Ayuda. Antes armaba `wa.me/` con el valor
+// crudo de la variable y publicó un número inválido.
 const CONTACT = {
-  whatsapp:  (import.meta.env.VITE_CONTACT_WHATSAPP  as string | undefined)?.trim() || '',
   // El email SÍ tiene default: es el contacto oficial publicado, el mismo que
   // usan la política de privacidad y la ficha del Chrome Web Store. La variable
   // de entorno queda para poder pisarlo sin tocar código.
   email:     (import.meta.env.VITE_CONTACT_EMAIL     as string | undefined)?.trim() || CONTACTO_SOPORTE,
   instagram: (import.meta.env.VITE_CONTACT_INSTAGRAM as string | undefined)?.trim() || '',
 }
-const HAS_SOCIAL = !!(CONTACT.whatsapp || CONTACT.instagram)
 
 // Duración real de la prueba (verificada en Onboarding.tsx: trial Pro, 14 días, sin tarjeta)
 const TRIAL_DAYS = 14
@@ -827,6 +829,8 @@ function FinalCTA({ onTrial }: { onTrial: (s: string) => void }) {
 // ─── FOOTER ───────────────────────────────────────────────────────────────────
 function Footer({ onTrial }: { onTrial: (s: string) => void }) {
   const navigate = useNavigate()
+  const whatsapp = canalSoporte('landing')
+  const hasSocial = whatsapp.tipo === 'whatsapp' || !!CONTACT.instagram
   return (
     <footer className="lp-footer">
       <div className="lp-container">
@@ -837,15 +841,15 @@ function Footer({ onTrial }: { onTrial: (s: string) => void }) {
               <span className="lp-logo-text">TechRepair<span>Pro</span></span>
             </a>
             <p>Sistema de gestión para servicios técnicos, talleres de reparación y locales de celulares. Hecho en Argentina.</p>
-            {HAS_SOCIAL && (
+            {hasSocial && (
               <div className="lp-footer-social">
                 {CONTACT.instagram && (
                   <a href={`https://instagram.com/${CONTACT.instagram}`} target="_blank" rel="noopener noreferrer" aria-label="Instagram de TechRepair Pro">
                     <Smartphone size={18} aria-hidden="true" />
                   </a>
                 )}
-                {CONTACT.whatsapp && (
-                  <a href={`https://wa.me/${CONTACT.whatsapp}`} target="_blank" rel="noopener noreferrer" aria-label="WhatsApp de TechRepair Pro">
+                {whatsapp.tipo === 'whatsapp' && (
+                  <a href={whatsapp.url} target="_blank" rel="noopener noreferrer" aria-label="WhatsApp de TechRepair Pro" data-testid="landing-whatsapp">
                     <WhatsAppGlyph size={18} />
                   </a>
                 )}

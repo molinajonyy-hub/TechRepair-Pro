@@ -6,7 +6,8 @@ import { S, blurOn, focusOn } from '../components/auth/authCardStyles'
 import { colors } from '../lib/tokens'
 import { PORTAL_DOMAINS } from '../portal/portalDomains'
 import { PASSWORD_PLACEHOLDER } from '../lib/passwordPolicy'
-import { CONTACTO_SOPORTE } from '../config/contacto'
+import { canalSoporte } from '../config/contacto'
+import { SupportContactLink } from '../components/ui/SupportContactButton'
 import {
   classifyPasswordUpdateError,
   finishRecovery,
@@ -166,6 +167,8 @@ export function ResetPassword() {
   }
 
   const estado = vista.tipo === 'invalido' ? `invalido:${vista.motivo}` : vista.tipo
+  // BETA-UX-1A — canal canónico (WhatsApp), no la casilla institucional.
+  const soporte = canalSoporte('recuperarContrasena')
 
   return (
     <div style={S.page} data-testid="reset-password-page" data-estado={estado}>
@@ -211,10 +214,12 @@ export function ResetPassword() {
                   <ArrowLeft size={14} /> Volver al inicio de sesión
                 </button>
               </div>
-              <p style={{ ...subtitulo, fontSize: '0.8125rem', marginTop: '1.25rem' }} data-testid="reset-password-soporte">
-                ¿No te llega el correo? Escribinos a{' '}
-                <a href={`mailto:${CONTACTO_SOPORTE}`} style={{ color: colors.indigo, fontWeight: 600 }}>{CONTACTO_SOPORTE}</a>.
-              </p>
+              {soporte.tipo === 'whatsapp' && (
+                <p style={{ ...subtitulo, fontSize: '0.8125rem', marginTop: '1.25rem' }} data-testid="reset-password-soporte">
+                  ¿No te llega el correo?{' '}
+                  <SupportContactLink canal={soporte} style={{ color: colors.indigo, fontWeight: 600 }}>Escribinos por WhatsApp</SupportContactLink>.
+                </p>
+              )}
             </div>
           )}
 

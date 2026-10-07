@@ -7,19 +7,19 @@
 //   I2  sin «Crear mi taller», sin Reintentar, sin «aceptar invitación»
 //   I3  sin loop: get_my_profile no se vuelve a pedir solo; nunca se provisiona
 //   I4  cerrar sesión funciona y lleva a /login
-//   I5  el soporte es el canónico (mailto)
+//   I5  el soporte es el canónico (WhatsApp desde BETA-UX-1A; antes, mailto)
 //   I6  un fallo TRANSITORIO sigue siendo «reintentar» (no se confunde)
 //
 // El borde mockeado es `src/lib/supabase`. AuthProvider, ProtectedRoute y
 // NoBusiness corren de verdad. La autoridad (RLS, is_active) no se toca.
 // ─────────────────────────────────────────────────────────────────────────────
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom'
 import { AuthProvider } from '../../src/contexts/AuthContext'
 import { ProtectedRoute } from '../../src/components/auth/ProtectedRoute'
 import { NoBusiness } from '../../src/pages/NoBusiness'
-import { CONTACTO_SOPORTE } from '../../src/config/contacto'
+import { CONTACTO_SOPORTE, canalSoporte } from '../../src/config/contacto'
 import { stashInviteToken } from '../../src/lib/pendingInvite'
 
 const USER_ID = '11111111-1111-4111-8111-111111111111'
@@ -107,6 +107,10 @@ beforeEach(() => {
   window.sessionStorage.clear()
 })
 
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
+
 describe('PRE-BETA-2D · perfil desactivado', () => {
   it('I1+I2. el guard lo manda a /no-business y ve la pantalla terminal, sin crear ni reintentar', async () => {
     montar('/dashboard')
@@ -144,11 +148,25 @@ describe('PRE-BETA-2D · perfil desactivado', () => {
     expect(estado.llamadas).toContain('signOut')
   })
 
-  it('I5. el soporte visible es el canónico', async () => {
+  // BETA-UX-1A: el canal canónico es WhatsApp, no la casilla institucional.
+  it('I5. el soporte visible es el canónico (WhatsApp)', async () => {
+    vi.stubEnv('VITE_CONTACT_WHATSAPP', '5490000000000')
     montar('/no-business')
     const pantalla = await screen.findByTestId('no-business-inactive')
-    expect(pantalla.textContent).toContain(CONTACTO_SOPORTE)
-    expect(pantalla.querySelector(`a[href="mailto:${CONTACTO_SOPORTE}"]`)).toBeTruthy()
+    const enlace = screen.getByTestId('no-business-inactive-soporte').querySelector('a')
+    expect(enlace?.getAttribute('href')).toBe(canalSoporte('accesoDesactivado').url)
+    expect(enlace?.getAttribute('href')).toMatch(/^https:\/\/wa\.me\/5490000000000\?text=/)
+    expect(pantalla.textContent).not.toContain(CONTACTO_SOPORTE)
+    expect(pantalla.querySelector('a[href^="mailto:"]')).toBeNull()
+  })
+
+  it('I5b. sin canal configurado no promete un contacto ni cae al correo', async () => {
+    vi.stubEnv('VITE_CONTACT_WHATSAPP', '')
+    montar('/no-business')
+    const pantalla = await screen.findByTestId('no-business-inactive')
+    expect(screen.queryByTestId('no-business-inactive-soporte')).toBeNull()
+    expect(pantalla.querySelector('a')).toBeNull()
+    expect(pantalla.textContent).not.toContain(CONTACTO_SOPORTE)
   })
 
   it('I6. un fallo transitorio sigue ofreciendo reintentar (no es «desactivado»)', async () => {

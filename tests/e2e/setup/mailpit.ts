@@ -84,6 +84,19 @@ export async function ultimoCorreo(email: string): Promise<{ subject: string; ht
   return { subject: full.Subject ?? msg.Subject ?? '', html: full.HTML ?? '' }
 }
 
+/**
+ * BETA-UX-1A — enlace de ayuda (WhatsApp) tal como está VERSIONADO en una
+ * plantilla de Auth. Qué número y qué mensaje son válidos lo fija
+ * scripts/guards/auth-email-templates.mjs; los E2E comparan contra esto para
+ * probar que GoTrue entrega ese enlace sin tocarlo.
+ */
+export function enlaceSoporteDePlantilla(nombre: 'confirmation' | 'recovery', dir = 'supabase/templates'): string {
+  const html = readFileSync(`${dir}/${nombre}.html`, 'utf-8')
+  const href = enlacesDelHtml(html).find(h => /^https:\/\/wa\.me\/549\d{10}\?text=/.test(h))
+  if (!href) throw new Error(`${dir}/${nombre}.html no trae el enlace de ayuda por WhatsApp`)
+  return href
+}
+
 /** El enlace `token_hash` de una plantilla PRE-BETA-2D: path `/auth/callback`, tipo dado. */
 export const esEnlaceTokenHash = (tipo: 'signup' | 'recovery') => (href: string): boolean => {
   try {

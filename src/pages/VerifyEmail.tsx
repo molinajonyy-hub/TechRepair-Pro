@@ -6,7 +6,8 @@ import {
   readPendingConfirmationEmail,
   clearPendingConfirmationEmail,
 } from '../contexts/AuthContext'
-import { CONTACTO_SOPORTE } from '../config/contacto'
+import { canalSoporte } from '../config/contacto'
+import { SupportContactLink } from '../components/ui/SupportContactButton'
 import {
   AuthFlowShell, AuthFlowLoading, AuthFlowActions, AuthFlowNote,
   AuthFlowPrimaryButton, AuthFlowSecondaryButton, AuthFlowTextButton,
@@ -221,6 +222,9 @@ export function VerifyEmail() {
 
   const mensaje = MENSAJE[estado]
   const botonReenvioDeshabilitado = reenviando || cooldown > 0 || !emailObjetivo
+  // BETA-UX-1A — canal canónico (WhatsApp). El mensaje precargado es fijo: no
+  // lleva el correo del usuario.
+  const soporte = canalSoporte('correoNoLlega')
 
   return (
     <AuthFlowShell
@@ -284,10 +288,10 @@ export function VerifyEmail() {
         Si no lo ves, revisá la carpeta de spam o correo no deseado.
       </AuthFlowNote>
 
-      {MUESTRA_SOPORTE.has(estado) && (
+      {MUESTRA_SOPORTE.has(estado) && soporte.tipo === 'whatsapp' && (
         <AuthFlowNote testId="verify-email-soporte">
-          Si sigue sin llegar, escribinos a{' '}
-          <a href={`mailto:${CONTACTO_SOPORTE}`}>{CONTACTO_SOPORTE}</a>.
+          Si sigue sin llegar,{' '}
+          <SupportContactLink canal={soporte}>escribinos por WhatsApp</SupportContactLink>.
         </AuthFlowNote>
       )}
     </AuthFlowShell>

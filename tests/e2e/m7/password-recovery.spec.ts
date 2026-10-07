@@ -34,7 +34,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { createClient } from '@supabase/supabase-js'
 import { assertDestinoLocalSeguro } from '../setup/assertLocalTarget.ts'
 import { consultarJSON, ejecutarSQL } from '../setup/sqlLocal.ts'
-import { borrarCorreos, correosPara, esEnlaceTokenHash, esperarEnlace, ultimoCorreo } from '../setup/mailpit.ts'
+import { borrarCorreos, correosPara, enlaceSoporteDePlantilla, enlacesDelHtml, esEnlaceTokenHash, esperarEnlace, ultimoCorreo } from '../setup/mailpit.ts'
 
 test.use({ storageState: { cookies: [], origins: [] } })
 test.describe.configure({ mode: 'serial' })
@@ -119,10 +119,14 @@ test('@m7 1. recovery token_hash real: escáner + otro navegador → nueva contr
   const tokenHash = url.searchParams.get('token_hash')!
   expect(tokenHash.length).toBeGreaterThan(20)
 
-  // Asunto y soporte de la plantilla versionada.
+  // Asunto y soporte de la plantilla versionada. BETA-UX-1A: la ayuda es el
+  // WhatsApp canónico —GoTrue entrega el enlace versionado sin tocarlo— y el
+  // correo ya no trae ninguna casilla (la institucional no es soporte).
   const correo = await ultimoCorreo(email)
   expect(correo?.subject).toBe('Restablecé tu contraseña — TechRepair Pro')
-  expect(correo?.html).toContain('techrepairpro.soporte@gmail.com')
+  expect(enlacesDelHtml(correo?.html ?? '')).toContain(enlaceSoporteDePlantilla('recovery'))
+  expect(correo?.html).toContain('Escribinos por WhatsApp')
+  expect(correo?.html).not.toMatch(/mailto:|techrepairpro\.soporte|@gmail\.com/i)
 
   // Un escáner de correo hace GET sin ejecutar JS: con token_hash eso NO
   // consume el token (el enlace apunta a la app; el POST /verify lo hace el JS).

@@ -13,11 +13,14 @@ import { PASSWORD_PLACEHOLDER, validatePasswordPair } from '../lib/passwordPolic
 import {
   AUTH_URL_ERROR_MESSAGE,
   GOOGLE_START_ERROR_MESSAGE,
+  SIGNUP_ERROR_MESSAGE,
   classifyAuthUrlError,
   classifySignInError,
   signUpErrorMessage,
   type SignInFailure,
 } from '../lib/authErrors'
+import { canalSoporte } from '../config/contacto'
+import { SupportContactLink } from '../components/ui/SupportContactButton'
 import { initialLoginMode, planFromInternalPath, rememberSignupPlan, type LoginMode } from '../lib/signupIntent'
 import { S, focusOn, blurOn } from '../components/auth/authCardStyles'
 
@@ -140,6 +143,9 @@ export function Login() {
   }, [authLoading])
 
   const validateEmail    = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)
+
+  // BETA-UX-1A — canal de ayuda canónico. Mensaje fijo: no lleva el email.
+  const soporteCorreo = canalSoporte('correoNoLlega')
 
   const clearErrors = () => {
     setError(''); setSuccess('')
@@ -374,7 +380,24 @@ export function Login() {
               display: 'flex', alignItems: 'flex-start', gap: '0.5rem',
             }} role="alert" data-testid="login-error">
               <span style={{ fontSize: '1rem', flexShrink: 0 }}>⚠️</span>
-              {error}
+              <span>
+                {error}
+                {/* BETA-UX-1A — el alta falló al ENVIAR el correo: reintentar
+                    puede no alcanzar, así que es el único error que ofrece el
+                    canal de ayuda. Se deriva del mensaje, sin estado propio. */}
+                {error === SIGNUP_ERROR_MESSAGE.email_send_failed && soporteCorreo.tipo === 'whatsapp' && (
+                  <>
+                    {' '}Si sigue fallando,{' '}
+                    <SupportContactLink
+                      canal={soporteCorreo}
+                      testId="login-error-soporte"
+                      style={{ color: 'inherit', fontWeight: 700, textDecoration: 'underline' }}
+                    >
+                      escribinos por WhatsApp
+                    </SupportContactLink>.
+                  </>
+                )}
+              </span>
             </div>
           )}
 

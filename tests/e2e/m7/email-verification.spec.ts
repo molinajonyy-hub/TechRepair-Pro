@@ -52,7 +52,7 @@ import { test, expect } from '@playwright/test'
 import { createClient } from '@supabase/supabase-js'
 import { consultarJSON } from '../setup/sqlLocal.ts'
 import { assertDestinoLocalSeguro } from '../setup/assertLocalTarget.ts'
-import { borrarCorreos, esEnlaceTokenHash, esperarEnlace, ultimoCorreo } from '../setup/mailpit.ts'
+import { borrarCorreos, enlaceSoporteDePlantilla, enlacesDelHtml, esEnlaceTokenHash, esperarEnlace, ultimoCorreo } from '../setup/mailpit.ts'
 
 // Sesión propia: este spec NO usa el storageState del owner.
 test.use({ storageState: { cookies: [], origins: [] } })
@@ -332,7 +332,11 @@ test('@m7 6. alta real por correo: escáner + click en otra pestaña → confirm
   expect(enlace).not.toContain('/auth/v1/verify')
   const correo = await ultimoCorreo(email)
   expect(correo?.subject).toBe('Confirmá tu correo — TechRepair Pro')
-  expect(correo?.html).toContain('techrepairpro.soporte@gmail.com')
+  // BETA-UX-1A: la ayuda del correo es el WhatsApp canónico —GoTrue entrega el
+  // enlace versionado sin tocarlo— y no trae ninguna casilla.
+  expect(enlacesDelHtml(correo?.html ?? '')).toContain(enlaceSoporteDePlantilla('confirmation'))
+  expect(correo?.html).toContain('Escribinos por WhatsApp')
+  expect(correo?.html).not.toMatch(/mailto:|techrepairpro\.soporte|@gmail\.com/i)
 
   // El escáner de correo pre-abre el enlace sin JS: no confirma nada.
   expect((await fetch(enlace)).status).toBe(200)
