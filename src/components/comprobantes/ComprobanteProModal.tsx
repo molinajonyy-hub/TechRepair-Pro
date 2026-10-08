@@ -17,7 +17,7 @@ import {
   Wallet, RefreshCw, Zap, ChevronDown,
   Keyboard, Minus, Printer, MessageCircle,
   Check, CreditCard, Banknote, ArrowRightLeft,
-  Volume2, VolumeX, Landmark,
+  Volume2, VolumeX, Landmark, Lock, Unlock,
 } from 'lucide-react'
 import { soundSystem } from '../../lib/sounds'
 import { posLogger } from '../../lib/logger'
@@ -34,6 +34,8 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { useWholesaleAccess } from '../../hooks/useWholesaleAccess'
 import { useCaja } from '../../contexts/CajaContext'
+import { InlineCashOpenDialog } from '../caja/InlineCashOpenDialog'
+import { ModalPortal } from '../ui/ModalPortal'
 import { formatDisplayMessage } from '../../utils/formatMessage'
 import {
   comprobanteService,
@@ -119,6 +121,23 @@ const emptyLinea = (): LineaItem => ({
 })
 const F = "'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"
 const fmtARS = (n: number) => '$' + Math.round(n).toLocaleString('es-AR')
+
+// ── BETA-UX-1B — caja cerrada en el checkout ─────────────────────────────────
+// Dos textos porque son dos situaciones: quien puede operar caja la abre acá
+// mismo; quien no puede necesita saber a quién pedírselo. La diferencia sale de
+// `canUseCaja` (capacidad `finance`), nunca del rol.
+const CAJA_CERRADA_CON_PERMISO = 'Necesitás abrir la caja para registrar este cobro.'
+const CAJA_CERRADA_SIN_PERMISO = 'La caja está cerrada. Pedile a un usuario con permiso de Finanzas / Caja que la abra para continuar.'
+/**
+ * Ventana en la que «Cobrar» ignora activaciones justo después de abrir la caja.
+ *
+ * En el teléfono el botón «Abrir caja» del diálogo queda en el mismo lugar de
+ * la pantalla que «Cobrar», y con teclado un Enter sostenido sigue repitiendo
+ * cuando el diálogo ya se cerró. Sin esta ventana, un doble toque para abrir la
+ * caja terminaría cobrando. Abrir la caja NUNCA cobra: el cobro necesita un
+ * gesto propio.
+ */
+const CAJA_OPENED_COBRAR_GUARD_MS = 800
 
 /** Precio ARS efectivo para un cliente: dolariza productos USD-auto con la cotización
  *  vigente (motor central) y aplica la regla minorista/mayorista. Función pura. */
@@ -362,8 +381,19 @@ export function ComprobanteProModal({
   // PRE-BETA-3A-2S: el precio mayorista exige acceso Mayorista del actor, igual
   // que el checkout. Sin acceso, un cliente mayorista se cotiza minorista.
   const { canAccess: puedeCotizarMayorista } = useWholesaleAccess()
-  const { isOpen: cajaIsOpen, cajaId } = useCaja()
+  const { isOpen: cajaIsOpen, cajaId, canUseCaja } = useCaja()
   const { flatMethods } = usePaymentCommissions()
+
+  // ── BETA-UX-1B: abrir la caja sin salir del checkout ─────────────────────
+  // Sólo es visibilidad de un diálogo. Abrirlo o cerrarlo no toca líneas,
+  // pagos, cliente, borrador ni la key de idempotencia del cobro.
+  const [showOpenCaja, setShowOpenCaja] = useState(false)
+  // El diálogo sólo existe para quien puede operar caja: si la capacidad se
+  // pierde con el pedido en pie, deja de mostrarse y los atajos vuelven.
+  const openCajaVisible = showOpenCaja && canUseCaja
+  const [cajaNoticeKey, setCajaNoticeKey] = useState(0)
+  const cajaOpenedAtRef = useRef(0)
+  const cobrarFooterRef = useRef<HTMLDivElement>(null)
 
   // ── Encabezado ───────────────────────────────────────────────────────────
   const [tipo, setTipo]             = useState<TipoPosGenerico>(tipoInicial ?? TIPO_POS_DEFAULT)
@@ -577,10 +607,23 @@ export function ComprobanteProModal({
   // ── handleSubmit ──────────────────────────────────────────────────────────
   const handleSubmit = useCallback(async () => {
     if (isSubmittingRef.current) return                    // anti-doble-submit
+    // BETA-UX-1B: el gesto que abrió la caja no puede ser también el que cobra.
+    if (Date.now() - cajaOpenedAtRef.current < CAJA_OPENED_COBRAR_GUARD_MS) return
     const validLines = lineas.filter(l => l.descripcion.trim() && l.cantidad > 0 && l.precio_unitario >= 0)
     if (validLines.length === 0) { setSubmitError('Agregá al menos un ítem'); setErrorShakeKey(k => k + 1); return }
     if (!businessId) { setSubmitError('Error: negocio no identificado'); setErrorShakeKey(k => k + 1); return }
-    if (!cajaIsOpen && !skipFinanceEntry) { setSubmitError('No hay caja abierta. Abrí caja antes de emitir.'); setErrorShakeKey(k => k + 1); return }
+    if (!cajaIsOpen && !skipFinanceEntry) {
+      // BETA-UX-1B — la caja es un prerequisito ANTERIOR al checkout. En este
+      // punto todavía no existe key de idempotencia del cobro, ni comprobante,
+      // ni pago, ni movimiento de stock, ni pedido a ARCA: nada de eso empieza.
+      setSubmitError(null)
+      if (canUseCaja) { setShowOpenCaja(true); return }
+      // Sin la capacidad no hay diálogo ni llamada al servidor. El aviso del
+      // footer ya dice a quién pedírselo: se lo sacude para que el toque no
+      // parezca ignorado.
+      setCajaNoticeKey(k => k + 1)
+      return
+    }
     const pagosConMonto = pagos.filter(p => parseFloat(p.amount) > 0)
     if (pagos.length > 0 && pagosConMonto.length === 0) { setSubmitError('Ingresá el monto del cobro'); setErrorShakeKey(k => k + 1); return }
     // Sobrepago en un medio no-efectivo: nunca es vuelto. No dejamos completar
@@ -699,7 +742,7 @@ export function ComprobanteProModal({
     setShowSuccess(true)
     // Vibración táctil
     if ('vibrate' in navigator) navigator.vibrate(80)
-  }, [lineas, businessId, cajaIsOpen, skipFinanceEntry, pagos, tipo, puntoVenta, condicion, clienteId, orderId, observaciones, exchangeRate, emitirEnArca, user, cajaId, DRAFT_KEY, totales])
+  }, [lineas, businessId, cajaIsOpen, skipFinanceEntry, pagos, tipo, puntoVenta, condicion, clienteId, orderId, observaciones, exchangeRate, emitirEnArca, user, cajaId, DRAFT_KEY, totales, canUseCaja])
 
   // ── Effects ────────────────────────────────────────────────────────────────
 
@@ -716,6 +759,7 @@ export function ComprobanteProModal({
     setActiveSearchIdx(null); setLineResults([])
     setShowCloseConfirm(false); setShowRecalcPrompt(false)
     setExpandedGroup(null); setManualRows(false)
+    setShowOpenCaja(false)
 
     if (initialItems && initialItems.length > 0) {
       setLineas(initialItems.map(i => ({
@@ -958,6 +1002,9 @@ export function ComprobanteProModal({
   useEffect(() => {
     if (!isOpen) return
     const h = (e: KeyboardEvent) => {
+      // BETA-UX-1B: con «Abrir caja» a la vista, los atajos del POS no corren.
+      // Escape cierra ESE diálogo (lo maneja él) y F4 no puede cobrar por debajo.
+      if (openCajaVisible) return
       if (e.key === 'Escape' && !showCloseConfirm && !draftInfo) {
         // Prioridad: si el bottom sheet está abierto, cerrarlo primero (sin tocar el modal).
         if (sheetOpen && !showSuccess) { e.preventDefault(); closeSheet(); return }
@@ -994,7 +1041,7 @@ export function ComprobanteProModal({
     }
     document.addEventListener('keydown', h)
     return () => document.removeEventListener('keydown', h)
-  }, [isOpen, hasContent, onClose, handleSubmit, showCloseConfirm, draftInfo, showSuccess, sheetOpen, closeSheet])
+  }, [isOpen, hasContent, onClose, handleSubmit, showCloseConfirm, draftInfo, showSuccess, sheetOpen, closeSheet, openCajaVisible])
 
   // ── Search helpers ────────────────────────────────────────────────────────
 
@@ -1061,6 +1108,27 @@ export function ComprobanteProModal({
     setToast({ msg, ok })
     toastTimerRef.current = setTimeout(() => setToast(null), 1800)
   }, [])
+
+  // ── BETA-UX-1B: la caja quedó abierta → se vuelve al MISMO checkout ───────
+  // No toca líneas, pagos, cliente ni borrador, y NO cobra: sólo cierra el
+  // diálogo y avisa. El cobro sigue esperando el gesto del usuario.
+  const handleCajaOpened = useCallback(({ alreadyOpen }: { alreadyOpen: boolean }) => {
+    cajaOpenedAtRef.current = Date.now()
+    setShowOpenCaja(false)
+    setSubmitError(null)
+    showToast(alreadyOpen ? 'La caja ya estaba abierta. Ya podés cobrar.' : 'Caja abierta. Ya podés cobrar.', true)
+    // El foco va al bloque de cobro, no al botón: «Cobrar» queda a un Tab, pero
+    // un Enter sostenido desde el diálogo no puede activarlo.
+    setTimeout(() => cobrarFooterRef.current?.focus(), 60)
+  }, [showToast])
+
+  // Si la caja aparece abierta por otro camino mientras el diálogo está a la
+  // vista (otra pestaña, otro usuario, el refresh al volver el foco), el
+  // prerequisito ya está cumplido: un «Abrir caja» abierto sería mentira. Se
+  // resuelve igual que la carrera, con el mismo aviso y la misma ventana.
+  useEffect(() => {
+    if (cajaIsOpen && showOpenCaja) handleCajaOpened({ alreadyOpen: true })
+  }, [cajaIsOpen, showOpenCaja, handleCajaOpened])
 
   // ── addOrIncrement ────────────────────────────────────────────────────────
   // Agrega producto al carrito; si ya existe incrementa cantidad en lugar de
@@ -1348,8 +1416,16 @@ export function ComprobanteProModal({
   const showCartEmpty = filledLineas.length === 0 && !manualRows
 
   // ── JSX ───────────────────────────────────────────────────────────────────
+  // PORTAL a <body>: el POS y TODAS sus capas hermanas (toast, spotlight,
+  // producto manual, confirmaciones) se montan juntos fuera de la página que lo
+  // abre. Abierto desde una orden quedaba atrapado en el wrapper animado de
+  // `OrderDetail` y se medía contra la página, no contra el viewport (ver
+  // `ModalPortal`). Van todas en el MISMO portal a propósito: conservan entre sí
+  // el orden y los z-index de siempre, y una confirmación de cierre nunca puede
+  // quedar debajo del POS. Sólo cambia el punto de montaje: estado, contexto y
+  // eventos de React son los mismos.
   return (
-    <>
+    <ModalPortal>
     <div
       className={`cpm-root${sheetOpen ? ' cpm-sheet-open' : ''}`}
       // Fase 2A: el POS es theme-aware — hereda el tema global vía los tokens
@@ -2115,13 +2191,31 @@ export function ComprobanteProModal({
             </div>
 
             {/* COBRAR BUTTON */}
-            <div className="cpm-cobrar-footer" style={{ padding: '0.875rem 1rem', borderTop: '1px solid var(--pos-border-subtle)', flexShrink: 0 }}>
-              {!cajaIsOpen && !skipFinanceEntry && (
-                <div style={{ display: 'flex', gap: '0.375rem', alignItems: 'center', marginBottom: '0.5rem', padding: '0.5rem 0.625rem', background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.18)', borderRadius: '0.5rem' }}>
-                  <AlertCircle size={13} color="var(--pos-danger)" style={{ flexShrink: 0 }} />
-                  <span style={{ color: 'var(--pos-danger)', fontSize: '0.72rem', fontWeight: 600 }}>Caja cerrada — no se pueden emitir comprobantes</span>
+            <div ref={cobrarFooterRef} tabIndex={-1} role="group" aria-label="Cobro" className="cpm-cobrar-footer" style={{ padding: '0.875rem 1rem', borderTop: '1px solid var(--pos-border-subtle)', flexShrink: 0, outline: 'none' }}>
+              {/* BETA-UX-1B — caja cerrada: con la capacidad se abre acá mismo;
+                  sin ella se explica a quién pedírselo, sin botón ni enlace. */}
+              {!cajaIsOpen && !skipFinanceEntry && (canUseCaja ? (
+                <div data-testid="pos-caja-closed" data-caja-action="open" className="cpm-caja-closed">
+                  {/* El anuncio es sólo el texto: el botón queda fuera de la región viva. */}
+                  <div className="cpm-caja-closed__text" role="status">
+                    <AlertCircle size={14} aria-hidden="true" />
+                    <span>{CAJA_CERRADA_CON_PERMISO}</span>
+                  </div>
+                  <button type="button" data-testid="pos-open-caja-button" className="cpm-caja-closed__cta"
+                    onClick={() => { setSubmitError(null); setShowOpenCaja(true) }}>
+                    <Unlock size={14} aria-hidden="true" /> Abrir caja
+                  </button>
                 </div>
-              )}
+              ) : (
+                <div data-testid="pos-caja-closed" data-caja-action="none" key={cajaNoticeKey}
+                  className="cpm-caja-closed cpm-caja-closed--blocked"
+                  style={{ animation: cajaNoticeKey > 0 ? 'shake 0.32s ease' : undefined }}>
+                  <div className="cpm-caja-closed__text" role="status">
+                    <Lock size={14} aria-hidden="true" />
+                    <span>{CAJA_CERRADA_SIN_PERMISO}</span>
+                  </div>
+                </div>
+              ))}
               {/* Sobrepago en medio no-efectivo: aviso proactivo. No es vuelto. */}
               {!submitError && totales.sobrepago > 1 && (
                 <div data-testid="comprobante-sobrepago-warning" style={{ display: 'flex', gap: '0.375rem', alignItems: 'flex-start', marginBottom: '0.5rem', padding: '0.5rem 0.625rem', background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '0.5rem' }}>
@@ -2296,6 +2390,15 @@ export function ComprobanteProModal({
           </div>
         )}
       </div>
+
+      {/* BETA-UX-1B — «Abrir caja» encima del checkout. Va DENTRO de .cpm-root
+          (tokens --pos-*) y no desmonta nada: el POS queda intacto debajo. */}
+      <InlineCashOpenDialog
+        isOpen={openCajaVisible}
+        exchangeRate={exchangeRate}
+        onClose={() => setShowOpenCaja(false)}
+        onOpened={handleCajaOpened}
+      />
     </div>
 
     {/* Animations */}
@@ -2318,6 +2421,9 @@ export function ComprobanteProModal({
         color: 'var(--pos-on-accent)', fontSize: '0.8rem', fontWeight: 700, whiteSpace: 'nowrap' as const,
         boxShadow: `0 8px 24px ${toast.ok ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.4)'}`,
         animation: 'toastUp 0.18s ease',
+        // Explícita desde el portal: antes la heredaba del shell de la app y en
+        // <body> heredaría otra. Es la única capa hermana que no la declaraba.
+        fontFamily: F,
       }}>
         {toast.msg}
       </div>
@@ -2567,6 +2673,6 @@ export function ComprobanteProModal({
         </div>
       </div>
     )}
-    </>
+    </ModalPortal>
   )
 }

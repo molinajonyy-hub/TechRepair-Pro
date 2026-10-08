@@ -514,6 +514,10 @@ export function WhatsAppPreviewModal({
    * Subirle el z-index no habría servido: el problema es el contexto, no el
    * número. Sacándolo del subárbol, el overlay vuelve a medirse contra el
    * viewport y a competir en el contexto raíz.
+   *
+   * BETA-UX-1B corrigió además la causa en `fadeIn` (ahora termina en
+   * `transform: none`). El portal se queda: protege de cualquier otro ancestro
+   * transformado, no sólo de ese.
    */
   return createPortal(
     <div

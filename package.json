@@ -274,6 +274,8 @@
     "guard:support-contact": "node scripts/guards/support-contact.mjs",
     "guard:support-contact:self-test": "node scripts/guards/support-contact.mjs --self-test",
     "test:beta-ux-1a": "npm run guard:support-contact:self-test && vitest run --config vitest.config.ts tests/components/betaUx1aSupportChannel.test.tsx",
+    "test:beta-ux-1b": "vitest run --config vitest.config.ts tests/components/betaUx1bFirstCheckout.test.tsx tests/components/betaUx1bCashOpenDialog.test.tsx tests/components/betaUx1bServerAuthority.test.ts tests/components/betaUx1bModalViewport.test.tsx tests/components/cajaCapabilityGate.test.tsx",
+    "test:sql:beta-ux-1b": "docker cp tests/sql/beta_ux_1b_cash_session_authority.test.sql supabase_db_techrepair-vite:/tmp/beta_ux_1b.sql && docker exec supabase_db_techrepair-vite psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/beta_ux_1b.sql",
     "guard:auth-email-templates": "node scripts/guards/auth-email-templates.mjs",
     "guard:auth-email-templates:self-test": "node scripts/guards/auth-email-templates.mjs --self-test",
     "guard:no-hardcoded-credentials": "node scripts/guards/no-hardcoded-credentials.mjs",
