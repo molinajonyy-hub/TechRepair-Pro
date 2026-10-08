@@ -178,6 +178,49 @@ async function transformsDeEntrada(page: Page): Promise<string[]> {
   })
 }
 
+/**
+ * Scroll DETERMINISTA de la página de atrás.
+ *
+ * `src/index.css` declara `html { scroll-behavior: smooth }`. Con eso, un
+ * `window.scrollTo(...)` común sólo ARRANCA una animación y vuelve enseguida,
+ * con `scrollY` todavía en su valor anterior: medir después es una carrera
+ * contra los frames del navegador. En el Chromium de CI la animación no había
+ * avanzado un solo pixel (`scrollY = 0`, también en el retry); en local pasaba
+ * porque entre una llamada y la otra alcanzaban a pintarse algunos frames.
+ *
+ * Acá el scroll es síncrono: se anula `scroll-behavior` en <html> mientras dura
+ * la llamada y además se pide `behavior: 'instant'`. En el MISMO `evaluate` se
+ * lee `scrollY`, y antes de devolver el control se exige que haya llegado al
+ * destino — nadie mide el POS con la página a mitad de camino. Sin esperas.
+ *
+ * El estilo en línea se retira al terminar: la página queda como la sirve la app.
+ */
+async function scrollearPagina(page: Page, destino: 'fondo' | 'arriba'): Promise<{ scrollY: number; maximo: number }> {
+  const r = await page.evaluate(d => {
+    const html = document.documentElement
+    const previo = html.style.getPropertyValue('scroll-behavior')
+    const prioridad = html.style.getPropertyPriority('scroll-behavior')
+    html.style.setProperty('scroll-behavior', 'auto', 'important')
+    try {
+      const maximo = Math.max(0, html.scrollHeight - html.clientHeight)
+      const objetivo = d === 'fondo' ? maximo : 0
+      window.scrollTo({ top: objetivo, left: 0, behavior: 'instant' as ScrollBehavior })
+      return {
+        scrollY: window.scrollY, objetivo, maximo,
+        comportamiento: getComputedStyle(html).scrollBehavior,
+      }
+    } finally {
+      if (previo) html.style.setProperty('scroll-behavior', previo, prioridad)
+      else html.style.removeProperty('scroll-behavior')
+    }
+  }, destino)
+
+  expect(r.comportamiento, 'el scroll del test debe ser instantáneo, no animado').toBe('auto')
+  expect(Math.abs(r.scrollY - r.objetivo),
+    `el scroll al ${destino} no llegó a destino: scrollY=${r.scrollY}, esperado=${r.objetivo}`).toBeLessThanOrEqual(TOL)
+  return { scrollY: r.scrollY, maximo: r.maximo }
+}
+
 async function abrirOrden(page: Page) {
   await page.goto(`/orders/${FIX.order}`)
   await expect(page.getByText(CLIENTE, { exact: true }).first()).toBeVisible({ timeout: 30_000 })
@@ -245,15 +288,20 @@ test.describe('@pos-viewport POS — contenido en el viewport desde cualquier en
       // Con el bug, el overlay viajaba con la página: bastaba scrollear para que
       // el POS se fuera de la pantalla.
       const scrolleable = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight)
-      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+      const fondo = await scrollearPagina(page, 'fondo')
       const conScroll = await medirPos(page)
       if (vp.height <= 844) {
         expect(scrolleable, 'la orden debe ser más alta que este viewport para que el caso mida algo').toBeGreaterThan(40)
         expect(conScroll.scrollY, 'la página de atrás debe haber scrolleado').toBeGreaterThan(40)
       }
+      // El POS se midió con la página YA en el fondo, no a mitad de camino.
+      expect(conScroll.scrollY, 'el POS debe medirse con la página en el destino del scroll').toBe(fondo.scrollY)
       exigirContenido(conScroll, `con la orden scrolleada ${Math.round(conScroll.scrollY)}px`)
-      await page.evaluate(() => window.scrollTo(0, 0))
-      exigirContenido(await medirPos(page), 'de vuelta arriba')
+
+      await scrollearPagina(page, 'arriba')
+      const deVuelta = await medirPos(page)
+      expect(deVuelta.scrollY, 'la página debe haber vuelto arriba').toBe(0)
+      exigirContenido(deVuelta, 'de vuelta arriba')
 
       // Cerrar sigue funcionando (carrito vacío: cierra sin preguntar).
       await page.getByTestId('comprobante-cancel-button').click()
@@ -269,9 +317,11 @@ test.describe('@pos-viewport POS — contenido en el viewport desde cualquier en
 
     // Se scrollea la página y se dispara el click SIN que Playwright la devuelva
     // arriba: el botón queda fuera de la vista, como al usar un atajo o el teclado.
-    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
-    const antes = await page.evaluate(() => window.scrollY)
-    expect(antes).toBeGreaterThan(40)
+    const fondo = await scrollearPagina(page, 'fondo')
+    const antes = fondo.scrollY
+    expect(antes, 'la orden debe ser más alta que el viewport: la página tiene que haber scrolleado').toBeGreaterThan(40)
+    // Releído en otra ida y vuelta: el scroll está quieto en el destino, no en vuelo.
+    expect(await page.evaluate(() => window.scrollY), 'el scroll debe quedar quieto en el destino').toBe(antes)
     await page.getByRole('button', { name: 'Generar Comprobante' }).dispatchEvent('click')
     await expect(page.locator('.cpm-root')).toBeVisible({ timeout: 15_000 })
 
