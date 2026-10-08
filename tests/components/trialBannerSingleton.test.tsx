@@ -4,10 +4,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { SubscriptionBanner } from '../../src/components/subscription/SubscriptionBanner'
 
+// BETA-UX-1C: el aviso de trial aparece con 5 días o menos. Estos casos
+// describen el aviso cuando EXISTE, así que parten del primer día en que
+// aparece; que del 14 al 6 no haya aviso lo cubre betaUx1cSubscriptionBanner.
 const subscriptionState = vi.hoisted(() => ({
   isTrial: true,
   isPastDue: false,
-  daysUntilTrialEnd: 6 as number | null,
+  daysUntilTrialEnd: 5 as number | null,
   daysUntilGraceEnd: null as number | null,
   daysUntilPeriodEnd: null as number | null,
   isActive: false,
@@ -43,7 +46,7 @@ describe('banner canónico de período de prueba', () => {
     Object.assign(subscriptionState, {
       isTrial: true,
       isPastDue: false,
-      daysUntilTrialEnd: 6,
+      daysUntilTrialEnd: 5,
       daysUntilGraceEnd: null,
       daysUntilPeriodEnd: null,
       isActive: false,
@@ -54,10 +57,18 @@ describe('banner canónico de período de prueba', () => {
   it('trialing renderiza exactamente un aviso con los días provistos por trial_ends_at', () => {
     mountBanner()
 
-    expect(screen.getAllByText(/Tu período de prueba vence en 6 días/i)).toHaveLength(1)
+    expect(screen.getAllByText(/Tu período de prueba vence en 5 días/i)).toHaveLength(1)
     expect(screen.getAllByRole('button', { name: 'Ver planes' })).toHaveLength(1)
     expect(screen.queryByText(/acceso completo al Plan Pro/i)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Elegir plan' })).not.toBeInTheDocument()
+  })
+
+  it('BETA-UX-1C: con 6 días todavía no hay aviso', () => {
+    subscriptionState.daysUntilTrialEnd = 6
+    mountBanner()
+
+    expect(screen.queryByText(/período de prueba/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Ver planes' })).not.toBeInTheDocument()
   })
 
   it('active no renderiza avisos de período de prueba', () => {

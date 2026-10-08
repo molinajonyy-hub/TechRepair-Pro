@@ -26,7 +26,8 @@ const h = vi.hoisted(() => ({
   sub: {
     isTrial: true,
     isPastDue: false,
-    daysUntilTrialEnd: 6 as number | null,
+    // BETA-UX-1C: el aviso de trial aparece con 5 días o menos.
+    daysUntilTrialEnd: 5 as number | null,
     daysUntilGraceEnd: null as number | null,
     daysUntilPeriodEnd: null as number | null,
     isActive: false,
@@ -121,7 +122,7 @@ beforeEach(() => {
   h.realNavigate = false
   h.navigate.mockReset()
   Object.assign(h.sub, {
-    isTrial: true, isPastDue: false, daysUntilTrialEnd: 6,
+    isTrial: true, isPastDue: false, daysUntilTrialEnd: 5,
     daysUntilGraceEnd: null, daysUntilPeriodEnd: null, isActive: false, loading: false,
     subscription: null,
   })
@@ -133,7 +134,7 @@ describe('C4 · banner de suscripción sólo con la capacidad `subscription`', (
 
   it('owner ve el estado del trial y «Ver planes»', () => {
     montar()
-    expect(screen.getByText(/Tu período de prueba vence en 6 días/i)).toBeInTheDocument()
+    expect(screen.getByText(/Tu período de prueba vence en 5 días/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Ver planes' })).toBeInTheDocument()
   })
 
@@ -168,7 +169,7 @@ describe('C4 · banner de suscripción sólo con la capacidad `subscription`', (
 
   it('los TRES cierres del banner tienen nombre accesible', () => {
     const variantes: Array<Partial<typeof h.sub>> = [
-      { isTrial: true, daysUntilTrialEnd: 6 },
+      { isTrial: true, daysUntilTrialEnd: 5 },
       { isTrial: false, isPastDue: true, daysUntilGraceEnd: 3 },
       // BETA-1: «vence tu suscripción» sólo aplica a una suscripción paga.
       { isTrial: false, isPastDue: false, isActive: true, daysUntilPeriodEnd: 2, subscription: { mp_preapproval_id: 'pre_test' } },

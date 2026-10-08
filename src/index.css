@@ -3737,6 +3737,193 @@ tbody tr:hover td {
   .arca-setup-choice, .arca-setup-dropzone { transition:none; }
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   BETA-UX-1C — Mi Suscripción por estado + aviso de suscripción
+   Sólo tokens de tema: nada de hex pensado para un único tema. El color del
+   estado (--sub-tone) va en superficies, bordes, íconos y puntos; el TEXTO usa
+   siempre los tokens de texto, que cumplen contraste en claro y en oscuro.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.sub-tone-info    { --sub-tone: var(--info);           --sub-tone-bg: var(--info-subtle);           --sub-tone-border: var(--info-border); }
+.sub-tone-success { --sub-tone: var(--success);        --sub-tone-bg: var(--success-subtle);        --sub-tone-border: var(--success-border); }
+.sub-tone-warning { --sub-tone: var(--warning);        --sub-tone-bg: var(--warning-subtle);        --sub-tone-border: var(--warning-border); }
+.sub-tone-danger  { --sub-tone: var(--error);          --sub-tone-bg: var(--error-subtle);          --sub-tone-border: var(--error-border); }
+.sub-tone-accent  { --sub-tone: var(--accent-primary); --sub-tone-bg: var(--accent-primary-subtle); --sub-tone-border: var(--border-accent); }
+.sub-tone-neutral { --sub-tone: var(--text-muted);     --sub-tone-bg: var(--bg-surface);            --sub-tone-border: var(--border-strong); }
+
+/* ── Tarjeta de estado ──────────────────────────────────────────────────────
+   Dos bloques que envuelven: [ícono + textos] y [acciones]. El primero pide
+   22rem: si no entran al lado, las acciones bajan en vez de dejarle al texto
+   una columna de una palabra por línea (lo que pasaba a 375px). */
+.sub-status-card,
+.sub-status-card:hover { border-color: var(--sub-tone-border); }
+.sub-status { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem 1.5rem; }
+.sub-status__main {
+  flex: 1 1 22rem;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 1rem;
+  row-gap: 0.375rem;
+  align-items: center;
+}
+.sub-status__icon {
+  grid-row: 1 / span 2;
+  align-self: start;
+  width: 56px; height: 56px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  background: var(--sub-tone-bg);
+  color: var(--sub-tone);
+}
+.sub-status__heading { grid-column: 2; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem 0.75rem; }
+.sub-status__title { margin: 0; font-size: 1.25rem; font-weight: 700; line-height: 1.25; letter-spacing: -0.015em; color: var(--text-primary); overflow-wrap: anywhere; }
+.sub-status__badge {
+  display: inline-flex; align-items: center; gap: 0.375rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 9999px;
+  background: var(--sub-tone-bg);
+  border: 1px solid var(--sub-tone-border);
+  color: var(--text-primary);
+  font-size: 0.72rem; font-weight: 700; line-height: 1.4;
+  white-space: nowrap;
+}
+.sub-status__badge::before { content: ''; flex-shrink: 0; width: 0.4rem; height: 0.4rem; border-radius: 50%; background: var(--sub-tone); }
+.sub-status__detail { grid-column: 2; min-width: 0; display: grid; gap: 0.375rem; }
+.sub-status__detail:empty { display: none; }
+.sub-status__detail p { margin: 0; font-size: 0.875rem; line-height: 1.5; color: var(--text-secondary); overflow-wrap: anywhere; }
+.sub-status__detail strong { color: var(--text-primary); font-weight: 700; }
+.sub-status__actions { flex: 0 1 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 0.625rem; }
+@media (min-width: 1200px) {
+  /* Desktop: las acciones van siempre al costado. Si son varias se acomodan en
+     un bloque de hasta 22rem en vez de empujar al texto. */
+  .sub-status { flex-wrap: nowrap; }
+  .sub-status__actions { flex: 0 0 auto; max-width: 22rem; justify-content: flex-end; }
+}
+
+.sub-feedback { margin: 0; }
+.sub-feedback--info { font-size: 0.8125rem; line-height: 1.5; color: var(--text-secondary); }
+.sub-status + .sub-feedback { margin-top: 0.875rem; }
+
+/* ── Resto de la pantalla ─────────────────────────────────────────────────── */
+.sub-page .page-hdr-left,
+.sub-page .page-hdr-left > div:last-child { min-width: 0; }
+.sub-page .page-hdr-subtitle { overflow-wrap: anywhere; }
+
+.sub-pill {
+  display: inline-flex; align-items: center;
+  padding: 0.2rem 0.625rem;
+  border-radius: 9999px;
+  background: var(--sub-tone-bg);
+  border: 1px solid var(--sub-tone-border);
+  color: var(--text-primary);
+  font-size: 0.72rem; font-weight: 700;
+  white-space: nowrap;
+}
+.sub-users {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 0.75rem;
+  margin-bottom: 1.25rem;
+  padding: 0.875rem 1rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+.sub-feature {
+  display: flex; align-items: center; gap: 0.625rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+.sub-feature--on { background: var(--success-subtle); color: var(--text-secondary); }
+.sub-feature__mark { font-weight: 700; }
+.sub-feature--on .sub-feature__mark { color: var(--order-badge-paid-fg); }
+.sub-upgrade {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem;
+  margin-top: 1.25rem; padding-top: 1.25rem;
+  border-top: 1px solid var(--border-color);
+}
+.sub-manage { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1rem; }
+.sub-manage__confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; }
+.sub-manage > .sub-feedback { flex: 1 1 100%; }
+
+@media (max-width: 767px) {
+  /* Táctil: toda acción de la pantalla mide al menos 44px de alto. */
+  .sub-page .btn { min-height: 44px; }
+}
+@media (max-width: 480px) {
+  /* El ícono acompaña al título; los textos y las acciones usan todo el ancho. */
+  .sub-status__icon { grid-row: 1; width: 44px; height: 44px; }
+  .sub-status__detail { grid-column: 1 / -1; margin-top: 0.25rem; }
+  .sub-status__actions,
+  .sub-manage,
+  .sub-manage__confirm { flex: 1 1 100%; flex-direction: column; align-items: stretch; }
+  .sub-status__actions .btn,
+  .sub-manage .btn { width: 100%; white-space: normal; }
+}
+
+/* ── Aviso de suscripción (encima del contenido de cada página) ───────────── */
+.sub-banner {
+  display: flex; align-items: center; gap: 0.75rem;
+  margin-bottom: 1rem;
+  padding: 0.5rem 0.5rem 0.5rem 1rem;
+  background: var(--sub-tone-bg);
+  border: 1px solid var(--sub-tone-border);
+  border-radius: var(--radius-lg);
+  font-size: 0.875rem; line-height: 1.45;
+}
+.sub-banner__icon { flex-shrink: 0; display: inline-flex; color: var(--sub-tone); }
+.sub-banner__text { flex: 1 1 auto; min-width: 0; margin: 0; color: var(--text-secondary); overflow-wrap: anywhere; }
+.sub-banner__text strong { color: var(--text-primary); font-weight: 700; }
+.sub-banner__cta {
+  flex-shrink: 0;
+  min-height: 36px;
+  padding: 0 0.875rem;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--sub-tone);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.8125rem; font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+/* 44×44 de toque. El margen negativo evita que el aviso crezca por el cierre. */
+.sub-banner__close {
+  flex-shrink: 0;
+  width: 44px; height: 44px;
+  margin-block: -0.25rem;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.sub-banner__cta:focus-visible,
+.sub-banner__close:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+@media (hover: hover) {
+  .sub-banner__cta:hover { background: var(--bg-hover); }
+  .sub-banner__close:hover { background: var(--bg-hover); color: var(--text-primary); }
+}
+@media (max-width: 640px) {
+  /* El texto usa todo el ancho; debajo, la acción (44px) y el cierre en una
+     misma fila. Con el cierre arriba a la derecha el texto perdía 54px de
+     columna y el aviso crecía una línea. */
+  .sub-banner {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.125rem 0.625rem;
+    padding: 0.625rem 0.25rem 0.25rem 0.875rem;
+  }
+  .sub-banner__icon { grid-area: 1 / 1; align-self: start; margin-top: 0.125rem; }
+  .sub-banner__text { grid-area: 1 / 2 / auto / -1; padding-right: 0.625rem; }
+  .sub-banner__cta { grid-area: 2 / 2; justify-self: start; min-height: 44px; }
+  .sub-banner__close { grid-area: 2 / 3; margin: 0; }
+}
+
 @media print {
   .sidebar, .top-header, .btn { display: none !important; }
   .main-content { margin-left: 0; color: #000; background: #fff; }

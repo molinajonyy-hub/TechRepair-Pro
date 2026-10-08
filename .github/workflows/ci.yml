@@ -151,6 +151,33 @@ jobs:
       - name: BETA-UX-1B — open cash session without losing checkout
         run: npm run test:beta-ux-1b
 
+      # BETA-UX-1C: Mi Suscripción le ofrecía a un trial «Verificar pago»,
+      # «Actualizar método de pago» y «Cancelar suscripción» —las tres devolvían
+      # `no_subscription`— y le mostraba «Pago: $25.000» como si ya se cobrara;
+      # a un acceso otorgado a mano le ofrecía además «Cambiar plan». La pantalla
+      # ahora se dibuja a partir de `lib/subscriptionPresentation` (puro). La
+      # suite recorre la matriz entera (6 estados × 5 fuentes × vínculo de MP ×
+      # checkout): Actualizar/Cancelar SÓLO con una suscripción de Mercado Pago
+      # vinculada, «Continuar pago» SÓLO en un trial cuyo checkout el SERVIDOR
+      # informa `pending` (acción `status`; nunca la URL ni el navegador), un
+      # acceso manual sin ninguna acción de billing ni CTA a Planes, y las
+      # bloqueadas con el muro de BETA-1 intacto (el tipo de muro es exactamente
+      # el de `classifySubscriptionWall`). Sobre la pantalla montada fija que
+      # «Continuar pago» propone el plan y el ciclo del checkout del servidor y
+      # nada más, que una lectura fallida degrada al trial sin inventar un pago,
+      # y que el precio del trial se presenta como «Al terminar la prueba».
+      # Aviso de suscripción: del día 14 al 6 no existe; cerrarlo lo oculta POR
+      # EL DÍA, por negocio y por tipo (la marca es un `1` bajo una clave con
+      # fecha local, sin datos de billing), y el de pago vencido conserva su
+      # cierre de sesión. Guardas de fuente: ni la pantalla ni el aviso traen
+      # colores fijos; el bloque de CSS usa sólo tokens definidos en los dos
+      # temas. Corre junto con las suites de BETA-1 y BETA-MP que ya cubrían
+      # estas pantallas, con el contrato nuevo. La geometría a 375 px, el área
+      # táctil y el contraste AA medidos sobre el CSS servido viven en
+      # `m7/subscription-state.spec.ts` (job `e2e-local`).
+      - name: BETA-UX-1C — state-aware subscription UX
+        run: npm run test:beta-ux-1c
+
       # BETA-MP: Billing SaaS por Mercado Pago. El frontend propone, Mercado Pago
       # confirma, el backend decide. Corre el código REAL de las Edge Functions
       # (`supabase/functions/_shared/billing`) contra un PostgREST en memoria que
