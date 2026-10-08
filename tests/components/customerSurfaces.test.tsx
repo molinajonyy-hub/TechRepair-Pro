@@ -91,6 +91,14 @@ function rowOf(name: string) {
   return screen.getAllByRole('row').find((r) => r.textContent?.includes(name))!
 }
 
+// BETA-UX-1D — la lista tiene dos presentaciones del mismo dato: la tabla de
+// escritorio y las tarjetas de mobile. El CSS decide cuál se ve y jsdom no lo
+// aplica, así que el nombre aparece en las dos. Estos tests son de la TABLA
+// (las tarjetas tienen los suyos en betaUx1dCustomersList.test.tsx).
+async function tableLoaded(name: string) {
+  return within(await screen.findByTestId('customers-desktop-table')).findByText(name)
+}
+
 beforeEach(() => {
   mocks.getAll.mockReset().mockResolvedValue(CUSTOMERS)
   mocks.update.mockReset().mockResolvedValue({ id: 'cust-a' })
@@ -105,7 +113,7 @@ beforeEach(() => {
 describe('estadísticas de la lista de clientes', () => {
   it('cuenta las órdenes contra customer_id, no contra una relación inexistente', async () => {
     render(<MemoryRouter><Customers /></MemoryRouter>)
-    await screen.findByText('Cliente A DosOrdenes')
+    await tableLoaded('Cliente A DosOrdenes')
 
     // Antes: la query traía `customer_id` plano y el reduce leía
     // `order.customer?.id` -> undefined -> TODAS las órdenes descartadas.
@@ -116,7 +124,7 @@ describe('estadísticas de la lista de clientes', () => {
 
   it('suma el total con la semántica existente: total_cost si es positivo, si no el estimado', async () => {
     render(<MemoryRouter><Customers /></MemoryRouter>)
-    await screen.findByText('Cliente A DosOrdenes')
+    await tableLoaded('Cliente A DosOrdenes')
 
     // A: 1000 (total_cost) + 500 (estimated_total) = 1500
     expect(rowOf('Cliente A DosOrdenes').textContent).toContain('1.500')
@@ -154,7 +162,7 @@ describe('estadísticas de la lista de clientes', () => {
   it('sin autorización del servidor muestra un guion, nunca $0', async () => {
     mocks.rpc.mockResolvedValue({ data: { ok: true, authorized: false, rows: [] }, error: null })
     render(<MemoryRouter><Customers /></MemoryRouter>)
-    await screen.findByText('Cliente A DosOrdenes')
+    await tableLoaded('Cliente A DosOrdenes')
 
     // El conteo de órdenes sigue estando: es operativo, no financiero.
     expect(within(rowOf('Cliente A DosOrdenes')).getByText('2')).toBeInTheDocument()
@@ -166,7 +174,7 @@ describe('estadísticas de la lista de clientes', () => {
 
   it('ignora órdenes sin cliente en vez de agruparlas juntas', async () => {
     render(<MemoryRouter><Customers /></MemoryRouter>)
-    await screen.findByText('Cliente A DosOrdenes')
+    await tableLoaded('Cliente A DosOrdenes')
     // La orden huérfana (700) no debe aparecer sumada en ninguna fila.
     for (const name of ['Cliente A DosOrdenes', 'Cliente B UnaOrden', 'Cliente C SinOrdenes']) {
       expect(rowOf(name).textContent).not.toContain('700')
@@ -175,7 +183,7 @@ describe('estadísticas de la lista de clientes', () => {
 
   it('mantiene el aislamiento por negocio y no escribe nada al listar', async () => {
     render(<MemoryRouter><Customers /></MemoryRouter>)
-    await screen.findByText('Cliente A DosOrdenes')
+    await tableLoaded('Cliente A DosOrdenes')
     expect(mocks.update).not.toHaveBeenCalled()
     expect(mocks.create).not.toHaveBeenCalled()
   })

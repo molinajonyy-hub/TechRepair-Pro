@@ -178,6 +178,37 @@ jobs:
       - name: BETA-UX-1C — state-aware subscription UX
         run: npm run test:beta-ux-1c
 
+      # BETA-UX-1D: la orden en el celular. A 375 px el detalle de orden era una
+      # grilla fija de dos columnas (~160 px cada una, en línea, sin media query)
+      # y Órdenes y Clientes eran tablas de 1.176 y 837 px con el estado vacío
+      # adentro de un `<td colSpan>`. Por debajo de 768 px el detalle pasa a UNA
+      # columna con una acción principal y las secundarias en «Más acciones», y
+      # las dos listas pasan a tarjetas (`CompactList`); desde 768 px no cambia
+      # nada. Tabla y tarjetas son dos presentaciones del MISMO dato y el CSS
+      # elige cuál se ve, así que jsdom —que no aplica `index.css`— monta las
+      # dos. La suite fija lo que no depende del CSS: las tarjetas salen del
+      # mismo dataset filtrado, del mismo mapa financiero y de la misma función
+      # de importes que la tabla; con `amountsAuthorized !== true` no aparece un
+      # solo monto (ni un $0), ni siquiera si el mapa trajera números; tocar la
+      # tarjeta abre el detalle y el menú usa la impresión, el diálogo de edición
+      # y las confirmaciones de borrado de siempre (una sola de cada una); el
+      # menú del detalle abre la misma vista previa, el mismo alta de garantía y
+      # el mismo preview de WhatsApp con la misma plantilla que escritorio;
+      # Plantilla / Exportar / Importar siguen en escritorio y están, con los
+      # mismos handlers, en el menú de mobile; y el estado vacío vive FUERA de la
+      # tabla, con «Limpiar filtros» limpiando los cuatro filtros (el de cobro no
+      # se limpiaba ni contaba como filtro). `betaUx1dResponsiveContract` lee el
+      # bloque de CSS: <768 tarjetas / una columna, >=768 tabla / dos columnas,
+      # sólo `max-width`, sólo tokens definidos en claro y en oscuro; y la
+      # fuente: sin `innerWidth`/`matchMedia`, sin grilla ni `span 2` en línea,
+      # sin estado vacío en una celda, y una única lectura de importes gateada.
+      # Corre con las suites vecinas que montan estas pantallas. La geometría a
+      # 320/375 px, los 44 px, el contraste y el EMPLEADO real sin
+      # `orders_view_financials` contra el servidor viven en
+      # `m7/mobile-orders.spec.ts` (job `e2e-local`).
+      - name: BETA-UX-1D — order detail and core lists on mobile
+        run: npm run test:beta-ux-1d
+
       # BETA-MP: Billing SaaS por Mercado Pago. El frontend propone, Mercado Pago
       # confirma, el backend decide. Corre el código REAL de las Edge Functions
       # (`supabase/functions/_shared/billing`) contra un PostgREST en memoria que

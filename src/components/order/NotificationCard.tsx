@@ -156,16 +156,20 @@ export function NotificationCard({
 
         <div style={{ 
           display: 'flex', 
-          justifyContent: 'space-between', 
+          justifyContent: 'space-between',
           alignItems: 'center',
+          // BETA-UX-1D: a 375px el email y el aviso no entran en una fila y el
+          // aviso quedaba recortado por la tarjeta. Si no entran, el aviso baja.
+          flexWrap: 'wrap',
+          gap: '0.5rem',
           padding: '0.75rem',
           backgroundColor: '#1e293b',
           borderRadius: '0.5rem',
           marginBottom: '1rem'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Mail size={16} color="#64748b" />
-            <span style={{ fontSize: '0.875rem', color: '#a0aec0' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
+            <Mail size={16} color="#64748b" style={{ flexShrink: 0 }} />
+            <span style={{ fontSize: '0.875rem', color: '#a0aec0', overflowWrap: 'anywhere' }}>
               {customerEmail || 'Sin email'}
             </span>
           </div>

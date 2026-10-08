@@ -12,6 +12,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { useOrderPrintSettings } from '../hooks/useOrderPrintSettings'
 import { buildOrderPrintTitle } from '../lib/printFilename'
+import { CompactList, OverflowMenu, type CompactListItem } from '../ui'
 
 const getStatusStyle = (status: string) => {
   const config = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]
@@ -181,6 +182,111 @@ export function Orders() {
     }, 500)
   }
 
+  const clearFilters = () => {
+    setSearchTerm(''); setStatusFilter(''); setPaymentFilter(''); setPriorityFilter('')
+  }
+  /** Filtros que YA condicionan la lista (la búsqueda aplica con debounce). */
+  const filtersApplied = Boolean(debouncedSearch || statusFilter || paymentFilter || priorityFilter)
+
+  /**
+   * Importes de UNA orden, tal como los entregó el servidor.
+   *
+   * BETA-UX-1D: la tabla de escritorio y las tarjetas de mobile son dos
+   * presentaciones del mismo dato y las dos leen de acá. No hay una segunda
+   * vía: sin autorización (o con el bloque financiero caído) devuelve `null`,
+   * nunca un cero, y la presentación dice que está restringido.
+   *
+   * SEC-08A: `labor_cost` y `estimated_total` ya no viajan en la fila de la
+   * orden. Llegan por la ruta autorizada (`get_order_financial_amounts`) o no
+   * llegan. Fase B retiró el atajo que sumaba `order_items.precio_unitario` de
+   * la fila anidada: devolvía el importe SIN pasar por la capacidad y
+   * reconstruía `estimated_total` exactamente.
+   */
+  const orderAmounts = (orderId: string): { total: number; saldo: number } | null => {
+    if (financialError || amountsAuthorized !== true) return null
+    const montos = financial[orderId]
+    return {
+      total: montos?.labor_cost || montos?.estimated_total || 0,
+      saldo: montos?.saldo_pendiente ?? 0,
+    }
+  }
+  const formatMoney = (value: number) => `$${value.toLocaleString('es-AR')}`
+  const formatOrderDate = (iso: string) =>
+    new Date(iso).toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Cordoba', day: '2-digit', month: 'short', year: 'numeric' })
+
+  const askDelete = (order: OrderListItem) => { setDeleteError(null); setDeletingOrder(order) }
+
+  // BETA-UX-1D — tarjetas de la lista mobile. Mismo `filteredOrders`, mismo mapa
+  // `financial`, mismos handlers que la tabla: es otra presentación, no otra
+  // consulta. Tocar la tarjeta abre el detalle; «Editar» de la tabla navega al
+  // mismo lugar, así que el menú lleva sólo lo que agrega algo.
+  const mobileItems: CompactListItem[] = filteredOrders.map(order => {
+    const shortId = order.id.slice(0, 8)
+    const customerName = order.customer?.name || 'Sin cliente'
+    const statusLabel = STATUS_CONFIG[order.status as keyof typeof STATUS_CONFIG]?.label || order.status
+    const amounts = orderAmounts(order.id)
+    // La prioridad se nombra sólo cuando cambia qué orden se atiende primero.
+    const priorityLabel = order.priority === 'urgent' || order.priority === 'high'
+      ? `Prioridad ${PRIORITY_LABELS[order.priority].toLowerCase()}`
+      : null
+
+    return {
+      id: order.id,
+      testId: 'orders-mobile-item',
+      accessibleLabel: `Abrir la orden #${shortId} de ${customerName}`,
+      onSelect: () => navigate(`/orders/${order.id}`),
+      primary: (
+        <span className="order-card__title">
+          <span>{customerName}</span>
+          <span className="order-card__id">#{shortId}</span>
+        </span>
+      ),
+      secondary: order.device ? `${order.device.brand} ${order.device.model}` : 'Sin dispositivo',
+      metadata: (
+        <span className="order-card__meta">
+          <span>{formatOrderDate(order.created_at)}</span>
+          {priorityLabel && <span className="order-card__priority">· {priorityLabel}</span>}
+        </span>
+      ),
+      status: (
+        <span className="order-card__badges">
+          <span className="badge" style={getStatusStyle(order.status)}>{statusLabel}</span>
+          {/* Estado de COBRO: mismo badge y mismas props que la tabla. */}
+          <OrderFinancialBadge
+            status={financialError ? null : (financial[order.id]?.payment_status ?? null)}
+            unavailable={financialError || !financial[order.id]}
+            size="sm"
+          />
+        </span>
+      ),
+      amount: amounts ? (
+        <>
+          <span data-testid="orders-mobile-total">{formatMoney(amounts.total)}</span>
+          {amounts.saldo > 0 && (
+            <span className="order-card__balance" data-testid="orders-mobile-balance">Saldo {formatMoney(amounts.saldo)}</span>
+          )}
+        </>
+      ) : !financialError && amountsAuthorized === false ? (
+        <span className="list-card__restricted" data-testid="orders-mobile-amounts-restricted">Importes restringidos</span>
+      ) : (
+        <span className="list-card__restricted" data-testid="orders-mobile-amounts-unavailable">
+          <span aria-hidden="true">—</span>
+          <span className="sr-only">Importe no disponible</span>
+        </span>
+      ),
+      trailingAction: (
+        <OverflowMenu
+          label={`Acciones de la orden #${shortId}`}
+          testId="orders-mobile-actions"
+          actions={[
+            { label: 'Imprimir', icon: <Printer size={16} aria-hidden="true" />, onSelect: () => handlePrint(order) },
+            { label: 'Eliminar', icon: <Trash2 size={16} aria-hidden="true" />, destructive: true, onSelect: () => askDelete(order) },
+          ]}
+        />
+      ),
+    }
+  })
+
   if (error) {
     return (
       <div>
@@ -196,7 +302,7 @@ export function Orders() {
   }
 
   return (
-    <div>
+    <div className="mobile-list-page">
       <div className="page-hdr">
         <div className="page-hdr-left">
           <div className="page-hdr-icon"><ClipboardList size={22} /></div>
@@ -213,8 +319,10 @@ export function Orders() {
         </div>
       </div>
 
-      <div className="filter-bar">
-        <div style={{ position: 'relative', flex: 1, minWidth: '240px' }}>
+      {/* BETA-UX-1D: los anchos mínimos de la barra pasaron a clases para que
+          mobile pueda acomodarla (búsqueda de lado a lado, filtros de a dos). */}
+      <div className="filter-bar list-filter-bar" data-testid="orders-filter-bar">
+        <div className="list-filter-bar__search">
           <Search size={15} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
           <input
             type="text"
@@ -232,7 +340,13 @@ export function Orders() {
             </button>
           )}
         </div>
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="form-select" style={{ minWidth: 150 }}>
+        <select
+          value={statusFilter}
+          onChange={e => setStatusFilter(e.target.value)}
+          className="form-select orders-filter-status"
+          aria-label="Filtrar por estado"
+          data-testid="orders-status-filter"
+        >
           <option value="">Todos los estados</option>
           <option value="new">Nueva</option>
           <option value="diagnosis">Diagnóstico</option>
@@ -245,10 +359,9 @@ export function Orders() {
         <select
           value={paymentFilter}
           onChange={e => setPaymentFilter(e.target.value as '' | OrderPaymentStatus)}
-          className="form-select"
+          className="form-select orders-filter-payment"
           aria-label="Filtrar por estado de cobro"
           data-testid="orders-payment-filter"
-          style={{ minWidth: 160 }}
         >
           <option value="">Todos los cobros</option>
           <option value="sin_facturar">Sin facturar</option>
@@ -256,7 +369,13 @@ export function Orders() {
           <option value="partial">Parciales</option>
           <option value="paid">Cobradas</option>
         </select>
-        <select value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)} className="form-select" style={{ minWidth: 130 }}>
+        <select
+          value={priorityFilter}
+          onChange={e => setPriorityFilter(e.target.value)}
+          className="form-select orders-filter-priority"
+          aria-label="Filtrar por prioridad"
+          data-testid="orders-priority-filter"
+        >
           <option value="">Todas las prioridades</option>
           <option value="urgent">Urgente</option>
           <option value="high">Alta</option>
@@ -264,143 +383,147 @@ export function Orders() {
           <option value="low">Baja</option>
         </select>
         {(searchTerm || statusFilter || priorityFilter || paymentFilter) && (
-          <button onClick={() => { setSearchTerm(''); setStatusFilter(''); setPriorityFilter(''); setPaymentFilter('') }} className="btn btn-ghost btn-sm">
+          <button onClick={clearFilters} className="btn btn-ghost btn-sm" data-testid="orders-clear-filters">
             Limpiar filtros
           </button>
         )}
         {debouncedSearch && (
-          <span className="body-sm" style={{ whiteSpace: 'nowrap', alignSelf: 'center' }}>
+          <span className="body-sm list-filter-bar__count">
             {filteredOrders.length} resultado{filteredOrders.length !== 1 ? 's' : ''}
           </span>
         )}
       </div>
 
-      <div className="surface-raised" style={{ overflow: 'hidden' }}>
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Orden</th>
-                <th>Cliente</th>
-                <th>Dispositivo</th>
-                <th>Estado</th>
-                <th>Cobro</th>
-                <th>Prioridad</th>
-                <th style={{ textAlign: 'right' }}>Total</th>
-                <th>Fecha</th>
-                <th style={{ textAlign: 'right' }}>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredOrders.length === 0 ? (
-                <tr className="empty-row">
-                  <td colSpan={9}>
-                    {debouncedSearch || statusFilter || priorityFilter ? (
-                      <EmptyState
-                        icon={Search}
-                        title="Sin resultados"
-                        description="Probá con otro término o limpiá los filtros"
-                        action={{ label: 'Limpiar filtros', onClick: () => { setSearchTerm(''); setStatusFilter(''); setPriorityFilter('') } }}
-                      />
-                    ) : (
-                      <EmptyState
-                        icon={ClipboardList}
-                        title="Todavía no tenés órdenes"
-                        description="Comenzá creando tu primera orden de reparación."
-                        action={{ label: 'Nueva Orden', onClick: () => navigate('/orders/new') }}
-                      />
-                    )}
-                  </td>
-                </tr>
-              ) : (
-                filteredOrders.map((order) => (
-                  <tr key={order.id}>
-                    <td>
-                      <Link to={`/orders/${order.id}`} style={{ color: 'var(--accent-primary)', fontWeight: 600, textDecoration: 'none' }}>
-                        #{order.id.slice(0, 8)}
-                      </Link>
-                    </td>
-                    <td style={{ color: 'var(--text-primary)' }}>{order.customer?.name || 'Sin cliente'}</td>
-                    <td>{order.device ? `${order.device.brand} ${order.device.model}` : <span className="body-sm">Sin dispositivo</span>}</td>
-                    <td>
-                      <span className="badge" style={getStatusStyle(order.status)}>
-                        {STATUS_CONFIG[order.status as keyof typeof STATUS_CONFIG]?.label || order.status}
-                      </span>
-                    </td>
-                    {/* Estado de COBRO: eje separado del técnico. El valor y el
-                        saldo llegan de v_order_financial_status; acá no se calcula nada. */}
-                    <td data-testid="order-financial-cell">
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', alignItems: 'flex-start' }}>
-                        <OrderFinancialBadge
-                          status={financialError ? null : (financial[order.id]?.payment_status ?? null)}
-                          unavailable={financialError || !financial[order.id]}
-                          size="sm"
-                        />
-                        {/* El saldo sólo existe si el servidor lo entregó. Sin
-                            permiso no se muestra un cero: se dice que está restringido. */}
-                        {!financialError && amountsAuthorized === true
-                          && (financial[order.id]?.saldo_pendiente ?? 0) > 0 && (
-                          <span className="body-sm" style={{ fontSize: '0.68rem', color: 'var(--text-subtle)', whiteSpace: 'nowrap' }}>
-                            Saldo ${financial[order.id].saldo_pendiente.toLocaleString('es-AR')}
-                          </span>
-                        )}
-                        {!financialError && amountsAuthorized === false && (
-                          <span data-testid="order-amounts-restricted" className="body-sm"
-                                title="Tu rol no tiene acceso a los importes."
-                                style={{ fontSize: '0.62rem', color: 'var(--text-subtle)', whiteSpace: 'nowrap' }}>
-                            Importes restringidos
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td>
-                      <span className="badge" style={getPriorityStyle(order.priority)}>
-                        {PRIORITY_LABELS[order.priority] || 'Baja'}
-                      </span>
-                    </td>
-                    <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)' }}>
-                      {(() => {
-                        // SEC-08A: `labor_cost` y `estimated_total` ya no viajan
-                        // en la fila de la orden. Llegan por la ruta autorizada
-                        // (`get_order_financial_amounts`) o no llegan. Sin
-                        // permiso se dice que está restringido: nunca $0.
-                        //
-                        // Fase B: se retiró el atajo que sumaba
-                        // `order_items.precio_unitario` de la fila anidada. Ese
-                        // camino devolvía el importe SIN pasar por la capacidad
-                        // y reconstruía `estimated_total` exactamente.
-                        if (financialError || amountsAuthorized !== true) {
-                          return <span data-testid="order-total-restricted" style={{ color: 'var(--text-subtle)', fontWeight: 400 }}>—</span>
-                        }
-                        const montos = financial[order.id]
-                        const total = montos?.labor_cost || montos?.estimated_total || 0
-                        return `$${total.toLocaleString('es-AR')}`
-                      })()}
-                    </td>
-                    <td className="body-sm">{new Date(order.created_at).toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Cordoba', day: '2-digit', month: 'short', year: 'numeric' })}</td>
-                    <td>
-                      <div style={{ display: 'flex', gap: '0.375rem', justifyContent: 'flex-end' }}>
-                        <button data-testid="order-print-button" onClick={() => handlePrint(order)} className="icon-btn icon-btn-primary" title="Imprimir Orden">
-                          <Printer size={15} />
-                        </button>
-                        <Link to={`/orders/${order.id}`} className="icon-btn" title="Ver detalle" style={{ textDecoration: 'none' }}>
-                          <Eye size={15} />
-                        </Link>
-                        <button onClick={() => navigate(`/orders/${order.id}`)} className="icon-btn icon-btn-violet" title="Editar">
-                          <Edit size={15} />
-                        </button>
-                        <button onClick={() => { setDeleteError(null); setDeletingOrder(order) }} className="icon-btn icon-btn-danger" title="Eliminar">
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+      {/* BETA-UX-1D — el estado vacío vive FUERA de la tabla. Adentro de un
+          `<td colSpan>` heredaba el ancho de las nueve columnas y en mobile
+          quedaba recortado; ahora, sin filas, no se monta ni tabla ni lista. */}
+      {filteredOrders.length === 0 ? (
+        <div
+          className="surface-raised list-empty-state"
+          data-testid="orders-empty-state"
+          data-empty-kind={filtersApplied ? 'no-results' : 'no-data'}
+        >
+          {filtersApplied ? (
+            <EmptyState
+              icon={Search}
+              title="Sin resultados"
+              description="Probá con otro término o limpiá los filtros"
+              action={{ label: 'Limpiar filtros', onClick: clearFilters }}
+            />
+          ) : (
+            <EmptyState
+              icon={ClipboardList}
+              title="Todavía no tenés órdenes"
+              description="Comenzá creando tu primera orden de reparación."
+              action={{ label: 'Nueva Orden', onClick: () => navigate('/orders/new') }}
+            />
+          )}
         </div>
-      </div>
+      ) : (
+        <>
+          {/* >=768px: la tabla de siempre. <768px la oculta el CSS y se muestra la
+              lista de tarjetas de abajo, armada con las mismas órdenes. */}
+          <div className="surface-raised orders-desktop-table" data-testid="orders-desktop-table" style={{ overflow: 'hidden' }}>
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Orden</th>
+                    <th>Cliente</th>
+                    <th>Dispositivo</th>
+                    <th>Estado</th>
+                    <th>Cobro</th>
+                    <th>Prioridad</th>
+                    <th style={{ textAlign: 'right' }}>Total</th>
+                    <th>Fecha</th>
+                    <th style={{ textAlign: 'right' }}>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredOrders.map((order) => {
+                    const amounts = orderAmounts(order.id)
+                    return (
+                      <tr key={order.id}>
+                        <td>
+                          <Link to={`/orders/${order.id}`} style={{ color: 'var(--accent-primary)', fontWeight: 600, textDecoration: 'none' }}>
+                            #{order.id.slice(0, 8)}
+                          </Link>
+                        </td>
+                        <td style={{ color: 'var(--text-primary)' }}>{order.customer?.name || 'Sin cliente'}</td>
+                        <td>{order.device ? `${order.device.brand} ${order.device.model}` : <span className="body-sm">Sin dispositivo</span>}</td>
+                        <td>
+                          <span className="badge" style={getStatusStyle(order.status)}>
+                            {STATUS_CONFIG[order.status as keyof typeof STATUS_CONFIG]?.label || order.status}
+                          </span>
+                        </td>
+                        {/* Estado de COBRO: eje separado del técnico. El valor y el
+                            saldo llegan de v_order_financial_status; acá no se calcula nada. */}
+                        <td data-testid="order-financial-cell">
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', alignItems: 'flex-start' }}>
+                            <OrderFinancialBadge
+                              status={financialError ? null : (financial[order.id]?.payment_status ?? null)}
+                              unavailable={financialError || !financial[order.id]}
+                              size="sm"
+                            />
+                            {/* El saldo sólo existe si el servidor lo entregó. Sin
+                                permiso no se muestra un cero: se dice que está restringido. */}
+                            {amounts && amounts.saldo > 0 && (
+                              <span className="body-sm" style={{ fontSize: '0.68rem', color: 'var(--text-subtle)', whiteSpace: 'nowrap' }}>
+                                Saldo {formatMoney(amounts.saldo)}
+                              </span>
+                            )}
+                            {!financialError && amountsAuthorized === false && (
+                              <span data-testid="order-amounts-restricted" className="body-sm"
+                                    title="Tu rol no tiene acceso a los importes."
+                                    style={{ fontSize: '0.62rem', color: 'var(--text-subtle)', whiteSpace: 'nowrap' }}>
+                                Importes restringidos
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td>
+                          <span className="badge" style={getPriorityStyle(order.priority)}>
+                            {PRIORITY_LABELS[order.priority] || 'Baja'}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          {/* SEC-08A: sin permiso se dice que está restringido, nunca
+                              $0. La regla vive en `orderAmounts`, compartida con
+                              las tarjetas de mobile. */}
+                          {amounts
+                            ? formatMoney(amounts.total)
+                            : <span data-testid="order-total-restricted" style={{ color: 'var(--text-subtle)', fontWeight: 400 }}>—</span>}
+                        </td>
+                        <td className="body-sm">{formatOrderDate(order.created_at)}</td>
+                        <td>
+                          <div style={{ display: 'flex', gap: '0.375rem', justifyContent: 'flex-end' }}>
+                            <button data-testid="order-print-button" onClick={() => handlePrint(order)} className="icon-btn icon-btn-primary" title="Imprimir Orden">
+                              <Printer size={15} />
+                            </button>
+                            <Link to={`/orders/${order.id}`} className="icon-btn" title="Ver detalle" style={{ textDecoration: 'none' }}>
+                              <Eye size={15} />
+                            </Link>
+                            <button onClick={() => navigate(`/orders/${order.id}`)} className="icon-btn icon-btn-violet" title="Editar">
+                              <Edit size={15} />
+                            </button>
+                            <button onClick={() => askDelete(order)} className="icon-btn icon-btn-danger" title="Eliminar">
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="orders-mobile-list" data-testid="orders-mobile-list">
+            <CompactList items={mobileItems} label="Órdenes de trabajo" />
+          </div>
+        </>
+      )}
 
       {/* Modal confirmar eliminación */}
       {deletingOrder && (

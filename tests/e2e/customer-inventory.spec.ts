@@ -37,7 +37,10 @@ test.describe('@smoke Cliente + Inventario', () => {
     const searchInput = page.locator('[data-testid="customers-search-input"]')
     await expect(searchInput).toBeVisible({ timeout: 10_000 })
     await searchInput.fill(name)
-    await expect(page.locator(`text=${name}`)).toBeVisible({ timeout: 8_000 })
+    // BETA-UX-1D: el listado tiene dos presentaciones del mismo cliente (la tabla
+    // en escritorio, las tarjetas en mobile) y el CSS muestra una. Se busca en
+    // la que está a la vista.
+    await expect(page.locator(`text=${name}`).locator('visible=true')).toBeVisible({ timeout: 8_000 })
   })
 
   test('crear producto E2E con stock 10 y verificar en inventario', async ({ page }) => {

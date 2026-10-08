@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Plus, Search, Eye, Phone, Mail, Users, Download, Upload, Pencil, Trash2, Loader2, X } from 'lucide-react'
 import { smartSearch } from '../utils/searchUtils'
 import { CloseButton } from '../components/ui/CloseButton'
@@ -11,7 +11,7 @@ import { ExcelService, ExcelRow } from '../services/excelService'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { useRefreshOnWakeUp } from '../hooks/useAppWakeUp'
-import { AppButton, ResponsiveDialog } from '../ui'
+import { AppButton, CompactList, OverflowMenu, ResponsiveDialog, type CompactListItem } from '../ui'
 import {
   CustomerCreateFields,
   documentSearchTokens,
@@ -69,6 +69,7 @@ const formatCurrency = (value: number) =>
 
 export function Customers() {
   const { businessId } = useAuth()
+  const navigate = useNavigate()
   const [searchTerm, setSearchTerm]     = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const searchTimer = useRef<ReturnType<typeof setTimeout>>()
@@ -370,6 +371,62 @@ export function Customers() {
     }, {})
   }, [orders, orderAmounts])
 
+  const askDelete = (customer: CustomerSummary) => { setDeletingCustomer(customer); setDeleteError('') }
+
+  // BETA-UX-1D — tarjetas de la lista mobile. Mismo `filteredCustomers`, mismo
+  // `customerStats` y mismo gating de importes que la tabla: es otra
+  // presentación, no otra consulta. Editar y eliminar son los flujos de siempre.
+  const mobileItems: CompactListItem[] = filteredCustomers.map(customer => {
+    const stats = customerStats[customer.id] || { orders: 0, total: 0 }
+
+    return {
+      id: customer.id,
+      testId: 'customers-mobile-item',
+      accessibleLabel: `Abrir la ficha de ${customer.name}`,
+      onSelect: () => navigate(`/customers/${customer.id}`),
+      primary: (
+        <span className="customer-card__title">
+          <span>{customer.name}</span>
+          {customer.customer_type === 'mayorista' && (
+            <span className="badge badge-info" style={{ fontSize: '0.62rem' }}>MAYORISTA</span>
+          )}
+        </span>
+      ),
+      secondary: (
+        <span className="customer-card__contact">
+          {customer.phone && (
+            <span className="customer-card__contact-row"><Phone size={13} aria-hidden="true" />{customer.phone}</span>
+          )}
+          {customer.email && (
+            <span className="customer-card__contact-row"><Mail size={13} aria-hidden="true" />{customer.email}</span>
+          )}
+          {!customer.phone && !customer.email && <span>Sin datos de contacto</span>}
+        </span>
+      ),
+      metadata: stats.orders === 1 ? '1 orden' : `${stats.orders} órdenes`,
+      // SEC-08A: sin autorización del servidor no se muestra un importe. Un
+      // guion dice "no lo podés ver"; un $0 mentiría sobre el valor del cliente.
+      amount: amountsAuthorized ? (
+        <span data-testid="customers-mobile-total">{formatCurrency(stats.total)}</span>
+      ) : (
+        <span className="list-card__restricted" data-testid="customers-mobile-total-restricted">
+          <span aria-hidden="true">—</span>
+          <span className="sr-only">Importe restringido</span>
+        </span>
+      ),
+      trailingAction: (
+        <OverflowMenu
+          label={`Acciones de ${customer.name}`}
+          testId="customers-mobile-actions"
+          actions={[
+            { label: 'Editar', icon: <Pencil size={16} aria-hidden="true" />, onSelect: () => openEdit(customer) },
+            { label: 'Eliminar', icon: <Trash2 size={16} aria-hidden="true" />, destructive: true, onSelect: () => askDelete(customer) },
+          ]}
+        />
+      ),
+    }
+  })
+
   if (error) {
     return (
       <div>
@@ -386,7 +443,7 @@ export function Customers() {
   }
 
   return (
-    <div>
+    <div className="mobile-list-page">
       <div className="page-hdr">
         <div className="page-hdr-left">
           <div className="page-hdr-icon"><Users size={22} /></div>
@@ -396,17 +453,33 @@ export function Customers() {
           </div>
         </div>
         <div className="page-hdr-right">
-          <button onClick={handleDownloadTemplate} className="btn btn-ghost btn-sm"><Download size={15} />Plantilla</button>
-          <button onClick={handleExportCustomers} className="btn btn-ghost btn-sm"><Download size={15} />Exportar</button>
-          <button onClick={() => setShowImportModal(true)} className="btn btn-ghost btn-sm"><Upload size={15} />Importar</button>
+          {/* BETA-UX-1D — escritorio: las tres secundarias son hijas directas de
+              la fila, como antes (`display: contents`). Mobile: se ocultan y
+              pasan, con los mismos handlers, al menú de al lado de la primaria. */}
+          <div className="list-hdr-secondary">
+            <button onClick={handleDownloadTemplate} className="btn btn-ghost btn-sm"><Download size={15} />Plantilla</button>
+            <button onClick={handleExportCustomers} className="btn btn-ghost btn-sm"><Download size={15} />Exportar</button>
+            <button onClick={() => setShowImportModal(true)} className="btn btn-ghost btn-sm"><Upload size={15} />Importar</button>
+          </div>
           <Link to="/customers/new" data-testid="customers-new-button" className="btn btn-primary btn-sm btn-lift" style={{ textDecoration: 'none' }}>
             <Plus size={16} />Nuevo Cliente
           </Link>
+          <div className="list-hdr-overflow">
+            <OverflowMenu
+              label="Más acciones de clientes"
+              testId="customers-mobile-header-menu"
+              actions={[
+                { label: 'Plantilla', icon: <Download size={16} aria-hidden="true" />, onSelect: () => void handleDownloadTemplate() },
+                { label: 'Exportar', icon: <Download size={16} aria-hidden="true" />, onSelect: () => void handleExportCustomers() },
+                { label: 'Importar', icon: <Upload size={16} aria-hidden="true" />, onSelect: () => setShowImportModal(true) },
+              ]}
+            />
+          </div>
         </div>
       </div>
 
-      <div className="filter-bar">
-        <div style={{ position: 'relative', flex: 1, minWidth: '240px' }}>
+      <div className="filter-bar list-filter-bar" data-testid="customers-filter-bar">
+        <div className="list-filter-bar__search">
           <Search size={15} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
           <input
             type="text"
@@ -425,100 +498,114 @@ export function Customers() {
           )}
         </div>
         {debouncedSearch && (
-          <span className="body-sm" style={{ whiteSpace: 'nowrap', alignSelf: 'center' }}>
+          <span className="body-sm list-filter-bar__count">
             {filteredCustomers.length} resultado{filteredCustomers.length !== 1 ? 's' : ''}
           </span>
         )}
       </div>
 
-      <div className="surface-raised" style={{ overflow: 'hidden' }}>
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Cliente</th>
-                <th>Contacto</th>
-                <th>Órdenes</th>
-                <th style={{ textAlign: 'right' }}>Total</th>
-                <th style={{ textAlign: 'right' }}>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredCustomers.length === 0 ? (
-                <tr className="empty-row">
-                  <td colSpan={5}>
-                    {customers.length === 0 ? (
-                      <EmptyState
-                        icon={Users}
-                        title="Todavía no tenés clientes"
-                        description="Comenzá agregando tu primer cliente para gestionar sus reparaciones."
-                      />
-                    ) : (
-                      <EmptyState
-                        icon={Search}
-                        title={`Sin resultados para "${searchTerm}"`}
-                        description="Probá con otro nombre, teléfono o email"
-                        action={{ label: 'Limpiar búsqueda', onClick: () => setSearchTerm('') }}
-                      />
-                    )}
-                  </td>
-                </tr>
-              ) : (
-                filteredCustomers.map((customer) => {
-                  const stats = customerStats[customer.id] || { orders: 0, total: 0 }
-
-                  return (
-                    <tr key={customer.id}>
-                      <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                          <Link to={`/customers/${customer.id}`} style={{ color: 'var(--accent-primary)', fontWeight: 600, textDecoration: 'none' }}>
-                            {customer.name}
-                          </Link>
-                          {(customer as any).customer_type === 'mayorista' && (
-                            <span className="badge badge-info" style={{ fontSize: '0.62rem' }}>MAYORISTA</span>
-                          )}
-                        </div>
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                          <span className="body-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                            <Phone size={13} /> {customer.phone || <span style={{ opacity: 0.5 }}>Sin teléfono</span>}
-                          </span>
-                          <span className="body-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                            <Mail size={13} /> {customer.email || <span style={{ opacity: 0.5 }}>Sin email</span>}
-                          </span>
-                        </div>
-                      </td>
-                      <td>{stats.orders}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)' }}>
-                        {/* SEC-08A: sin autorización del servidor no se muestra
-                            un importe. Un guion dice "no lo podés ver"; un $0
-                            mentiría sobre el valor del cliente. */}
-                        {amountsAuthorized
-                          ? formatCurrency(stats.total)
-                          : <span data-testid="customer-total-restricted" style={{ color: 'var(--text-subtle)', fontWeight: 400 }}>—</span>}
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', gap: '0.375rem', justifyContent: 'flex-end' }}>
-                          <Link to={`/customers/${customer.id}`} className="icon-btn" title="Ver detalle" style={{ textDecoration: 'none' }}>
-                            <Eye size={15} />
-                          </Link>
-                          <button onClick={() => openEdit(customer)} className="icon-btn icon-btn-primary" title="Editar cliente">
-                            <Pencil size={15} />
-                          </button>
-                          <button onClick={() => { setDeletingCustomer(customer); setDeleteError('') }} className="icon-btn icon-btn-danger" title="Eliminar cliente">
-                            <Trash2 size={15} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })
-              )}
-            </tbody>
-          </table>
+      {/* BETA-UX-1D — el estado vacío vive FUERA de la tabla: adentro de un
+          `<td colSpan>` heredaba el ancho de las columnas y en mobile quedaba
+          recortado. Sin filas no se monta ni tabla ni lista. */}
+      {filteredCustomers.length === 0 ? (
+        <div
+          className="surface-raised list-empty-state"
+          data-testid="customers-empty-state"
+          data-empty-kind={customers.length === 0 ? 'no-data' : 'no-results'}
+        >
+          {customers.length === 0 ? (
+            <EmptyState
+              icon={Users}
+              title="Todavía no tenés clientes"
+              description="Comenzá agregando tu primer cliente para gestionar sus reparaciones."
+              action={{ label: 'Nuevo Cliente', onClick: () => navigate('/customers/new') }}
+            />
+          ) : (
+            <EmptyState
+              icon={Search}
+              title={`Sin resultados para "${searchTerm}"`}
+              description="Probá con otro nombre, teléfono o email"
+              action={{ label: 'Limpiar búsqueda', onClick: () => setSearchTerm('') }}
+            />
+          )}
         </div>
-      </div>
+      ) : (
+        <>
+          {/* >=768px: la tabla de siempre. <768px la oculta el CSS y se muestra la
+              lista de tarjetas de abajo, armada con los mismos clientes. */}
+          <div className="surface-raised customers-desktop-table" data-testid="customers-desktop-table" style={{ overflow: 'hidden' }}>
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Cliente</th>
+                    <th>Contacto</th>
+                    <th>Órdenes</th>
+                    <th style={{ textAlign: 'right' }}>Total</th>
+                    <th style={{ textAlign: 'right' }}>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredCustomers.map((customer) => {
+                    const stats = customerStats[customer.id] || { orders: 0, total: 0 }
+
+                    return (
+                      <tr key={customer.id}>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                            <Link to={`/customers/${customer.id}`} style={{ color: 'var(--accent-primary)', fontWeight: 600, textDecoration: 'none' }}>
+                              {customer.name}
+                            </Link>
+                            {(customer as any).customer_type === 'mayorista' && (
+                              <span className="badge badge-info" style={{ fontSize: '0.62rem' }}>MAYORISTA</span>
+                            )}
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                            <span className="body-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                              <Phone size={13} /> {customer.phone || <span style={{ opacity: 0.5 }}>Sin teléfono</span>}
+                            </span>
+                            <span className="body-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                              <Mail size={13} /> {customer.email || <span style={{ opacity: 0.5 }}>Sin email</span>}
+                            </span>
+                          </div>
+                        </td>
+                        <td>{stats.orders}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          {/* SEC-08A: sin autorización del servidor no se muestra
+                              un importe. Un guion dice "no lo podés ver"; un $0
+                              mentiría sobre el valor del cliente. */}
+                          {amountsAuthorized
+                            ? formatCurrency(stats.total)
+                            : <span data-testid="customer-total-restricted" style={{ color: 'var(--text-subtle)', fontWeight: 400 }}>—</span>}
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', gap: '0.375rem', justifyContent: 'flex-end' }}>
+                            <Link to={`/customers/${customer.id}`} className="icon-btn" title="Ver detalle" style={{ textDecoration: 'none' }}>
+                              <Eye size={15} />
+                            </Link>
+                            <button onClick={() => openEdit(customer)} className="icon-btn icon-btn-primary" title="Editar cliente">
+                              <Pencil size={15} />
+                            </button>
+                            <button onClick={() => askDelete(customer)} className="icon-btn icon-btn-danger" title="Eliminar cliente">
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="customers-mobile-list" data-testid="customers-mobile-list">
+            <CompactList items={mobileItems} label="Clientes" />
+          </div>
+        </>
+      )}
 
       {/* Modal Importar Excel */}
       <ModalImportExcel

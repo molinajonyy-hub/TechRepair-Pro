@@ -42,6 +42,19 @@ import { useWarranties } from '../hooks/useWarranties'
 import { useOrderCanonicalBalance } from '../hooks/useOrderCanonicalBalance'
 import { formatImporteWhatsApp } from '../services/whatsappTemplate'
 import { comprobanteTipoLabel } from '../lib/comprobanteTipoLabel'
+import { OverflowMenu, type OverflowMenuAction } from '../ui'
+
+/**
+ * Plantillas de WhatsApp que se ofrecen desde la orden. Una sola lista para el
+ * desplegable de escritorio y para el menú «Más acciones» de mobile: las dos
+ * presentaciones abren el mismo preview con la misma `templateKey`.
+ */
+const WHATSAPP_TEMPLATE_OPTIONS = [
+  { key: 'received',         label: 'Orden recibida',            testId: 'order-whatsapp-received' },
+  { key: 'waiting_approval', label: 'Presupuesto listo',         testId: 'order-whatsapp-quote'    },
+  { key: 'ready_pickup',     label: 'Equipo listo para retirar', testId: 'order-whatsapp-ready'    },
+  { key: 'free_message',     label: 'Mensaje libre',             testId: 'order-whatsapp-free'     },
+] as const
 
 interface Document {
   id: string
@@ -179,21 +192,40 @@ export function OrderDetail() {
     order.amountsAuthorized &&
     (order.orderItems ?? []).every(i => i.precio_unitario !== undefined && i.costo_unitario !== undefined)
 
+  const openWhatsApp = (templateKey: string) => {
+    setWaDropdownOpen(false)
+    setWaPreview({ open: true, templateKey })
+  }
+
+  // BETA-UX-1D — en mobile las acciones secundarias viven en UN menú. Son las
+  // mismas tres del encabezado de escritorio y llaman a los mismos handlers; el
+  // menú lleva las plantillas de WhatsApp directamente para no agregar un
+  // segundo nivel de navegación.
+  const mobileSecondaryActions: OverflowMenuAction[] = [
+    { label: 'Imprimir', icon: <Printer size={16} aria-hidden="true" />, onSelect: () => setShowPrintModal(true) },
+    ...WHATSAPP_TEMPLATE_OPTIONS.map(opt => ({
+      label: `WhatsApp: ${opt.label}`,
+      icon: <MessageCircle size={16} aria-hidden="true" />,
+      onSelect: () => openWhatsApp(opt.key),
+    })),
+    { label: 'Garantía', icon: <ShieldCheck size={16} aria-hidden="true" />, onSelect: () => setShowWarrantyModal(true) },
+  ]
+
   return (
-    <div className="animate-fade-in">
+    <div className="animate-fade-in" data-testid="order-detail-page">
       {/* Header */}
-      <div style={{ marginBottom: '2rem' }}>
-        <Link to="/orders" className="btn btn-outline btn-sm" style={{ marginBottom: '1rem' }}>
+      <div className="order-detail-header">
+        <Link to="/orders" className="btn btn-outline btn-sm order-detail-back">
           <ArrowLeft size={16} /> Volver a Órdenes
         </Link>
-        
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
-          <div>
+
+        <div className="order-detail-header__row">
+          <div className="order-detail-header__title">
             <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#f8fafc', marginBottom: '0.5rem' }}>
               Orden #{order.id.slice(0, 8)}
             </h1>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <span 
+            <div className="order-detail-header__meta">
+              <span
                 className="badge"
                 style={{ 
                   backgroundColor: `${status.color}20`, 
@@ -211,15 +243,20 @@ export function OrderDetail() {
             </div>
           </div>
           
-          <div style={{ display: 'flex', gap: '0.625rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div className="order-detail-header__actions">
 
             {/* Botón Generar Comprobante.
                 SEC-08A Fase B: facturar una orden exige ver sus importes. Sin
                 `orders_view_financials` el servidor no los entrega y el armado
                 produciría líneas en $0. Se oculta la acción en vez de ofrecer
-                un comprobante fabricado. */}
+                un comprobante fabricado.
+
+                BETA-UX-1D: es la acción PRINCIPAL de la orden. Es el mismo
+                elemento en escritorio y en mobile; el CSS le da el ancho y el
+                alto táctil. */}
             {comprobantes.length === 0 && facturable && (
               <button
+                data-testid="order-primary-action"
                 onClick={() => setShowModalCrearComprobante(true)}
                 className="btn btn-primary btn-sm"
               >
@@ -231,6 +268,7 @@ export function OrderDetail() {
             {/* Botón Ver Comprobante si existe */}
             {comprobantes.length > 0 && (
               <Link
+                data-testid="order-primary-action"
                 to={`/comprobantes/${comprobantes[0].id}`}
                 className="btn btn-outline btn-sm"
               >
@@ -239,63 +277,73 @@ export function OrderDetail() {
               </Link>
             )}
 
-            <button
-              data-testid="order-print-preview-button"
-              onClick={() => setShowPrintModal(true)}
-              className="btn btn-outline btn-sm"
-            >
-              <Printer size={15} />
-              Imprimir
-            </button>
-
-            {/* WhatsApp action dropdown */}
-            <div ref={waDropdownRef} style={{ position: 'relative' }}>
+            {/* Acciones secundarias de ESCRITORIO. `display: contents` en
+                >=768px (son hijas de la fila, como antes) y ocultas en mobile,
+                donde las reemplaza el menú de abajo. */}
+            <div className="order-detail-header__secondary">
               <button
-                onClick={() => setWaDropdownOpen(v => !v)}
-                className="btn btn-ghost btn-sm"
-                style={{ color: '#25d366', borderColor: 'rgba(37,211,102,0.3)', background: 'rgba(37,211,102,0.08)' }}
-                title={!order.customer?.phone ? 'El cliente no tiene teléfono válido para WhatsApp' : undefined}
+                data-testid="order-print-preview-button"
+                onClick={() => setShowPrintModal(true)}
+                className="btn btn-outline btn-sm"
               >
-                <MessageCircle size={15} />
-                WhatsApp
-                <ChevronDown size={12} style={{ marginLeft: '0.125rem' }} />
+                <Printer size={15} />
+                Imprimir
               </button>
-              {waDropdownOpen && (
-                <div
-                  style={{ position: 'absolute', top: 'calc(100% + 4px)', right: 0, zIndex: 200, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '0.25rem', minWidth: 190, boxShadow: 'var(--shadow-md)' }}
-                  onMouseLeave={() => setWaDropdownOpen(false)}
+
+              {/* WhatsApp action dropdown */}
+              <div ref={waDropdownRef} style={{ position: 'relative' }}>
+                <button
+                  onClick={() => setWaDropdownOpen(v => !v)}
+                  className="btn btn-ghost btn-sm"
+                  style={{ color: '#25d366', borderColor: 'rgba(37,211,102,0.3)', background: 'rgba(37,211,102,0.08)' }}
+                  title={!order.customer?.phone ? 'El cliente no tiene teléfono válido para WhatsApp' : undefined}
                 >
-                  {[
-                    { key: 'received',         label: 'Orden recibida',          testId: 'order-whatsapp-received' },
-                    { key: 'waiting_approval',  label: 'Presupuesto listo',       testId: 'order-whatsapp-quote'    },
-                    { key: 'ready_pickup',      label: 'Equipo listo para retirar',testId: 'order-whatsapp-ready'   },
-                    { key: 'free_message',      label: 'Mensaje libre',           testId: 'order-whatsapp-free'     },
-                  ].map(opt => (
-                    <button
-                      key={opt.key}
-                      data-testid={opt.testId}
-                      onClick={() => { setWaDropdownOpen(false); setWaPreview({ open: true, templateKey: opt.key }) }}
-                      style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', padding: '0.5rem 0.75rem', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--text-secondary)', borderRadius: 'var(--radius-sm)', textAlign: 'left' }}
-                      onMouseEnter={e => (e.currentTarget.style.background = 'rgba(37,211,102,0.06)')}
-                      onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-                    >
-                      <MessageCircle size={12} style={{ color: '#25d366', flexShrink: 0 }} />
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              )}
+                  <MessageCircle size={15} />
+                  WhatsApp
+                  <ChevronDown size={12} style={{ marginLeft: '0.125rem' }} />
+                </button>
+                {waDropdownOpen && (
+                  <div
+                    style={{ position: 'absolute', top: 'calc(100% + 4px)', right: 0, zIndex: 200, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '0.25rem', minWidth: 190, boxShadow: 'var(--shadow-md)' }}
+                    onMouseLeave={() => setWaDropdownOpen(false)}
+                  >
+                    {WHATSAPP_TEMPLATE_OPTIONS.map(opt => (
+                      <button
+                        key={opt.key}
+                        data-testid={opt.testId}
+                        onClick={() => openWhatsApp(opt.key)}
+                        style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', padding: '0.5rem 0.75rem', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--text-secondary)', borderRadius: 'var(--radius-sm)', textAlign: 'left' }}
+                        onMouseEnter={e => (e.currentTarget.style.background = 'rgba(37,211,102,0.06)')}
+                        onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                      >
+                        <MessageCircle size={12} style={{ color: '#25d366', flexShrink: 0 }} />
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <button
+                data-testid="order-create-warranty-button"
+                onClick={() => setShowWarrantyModal(true)}
+                className="btn btn-ghost btn-sm"
+                style={{ color: '#818cf8', borderColor: 'rgba(99,102,241,0.3)', background: 'rgba(99,102,241,0.08)' }}
+              >
+                <ShieldCheck size={15} />
+                Garantía
+              </button>
             </div>
 
-            <button
-              data-testid="order-create-warranty-button"
-              onClick={() => setShowWarrantyModal(true)}
-              className="btn btn-ghost btn-sm"
-              style={{ color: '#818cf8', borderColor: 'rgba(99,102,241,0.3)', background: 'rgba(99,102,241,0.08)' }}
-            >
-              <ShieldCheck size={15} />
-              Garantía
-            </button>
+            {/* Acciones secundarias de MOBILE: un solo disparador de 44px. */}
+            <div className="order-detail-header__overflow">
+              <OverflowMenu
+                label="Más acciones de la orden"
+                className="order-header-menu"
+                testId="order-mobile-actions-menu"
+                actions={mobileSecondaryActions}
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -330,16 +378,19 @@ export function OrderDetail() {
         ))}
       </div>
 
-      {/* Content */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+      {/* Content — BETA-UX-1D: dos columnas en >=768px, UNA por debajo. La
+          grilla vive en CSS (`.order-detail-grid`): en línea no se la podía
+          cambiar con una media query y a 375px Cliente y Dispositivo quedaban
+          en columnas de ~150px. */}
+      <div className="order-detail-grid" data-testid="order-detail-grid">
         {activeTab === 'overview' && (
           <>
             {/* Customer Info */}
-            <div className="card">
+            <div className="card" data-testid="order-customer-card">
               <div className="card-header" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <h3 className="card-title">Cliente</h3>
               </div>
-              <div className="card-body">
+              <div className="card-body order-detail-wrap">
                 <p style={{ fontSize: '1.125rem', fontWeight: 600, color: '#f8fafc', marginBottom: '0.5rem' }}>
                   {order.customer?.name || 'Sin cliente'}
                 </p>
@@ -364,21 +415,21 @@ export function OrderDetail() {
             </div>
 
             {/* Device Info */}
-            <div className="card">
+            <div className="card" data-testid="order-device-card">
               <div className="card-header" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <h3 className="card-title">Dispositivo</h3>
               </div>
-              <div className="card-body">
+              <div className="card-body order-detail-wrap">
                 {order.device ? (
                   <>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                    <div className="order-device-grid">
                       <div>
                         <p className="label-caps" style={{ marginBottom: '0.25rem' }}>Marca</p>
                         <p style={{ fontWeight: 500, color: '#f8fafc' }}>{order.device.brand}</p>
                       </div>
                       <div>
                         <p className="label-caps" style={{ marginBottom: '0.25rem' }}>Modelo</p>
-                        <p style={{ fontWeight: 500, color: '#f8fafc' }}>{order.device.model}</p>
+                        <p data-testid="order-device-model" style={{ fontWeight: 500, color: '#f8fafc' }}>{order.device.model}</p>
                       </div>
                     </div>
                     <div>
@@ -401,7 +452,7 @@ export function OrderDetail() {
 
             {/* Comprobante Section */}
             {comprobantes.length > 0 && (
-              <div style={{ gridColumn: 'span 2' }} className="card">
+              <div className="card order-detail-grid__full" data-testid="order-comprobante-card">
                 <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <FileCheck size={18} color="#6366f1" />
@@ -448,13 +499,13 @@ export function OrderDetail() {
             )}
 
             {/* Order Items */}
-            <div style={{ gridColumn: 'span 2' }}>
+            <div className="order-detail-grid__full" data-testid="order-items-block">
               <OrderItemsCard orderId={order.id} onTotalsChange={refresh} />
             </div>
 
             {/* P0-A.1U1 — Estado financiero (solo lectura). Todo llega de
                 v_order_financial_status: acá no se calcula ningún importe. */}
-            <div style={{ gridColumn: 'span 2' }}>
+            <div className="order-detail-grid__full" data-testid="order-financial-block">
               <OrderFinancialSummary
                 orderId={order.id}
                 customerId={order.customer_id || order.customer?.id || null}
@@ -465,13 +516,14 @@ export function OrderDetail() {
         )}
 
         {activeTab === 'notes' && (
-          <div className="card" style={{ gridColumn: 'span 2' }}>
+          <div className="card order-detail-grid__full">
             <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
                 <FileText size={17} color="#6366f1" />
                 Notas internas
               </h3>
               <button
+                className="order-notes-save"
                 onClick={handleSaveNotes}
                 disabled={savingNotes}
                 style={{
@@ -521,7 +573,7 @@ export function OrderDetail() {
         )}
 
         {activeTab === 'documents' && id && (
-          <div style={{ gridColumn: 'span 2' }}>
+          <div className="order-detail-grid__full">
             <DocumentUploader 
               orderId={id} 
               documents={documents} 
@@ -531,7 +583,7 @@ export function OrderDetail() {
         )}
 
         {activeTab === 'comunicacion' && (
-          <div style={{ gridColumn: 'span 2', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div className="order-detail-grid__full" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             <NotificationCard
               orderId={order.id}
               customerEmail={order.customer?.email || ''}
@@ -584,7 +636,7 @@ export function OrderDetail() {
         })()}
 
         {activeTab === 'history' && (
-          <div className="card" style={{ gridColumn: 'span 2' }}>
+          <div className="card order-detail-grid__full">
             <div className="card-header">
               <h3 className="card-title">Historial de Estados</h3>
             </div>

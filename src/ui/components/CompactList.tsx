@@ -10,6 +10,8 @@ export interface CompactListItem {
   trailingAction?: ReactNode
   onSelect?: () => void
   accessibleLabel?: string
+  /** Selector estable de la fila (`data-testid` del `<li>`). */
+  testId?: string
 }
 
 export interface CompactListProps {
@@ -36,7 +38,7 @@ export function CompactList({
   return (
     <ul className={`compact-list ${className}`.trim()} aria-label={label}>
       {items.map(item => (
-        <li key={item.id} className="compact-list__item">
+        <li key={item.id} className="compact-list__item" data-testid={item.testId}>
           <div
             className={`compact-list__content${item.onSelect ? ' is-interactive' : ''}`}
             role={item.onSelect ? 'link' : undefined}
