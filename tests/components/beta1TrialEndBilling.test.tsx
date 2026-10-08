@@ -468,18 +468,29 @@ describe('S · Suscripción: administración según el flujo actual', () => {
     await waitFor(() => expect(acciones()).toContain('mp-subscription:cancel'))
   })
 
-  it('trial: conserva «Elegir plan» y la tarjeta de administración (sin reglas nuevas)', async () => {
+  // BETA-UX-1C reemplaza la regla de BETA-1 («el trial conserva la tarjeta de
+  // administración»): en un trial no hay ninguna suscripción de Mercado Pago, y
+  // esas tres acciones sólo devolvían `no_subscription`. Queda «Elegir plan».
+  it('trial: una sola salida, «Elegir plan»; sin tarjeta de administración ni acciones de Mercado Pago', async () => {
     trialActivo()
     Object.assign(h.sub, { daysUntilTrialEnd: 2 })
     montar('/subscription')
     await screen.findByText('Mi Suscripción')
-    expect(screen.getAllByRole('button', { name: 'Elegir plan' }).length).toBeGreaterThan(0)
-    expect(screen.getByText('Administrar suscripción')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Verificar pago/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Actualizar método de pago/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Cancelar suscripción' })).toBeInTheDocument()
+    // La lectura del checkout (acción `status`) ya volvió: sigue siendo un trial.
+    await waitFor(() => expect(h.invoke.mock.calls.some(([, o]) => o?.body?.action === 'status')).toBe(true))
+    expect(screen.getByTestId('subscription-status-card')).toHaveAttribute('data-presentation', 'trial')
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Elegir plan' })[0])
+    expect(screen.getAllByRole('button', { name: 'Elegir plan' })).toHaveLength(1)
+    expect(screen.queryByText('Administrar suscripción')).toBeNull()
+    expect(screen.queryByRole('button', { name: /Verificar pago/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Actualizar método de pago/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Cancelar suscripción/ })).toBeNull()
+    expect(document.body.textContent).not.toMatch(DEUDA)
+    expect(document.body.textContent).not.toMatch(/Próximo cobro/)
+    // Lo único que salió hacia Mercado Pago fue esa lectura.
+    expect([...new Set(h.invoke.mock.calls.map(([, o]) => o.body.action))]).toEqual(['status'])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Elegir plan' }))
     expect(ruta()).toBe('/subscription/plans')
   })
 

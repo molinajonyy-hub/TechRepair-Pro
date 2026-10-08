@@ -41,7 +41,8 @@ describe('fecha real del banner de trial', () => {
       subscription_plan: 'pro',
       access_source: 'trial',
       override_expires_at: null,
-      trial_ends_at: '2026-08-30T12:00:00.000Z',
+      // BETA-UX-1C: 5 días, el primero en que el aviso aparece.
+      trial_ends_at: '2026-08-29T12:00:00.000Z',
       grace_until: null,
       current_period_end: null,
     })
@@ -63,7 +64,34 @@ describe('fecha real del banner de trial', () => {
     })
 
     expect(subscriptionService.getSubscription).toHaveBeenCalledWith('trial-date-integration-business')
-    expect(screen.getByText(/Tu período de prueba vence en 6 días/i)).toBeInTheDocument()
+    expect(screen.getByText(/Tu período de prueba vence en 5 días/i)).toBeInTheDocument()
     expect(screen.queryByText(/14 días/i)).not.toBeInTheDocument()
+  })
+
+  it('BETA-UX-1C: a 6 días de la fecha real todavía no hay aviso', async () => {
+    // Un día después del caso anterior: `useSubscription` guarda la última
+    // lectura 45 s a nivel de módulo, y acá tiene que leer ESTA fila.
+    vi.setSystemTime(new Date('2026-08-25T12:00:00.000Z'))
+    subscriptionService.getSubscription.mockResolvedValue({
+      subscription_status: 'trialing',
+      subscription_plan: 'pro',
+      access_source: 'trial',
+      override_expires_at: null,
+      trial_ends_at: '2026-08-31T12:00:00.000Z',
+      grace_until: null,
+      current_period_end: null,
+    })
+    const { container } = render(
+      <MemoryRouter>
+        <SubscriptionBanner />
+      </MemoryRouter>,
+    )
+
+    await act(async () => {
+      await vi.runAllTimersAsync()
+    })
+
+    expect(subscriptionService.getSubscription).toHaveBeenCalledWith('trial-date-integration-business')
+    expect(container.textContent).toBe('')
   })
 })
