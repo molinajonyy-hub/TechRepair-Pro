@@ -1,13 +1,30 @@
 /**
- * DashboardTasks — widget de tareas para el Dashboard.
- * Fuente de datos: taskService (source of truth único).
- * Read-only + acciones rápidas. Redirige al módulo /tasks para operaciones completas.
+ * DashboardTasks — «Mis tareas» en Inicio.
+ *
+ * BETA-UX-1F: Tareas es uno de los pilares del producto (junto con el CRM que
+ * viene), y en Inicio dejó de ser un widget: es un bloque a todo el ancho, justo
+ * debajo de los indicadores del día, y conserva su lugar aunque no haya nada
+ * pendiente.
+ *
+ * Fuente de datos: `taskService` (única autoridad). Este bloque no escribe
+ * contra Supabase y no decide reglas: completar valida el checklist en el
+ * servicio, y un fallo se muestra en vez de convertirse en «sin tareas».
+ *
+ * La fila es deliberadamente genérica —título, vencimiento, prioridad—: es lo
+ * que tiene cualquier tarea, venga de donde venga. Cuando existan tareas
+ * creadas por órdenes, clientes o seguimientos, entran en esta lista sin
+ * cambiarla. Hoy no hay ningún origen que mostrar, y no se inventa uno.
  */
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Plus, ChevronRight, CheckCircle2, Circle, Clock, AlertTriangle, ListChecks } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
-import { taskService, isTaskServiceError, type TaskLite, type TaskSummary } from '../../services/taskService'
+import {
+  taskService, isTaskServiceError, isTaskDueToday,
+  type TaskLite, type TaskSummary,
+} from '../../services/taskService'
+import { AppButton } from '../../ui'
+import { todayAR, fmtDateCompact } from '../../utils/dateUtils'
 
 /** Traduce cualquier fallo a un mensaje que el usuario pueda leer. */
 const toUserMessage = (e: unknown, fallback: string) =>
@@ -15,26 +32,32 @@ const toUserMessage = (e: unknown, fallback: string) =>
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const PRIORITY_META = {
-  high:   { label: 'Alta',  color: '#f87171', dot: '#ef4444' },
-  medium: { label: 'Media', color: '#fbbf24', dot: '#f59e0b' },
-  low:    { label: 'Baja',  color: '#34d399', dot: '#10b981' },
-} as const
+/** Cuántas tareas activas lista Inicio. El resto está en el módulo. */
+const DASHBOARD_TASK_LIMIT = 5
+
+/**
+ * `urgent` no está en `TaskPriority`, pero el CHECK `tasks_priority_check` de la
+ * base lo acepta: una fila que lo traiga se nombra como lo que es. Una
+ * prioridad que no esté acá no se muestra; decir «media» sería inventarla.
+ */
+const PRIORITY_LABEL: Record<string, string> = {
+  urgent: 'Prioridad urgente',
+  high:   'Prioridad alta',
+  medium: 'Prioridad media',
+  low:    'Prioridad baja',
+}
 
 /**
  * TASKS-V2-0 — sólo `pending` y `completed` son persistibles hoy (CHECK
  * `tasks_status_check`). `in_progress` y `cancelled` siguen acá únicamente para
  * poder RENDERIZAR una fila histórica sin romperse; no se ofrecen como acción.
  */
-const STATUS_META: Record<string, { label: string; color: string }> = {
-  pending:     { label: 'Pendiente',  color: '#94a3b8' },
-  in_progress: { label: 'En proceso', color: '#818cf8' },
-  completed:   { label: 'Completada', color: '#34d399' },
-  cancelled:   { label: 'Cancelada',  color: '#f87171' },
+const HISTORIC_STATUS_LABEL: Record<string, string> = {
+  in_progress: 'En proceso',
+  completed:   'Completada',
+  cancelled:   'Cancelada',
 }
-const statusMeta = (s: string) => STATUS_META[s] ?? STATUS_META.pending
 
-import { todayAR, fmtDateCompact } from '../../utils/dateUtils'
 const fmtDate = (d: string) => {
   const dateMs  = new Date(d + 'T00:00:00-03:00').getTime()
   const todayMs = new Date(todayAR() + 'T00:00:00-03:00').getTime()
@@ -50,15 +73,14 @@ const isOverdue = (t: TaskLite) =>
   !!t.due_date && t.status !== 'completed' && t.status !== 'cancelled' &&
   new Date(t.due_date + 'T23:59:59') < new Date()
 
-// ─── Skeleton ─────────────────────────────────────────────────────────────────
-
-function Skeleton({ w = '100%', h = 16 }: { w?: string | number; h?: number }) {
-  return <div style={{ width: w, height: h, background: 'rgba(255,255,255,0.04)', borderRadius: 4, animation: 'pulse 1.5s ease-in-out infinite' }} />
-}
-
 // ─── DashboardTasks ───────────────────────────────────────────────────────────
 
-export function DashboardTasks() {
+interface DashboardTasksProps {
+  /** Cambia cuando Inicio pide «Actualizar»: vuelve a leer tareas y resumen. */
+  refreshKey?: number
+}
+
+export function DashboardTasks({ refreshKey = 0 }: DashboardTasksProps) {
   const { businessId, user } = useAuth()
   const navigate = useNavigate()
 
@@ -76,7 +98,7 @@ export function DashboardTasks() {
     if (!businessId || !user?.id) return
     try {
       const [myTasks, mySummary] = await Promise.all([
-        taskService.getMyTasks(businessId, user.id, 5),
+        taskService.getMyTasks(businessId, user.id, DASHBOARD_TASK_LIMIT),
         taskService.getTaskSummary(businessId, user.id),
       ])
       setTasks(myTasks)
@@ -91,14 +113,16 @@ export function DashboardTasks() {
     }
   }, [businessId, user?.id])
 
-  // Carga inicial + auto-refresh cada 30 segundos
+  // Carga inicial + auto-refresh cada 30 segundos. `refreshKey` la repite a pedido.
   useEffect(() => {
     load()
     const interval = setInterval(load, 30_000)
     return () => clearInterval(interval)
-  }, [load])
+  }, [load, refreshKey])
 
   // ── Handlers ───────────────────────────────────────────────────────────────
+
+  const openCreate = () => navigate('/tasks', { state: { openCreate: true } })
 
   /**
    * `pending → completed` de una sola acción.
@@ -115,199 +139,173 @@ export function DashboardTasks() {
     setBusyId(task.id); setCompleteErr(null)
     try {
       await taskService.completeTask(task.id, businessId, user.id)
-      // Sólo después de que el servidor lo aceptó.
+      // Sólo después de que el servidor lo aceptó. Los contadores salen de la
+      // misma tarea que se completó; la relectura que sigue trae la verdad (y la
+      // tarea siguiente, si había más de las que se listan).
       setTasks(prev => prev.filter(t => t.id !== task.id))
       setSummary(prev => prev
-        ? { ...prev, pending: Math.max(0, prev.pending - 1), completed: prev.completed + 1 }
+        ? {
+            ...prev,
+            pending:   Math.max(0, prev.pending - 1),
+            completed: prev.completed + 1,
+            overdue:   Math.max(0, prev.overdue - (isOverdue(task) ? 1 : 0)),
+            dueToday:  Math.max(0, prev.dueToday - (isTaskDueToday(task) ? 1 : 0)),
+          }
         : prev)
+      void load()
     } catch (e: unknown) {
       setCompleteErr({ taskId: task.id, message: toUserMessage(e, 'No pudimos completar la tarea.') })
     } finally { setBusyId(null) }
   }
 
-  // ── Render helpers ──────────────────────────────────────────────────────────
+  // ── Render ─────────────────────────────────────────────────────────────────
 
-  const totalActive = summary?.pending || 0
-  const isEmpty     = !loading && !error && tasks.length === 0
+  const isEmpty = !loading && !error && tasks.length === 0
 
-  // ── Modo compacto: sin tareas ─────────────────────────────────────────────
-  if (isEmpty) {
-    return (
-      <div className="card animate-fade-in" style={{
-        padding: '0.875rem 1.25rem',
-        display: 'flex', alignItems: 'center',
-        justifyContent: 'space-between', gap: '1rem',
-        flexWrap: 'wrap' as const,
-        marginBottom: 0,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <div style={{ width: 32, height: 32, borderRadius: '0.5rem', background: 'rgba(52,211,153,0.1)', border: '1px solid rgba(52,211,153,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <CheckCircle2 size={16} style={{ color: '#34d399' }} />
-          </div>
-          <div>
-            <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Mis Tareas</span>
-            <span style={{ marginLeft: '0.625rem', fontSize: '0.8rem', color: '#334155' }}>— Sin tareas asignadas</span>
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: '0.375rem', flexShrink: 0 }}>
-          <button onClick={() => navigate('/tasks', { state: { openCreate: true } })}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', padding: '0.4rem 0.875rem', background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '0.5rem', color: '#818cf8', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}>
-            <Plus size={13} /> Nueva tarea
-          </button>
-          <button onClick={() => navigate('/tasks')}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', padding: '0.4rem 0.75rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.5rem', color: '#334155', fontSize: '0.8rem', cursor: 'pointer' }}>
-            Ver módulo <ChevronRight size={11} />
-          </button>
-        </div>
-      </div>
-    )
-  }
+  // Vencidas / Para hoy / Pendientes: lo que pide atención. «Completadas» sigue
+  // en el módulo; en Inicio no dice qué hacer. Sin tareas activas el resumen no
+  // se dibuja: tres ceros arriba de «Todo al día» no agregan nada.
+  const stats = summary && !error && !isEmpty ? [
+    { key: 'overdue',  label: 'Vencidas',   value: summary.overdue,  tone: summary.overdue > 0 ? 'danger' : 'neutral' },
+    { key: 'today',    label: 'Para hoy',   value: summary.dueToday, tone: summary.dueToday > 0 ? 'accent' : 'neutral' },
+    { key: 'pending',  label: 'Pendientes', value: summary.pending,  tone: 'neutral' },
+  ] as const : null
 
-  // ── Modo completo: hay tareas ──────────────────────────────────────────────
   return (
-    <div className="card animate-fade-in" style={{ padding: 0, overflow: 'hidden' }}>
+    <section className="card dash-tasks" data-testid="dashboard-tasks" aria-labelledby="dash-tasks-title">
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem 1.25rem 0.875rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
-          <div style={{ width: 32, height: 32, borderRadius: '0.5rem', background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <ListChecks size={16} style={{ color: '#818cf8' }} />
-          </div>
+      <div className="dash-tasks__header">
+        <div className="dash-tasks__heading">
+          <span className="dash-tasks__icon" aria-hidden="true"><ListChecks size={18} /></span>
           <div>
-            <h3 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)' }}>Mis Tareas</h3>
-            {!loading && (
-              <p style={{ margin: 0, fontSize: '0.7rem', color: '#475569' }}>
-                {totalActive > 0 ? `${totalActive} tarea${totalActive > 1 ? 's' : ''} activa${totalActive > 1 ? 's' : ''}` : 'Sin tareas activas'}
-              </p>
-            )}
+            <h2 className="dash-tasks__title" id="dash-tasks-title">Mis tareas</h2>
+            <p className="dash-tasks__subtitle">Lo que necesita tu atención</p>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '0.375rem' }}>
-          <button onClick={() => navigate('/tasks', { state: { openCreate: true } })}
-            style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.375rem 0.625rem', background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '0.375rem', color: '#818cf8', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>
-            <Plus size={12} /> Nueva
-          </button>
-          <button onClick={() => navigate('/tasks')}
-            style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.375rem 0.625rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.375rem', color: '#475569', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}>
-            Ver todas <ChevronRight size={11} />
-          </button>
+        <div className="dash-tasks__actions">
+          <AppButton
+            variant="primary"
+            size="sm"
+            className="btn-primary-aa dash-tasks__action"
+            leftIcon={<Plus size={15} />}
+            onClick={openCreate}
+          >
+            Nueva tarea
+          </AppButton>
+          <Link to="/tasks" className="btn btn-secondary btn-sm dash-link dash-tasks__action" aria-label="Ver todas las tareas">
+            Ver todas <ChevronRight size={14} aria-hidden="true" />
+          </Link>
         </div>
       </div>
 
-      {/* Summary strip */}
-      {!loading && summary && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-          {[
-            { label: 'Pendientes',  value: summary.pending,   color: '#94a3b8' },
-            { label: 'Completadas', value: summary.completed, color: '#34d399' },
-            { label: 'Vencidas',    value: summary.overdue,   color: summary.overdue > 0 ? '#f87171' : '#334155' },
-          ].map(s => (
-            <div key={s.label} style={{ padding: '0.5rem 0.75rem', textAlign: 'center', cursor: 'pointer' }}
-              onClick={() => navigate('/tasks')}>
-              <div style={{ fontSize: '1.25rem', fontWeight: 800, color: s.color, fontFamily: 'monospace', lineHeight: 1 }}>{s.value}</div>
-              <div style={{ fontSize: '0.62rem', color: '#334155', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: '0.1rem' }}>{s.label}</div>
-            </div>
+      {/* Resumen */}
+      {stats && (
+        <div className="dash-tasks__summary" data-testid="dashboard-tasks-summary">
+          {stats.map(stat => (
+            <Link
+              key={stat.key}
+              to="/tasks"
+              className="dash-tasks__stat"
+              data-testid={`dashboard-tasks-${stat.key}`}
+              data-tone={stat.tone}
+              aria-label={`${stat.label}: ${stat.value}. Ver tareas`}
+            >
+              <span className="dash-tasks__stat-value">{stat.value}</span>
+              <span className="dash-tasks__stat-label">{stat.label}</span>
+            </Link>
           ))}
         </div>
       )}
 
-      {/* Task list */}
-      <div style={{ padding: '0.5rem 0' }}>
-        {loading ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0.75rem 1.25rem' }}>
-            {[1, 2, 3].map(i => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <Skeleton w={20} h={20} />
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-                  <Skeleton w="70%" h={13} />
-                  <Skeleton w="40%" h={11} />
-                </div>
-                <Skeleton w={48} h={11} />
-              </div>
-            ))}
-          </div>
-        ) : error ? (
-          <div style={{ padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#f87171', fontSize: '0.8rem' }}>
-            <AlertTriangle size={14} /> {error}
-          </div>
-        ) : (
-          tasks.map(task => {
-            const pm     = PRIORITY_META[task.priority] || PRIORITY_META.medium
-            const sm     = statusMeta(task.status)
+      {/* Lista */}
+      {loading ? (
+        <div className="dash-tasks__loading" data-testid="dashboard-tasks-loading" aria-hidden="true">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="dash-tasks__loading-row">
+              <div className="skeleton" style={{ width: 20, height: 20, borderRadius: '50%' }} />
+              <div className="skeleton skeleton-text" style={{ width: `${70 - i * 10}%` }} />
+            </div>
+          ))}
+        </div>
+      ) : error ? (
+        <div className="dash-tasks__error" role="alert">
+          <AlertTriangle size={16} aria-hidden="true" />
+          <span>{error}</span>
+          <AppButton variant="secondary" size="sm" className="dash-tasks__retry" onClick={() => { void load() }}>
+            Reintentar
+          </AppButton>
+        </div>
+      ) : isEmpty ? (
+        <div className="dash-empty dash-empty--done" data-testid="dashboard-tasks-empty">
+          <span className="dash-empty__icon" aria-hidden="true"><CheckCircle2 size={22} /></span>
+          <p className="dash-empty__title">Todo al día</p>
+          <p className="dash-empty__copy">No tenés tareas pendientes.</p>
+        </div>
+      ) : (
+        <ul className="dash-tasks__list">
+          {tasks.map(task => {
             const over   = isOverdue(task)
+            const today  = !over && isTaskDueToday(task)
             const isBusy = busyId === task.id
             const rowErr = completeErr?.taskId === task.id ? completeErr.message : null
             const canComplete = task.status === 'pending'
+            const historic = HISTORIC_STATUS_LABEL[task.status]
+            const priority = PRIORITY_LABEL[task.priority]
 
             return (
-              <div key={task.id}>
-                {/* Task row */}
-                <div style={{
-                  display: 'flex', alignItems: 'flex-start', gap: '0.625rem',
-                  padding: '0.625rem 1.25rem',
-                  background: isBusy ? 'rgba(99,102,241,0.05)' : 'transparent',
-                  transition: 'background 0.15s',
-                  borderBottom: '1px solid rgba(255,255,255,0.03)',
-                }}>
-                  {/* Toggle button — completa en una sola acción */}
-                  <button onClick={() => handleToggle(task)} disabled={!canComplete || isBusy}
-                    title={canComplete ? 'Completar tarea' : sm.label}
-                    style={{ background: 'none', border: 'none', cursor: canComplete && !isBusy ? 'pointer' : 'default', padding: '0.125rem', flexShrink: 0, marginTop: '0.1rem', color: sm.color, display: 'flex', alignItems: 'center', opacity: isBusy ? 0.5 : 1 }}>
-                    {task.status === 'completed' ? <CheckCircle2 size={18} /> : task.status === 'in_progress' ? <Clock size={18} /> : <Circle size={18} />}
+              <li key={task.id} className="dash-task" data-testid="dashboard-task" data-overdue={over ? 'true' : 'false'}>
+                <div className="dash-task__row">
+                  {/* Completa en una sola acción */}
+                  <button
+                    type="button"
+                    className="dash-task__toggle"
+                    onClick={() => handleToggle(task)}
+                    disabled={!canComplete || isBusy}
+                    title={canComplete ? 'Completar tarea' : (historic ?? 'Tarea')}
+                    aria-label={canComplete ? `Completar tarea: ${task.title}` : `${historic ?? 'Tarea'}: ${task.title}`}
+                  >
+                    {task.status === 'completed' ? <CheckCircle2 size={20} /> : task.status === 'in_progress' ? <Clock size={20} /> : <Circle size={20} />}
                   </button>
 
-                  {/* Content */}
-                  <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => navigate('/tasks')}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', marginBottom: '0.15rem' }}>
-                      {/* Priority dot */}
-                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: pm.dot, flexShrink: 0 }} title={pm.label} />
-                      <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
-                        {task.title}
+                  {/* Título, vencimiento y prioridad: lo que tiene cualquier tarea */}
+                  <Link to="/tasks" className="dash-task__open">
+                    <span className="dash-task__body">
+                      <span className="dash-task__title">{task.title}</span>
+                      <span className="dash-task__meta">
+                        {task.due_date && (
+                          <span
+                            className="dash-task__due"
+                            data-state={over ? 'overdue' : today ? 'today' : 'upcoming'}
+                          >
+                            {over && <AlertTriangle size={12} aria-hidden="true" />}
+                            {over ? `Vencida · ${fmtDate(task.due_date)}` : fmtDate(task.due_date)}
+                          </span>
+                        )}
+                        {priority && (
+                          <span className="dash-task__priority" data-priority={task.priority}>
+                            <span className="dash-task__priority-dot" aria-hidden="true" />
+                            {priority}
+                          </span>
+                        )}
+                        {historic && <span className="dash-task__historic">{historic}</span>}
                       </span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <span style={{ fontSize: '0.65rem', padding: '0.1rem 0.35rem', borderRadius: '0.2rem', background: `${sm.color}18`, color: sm.color, fontWeight: 700 }}>
-                        {sm.label}
-                      </span>
-                      {task.due_date && (
-                        <span style={{ fontSize: '0.68rem', color: over ? '#f87171' : '#334155', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-                          {over && <AlertTriangle size={10} />}
-                          {fmtDate(task.due_date)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Arrow to full detail */}
-                  <button onClick={() => navigate('/tasks')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1e3a5f', padding: '0.25rem', flexShrink: 0, display: 'flex', alignItems: 'center' }}
-                    onMouseEnter={e => (e.currentTarget.style.color = '#475569')}
-                    onMouseLeave={e => (e.currentTarget.style.color = '#1e3a5f')}>
-                    <ChevronRight size={13} />
-                  </button>
+                    </span>
+                    <ChevronRight size={16} className="dash-task__chevron" aria-hidden="true" />
+                  </Link>
                 </div>
 
                 {/* Error de compleción — p. ej. checklist incompleto. Sin formulario:
                     completar no pide nota de cierre. */}
                 {rowErr && (
-                  <div role="alert" style={{ padding: '0.5rem 1.25rem 0.75rem', display: 'flex', alignItems: 'center', gap: '0.375rem', color: '#f87171', fontSize: '0.75rem', fontWeight: 600, borderBottom: '1px solid rgba(248,113,113,0.12)' }}>
-                    <AlertTriangle size={12} style={{ flexShrink: 0 }} /> {rowErr}
+                  <div className="dash-task__error" role="alert">
+                    <AlertTriangle size={13} aria-hidden="true" /> {rowErr}
                   </div>
                 )}
-              </div>
+              </li>
             )
-          })
-        )}
-      </div>
-
-      {/* Footer */}
-      {!loading && tasks.length > 0 && (
-        <div style={{ padding: '0.625rem 1.25rem', borderTop: '1px solid rgba(255,255,255,0.04)', display: 'flex', justifyContent: 'center' }}>
-          <button onClick={() => navigate('/tasks')} style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', background: 'none', border: 'none', cursor: 'pointer', color: '#334155', fontSize: '0.75rem', fontWeight: 600 }}
-            onMouseEnter={e => (e.currentTarget.style.color = '#818cf8')}
-            onMouseLeave={e => (e.currentTarget.style.color = '#334155')}>
-            Ver todas las tareas <ChevronRight size={12} />
-          </button>
-        </div>
+          })}
+        </ul>
       )}
-    </div>
+    </section>
   )
 }

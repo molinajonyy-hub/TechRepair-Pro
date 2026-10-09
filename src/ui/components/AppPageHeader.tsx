@@ -11,6 +11,13 @@ interface AppPageHeaderProps {
   description?: string
   /** Acciones que van a la derecha (AppButton components) */
   actions?: React.ReactNode
+  /**
+   * Clase para el contenedor de `actions`. Sin ella el contenedor conserva su
+   * estilo de siempre (una fila que no se achica). Con ella el layout lo decide
+   * esa clase: es lo que permite que un grupo de acciones envuelva o cambie de
+   * composición en mobile, que un `style` en línea no deja pisar desde el CSS.
+   */
+  actionsClassName?: string
   /** Breadcrumb opcional arriba del título */
   breadcrumb?: React.ReactNode
   /** Contador o badge junto al título */
@@ -18,7 +25,7 @@ interface AppPageHeaderProps {
 }
 
 export function AppPageHeader({
-  icon, iconColor, title, description, actions, breadcrumb, badge,
+  icon, iconColor, title, description, actions, actionsClassName, breadcrumb, badge,
 }: AppPageHeaderProps) {
   const iconBg = iconColor || 'var(--accent-primary-subtle)'
   const iconBorder = 'var(--accent-primary-light)'
@@ -57,7 +64,10 @@ export function AppPageHeader({
 
       {/* Acciones */}
       {actions && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
+        <div
+          className={actionsClassName}
+          style={actionsClassName ? undefined : { display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}
+        >
           {actions}
         </div>
       )}

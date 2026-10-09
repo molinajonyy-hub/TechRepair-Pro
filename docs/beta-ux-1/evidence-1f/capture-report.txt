@@ -1,0 +1,541 @@
+
+[dashboard-owner-desktop-light] 1440x900 light  errors=0
+  desborde: scrollW=1440 innerW=1440 fuera=0px 
+  recortes: ninguno
+  orden: dashboard-actions@169  setup-checklist:ausente  dashboard-today@252  dashboard-tasks@378  dashboard-recent-orders@880
+  importes en Inicio: ninguno
+  requests: GET business_settings, GET businesses, GET cajas, GET customers, GET dollar_rate_history, GET exchange_rates, GET inventory, GET notifications, GET orders, GET payments, GET system_admins, GET tasks, HEAD orders, PATCH business_settings, POST dollar_rate_history, POST exchange_rates, fn:fetch-dollar-rate, rpc:current_user_has_internal_tool_access, rpc:get_current_exchange_rate, rpc:get_my_first_steps, rpc:get_my_profile
+    ok  15.60–16.09  título  «Inicio» rgb(15, 23, 42) / rgb(237, 239, 252) 24px
+    ok  9.09  subtítulo  «Tu taller hoy» rgb(51, 65, 85) / rgb(236, 240, 252) 14px
+    ok  5.80–6.24  Nueva Orden  «Nueva Orden» rgb(255, 255, 255) / rgb(116, 61, 236) 15px
+    ok  7.23–7.86  Nueva Orden (hover)  «Nueva Orden» rgb(255, 255, 255) / rgb(102, 44, 215) 15px
+    ok  6.29  Nuevo Comprobante  «Nuevo Comprobante» rgb(255, 255, 255) / rgb(79, 70, 229) 13px
+    ok  7.90  Nuevo Comprobante (hover)  «Nuevo Comprobante» rgb(255, 255, 255) / rgb(67, 56, 202) 13px
+    ok  9.63  Gestionar Caja  «Gestionar Caja» rgb(51, 65, 85) / rgb(243, 247, 253) 13px
+    ok  15.42  Gestionar Caja (hover)  «Gestionar Caja» rgb(15, 23, 42) / rgb(234, 238, 252) 13px
+    ok  5.46  Registrar gasto  «Registrar gasto» rgb(185, 28, 28) / rgb(240, 234, 239) 13px
+    ok  5.00  Registrar gasto (hover)  «Registrar gasto» rgb(185, 28, 28) / rgb(239, 222, 226) 13px
+    ok  16.22  chip caja · estado  «Caja abierta» rgb(15, 23, 42) / rgb(243, 244, 246) 12px
+    ok  9.43  chip caja · desde  «desde 09:20» rgb(51, 65, 85) / rgb(244, 244, 246) 12px
+    ok  16.44  chip caja · estado (hover)  «Caja abierta» rgb(15, 23, 42) / rgb(244, 245, 254) 12px
+    ok  9.43  chip dólar · USD  «USD» rgb(51, 65, 85) / rgb(244, 244, 246) 12px
+    ok  16.25  chip dólar · valor  «$1.556» rgb(15, 23, 42) / rgb(244, 244, 246) 12px
+    ok  17.85  Hoy · valor  «9» rgb(15, 23, 42) / rgb(255, 255, 255) 28px
+    ok  10.35  Hoy · etiqueta  «Órdenes activas» rgb(51, 65, 85) / rgb(255, 255, 255) 13px
+    ok  10.35  Hoy · +nuevas  «+4 nuevas hoy» rgb(51, 65, 85) / rgb(255, 255, 255) 12px
+    ok  9.63  Hoy · etiqueta (hover)  «Órdenes activas» rgb(51, 65, 85) / rgb(246, 246, 254) 13px
+    ok  17.85  Tareas · título  «Mis tareas» rgb(15, 23, 42) / rgb(255, 255, 255) 18px
+    ok  10.35  Tareas · subtítulo  «Lo que necesita tu atenció» rgb(51, 65, 85) / rgb(255, 255, 255) 13px
+    ok  5.78–6.22  Nueva tarea  «Nueva tarea» rgb(255, 255, 255) / rgb(117, 61, 236) 13px
+    ok  7.23–7.81  Nueva tarea (hover)  «Nueva tarea» rgb(255, 255, 255) / rgb(103, 43, 215) 13px
+    ok  10.35  Ver todas (tareas)  «Ver todas» rgb(51, 65, 85) / rgb(255, 255, 255) 13px
+    ok  6.47  Vencidas · valor  «2» rgb(185, 28, 28) / rgb(255, 255, 255) 24px
+    ok  6.47  Vencidas · etiqueta  «Vencidas» rgb(185, 28, 28) / rgb(255, 255, 255) 13px
+    ok  6.02  Vencidas · etiqueta (hover)  «Vencidas» rgb(185, 28, 28) / rgb(246, 246, 254) 13px
+    ok  6.29  Para hoy · valor  «2» rgb(79, 70, 229) / rgb(255, 255, 255) 24px
+    ok  10.35  Para hoy · etiqueta  «Para hoy» rgb(51, 65, 85) / rgb(255, 255, 255) 13px
+    ok  5.85  Para hoy · valor (hover)  «2» rgb(79, 70, 229) / rgb(246, 246, 254) 24px
+    ok  17.85  Pendientes · valor  «6» rgb(15, 23, 42) / rgb(255, 255, 255) 24px
+    ok  10.35  Pendientes · etiqueta  «Pendientes» rgb(51, 65, 85) / rgb(255, 255, 255) 13px
+    ok  17.85  tarea · título  «Llamar a Juan Pérez por el» rgb(15, 23, 42) / rgb(255, 255, 255) 15px
+    ok  6.47  tarea · vencida  «Vencida · Hace 2d» rgb(185, 28, 28) / rgb(255, 255, 255) 12.48px
+    ok  6.29  tarea · hoy  «Hoy» rgb(79, 70, 229) / rgb(255, 255, 255) 12.48px
+    ok  10.35  tarea · próxima  «12-oct» rgb(51, 65, 85) / rgb(255, 255, 255) 12.48px
+    ok  10.35  tarea · prioridad  «Prioridad alta» rgb(51, 65, 85) / rgb(255, 255, 255) 12.48px
+    ok  16.60  tarea · título (hover)  «Llamar a Juan Pérez por el» rgb(15, 23, 42) / rgb(246, 246, 254) 15px
+    ok  6.02  tarea · vencida (hover)  «Vencida · Hace 2d» rgb(185, 28, 28) / rgb(246, 246, 254) 12.48px
+    ok  9.63  tarea · prioridad (hover)  «Prioridad alta» rgb(51, 65, 85) / rgb(246, 246, 254) 12.48px
+    Todo al día: (no visible)
+    No tenés tareas: (no visible)
+    ok  17.85  Órdenes · título  «Órdenes recientes» rgb(15, 23, 42) / rgb(255, 255, 255) 16px
+    ok  10.35  Ver todas (órdenes)  «Ver todas» rgb(51, 65, 85) / rgb(255, 255, 255) 13px
+    ok  9.79  tabla · encabezado  «Orden» rgb(51, 65, 85) / rgb(248, 248, 254) 11.04px
+    ok  6.29  tabla · #orden  «#A1B2C310» rgb(79, 70, 229) / rgb(255, 255, 255) 14px
+    ok  17.85  tabla · cliente  «Juan Pérez» rgb(15, 23, 42) / rgb(255, 255, 255) 14px
+    ok  10.35  tabla · dispositivo  «Samsung Galaxy S24 Ultra 5» rgb(51, 65, 85) / rgb(255, 255, 255) 14px
+    ok  9.28  tabla · estado  «En Reparación» rgb(51, 65, 85) / rgb(238, 243, 249) 12px
+    ok  5.85  tabla · #orden (hover)  «#A1B2C310» rgb(79, 70, 229) / rgb(246, 246, 254) 14px
+    ok  16.60  tabla · dispositivo (hover)  «Samsung Galaxy S24 Ultra 5» rgb(15, 23, 42) / rgb(246, 246, 254) 14px
+    ok  17.85  tabla · fecha  «09-oct» rgb(15, 23, 42) / rgb(255, 255, 255) 14px
+    tarjeta · #orden: (no visible)
+    tarjeta · cliente: (no visible)
+    tarjeta · meta: (no visible)
+    tarjeta · estado: (no visible)
+
+[dashboard-owner-desktop-dark] 1440x900 dark  errors=0
+  desborde: scrollW=1440 innerW=1440 fuera=0px 
+  recortes: ninguno
+  orden: dashboard-actions@169  setup-checklist:ausente  dashboard-today@252  dashboard-tasks@378  dashboard-recent-orders@880
+  importes en Inicio: ninguno
+  requests: GET business_settings, GET businesses, GET cajas, GET customers, GET dollar_rate_history, GET exchange_rates, GET inventory, GET notifications, GET orders, GET payments, GET system_admins, GET tasks, HEAD orders, PATCH business_settings, POST dollar_rate_history, POST exchange_rates, fn:fetch-dollar-rate, rpc:current_user_has_internal_tool_access, rpc:get_current_exchange_rate, rpc:get_my_first_steps, rpc:get_my_profile
+    ok  17.05  título  «Inicio» rgb(240, 244, 255) / rgb(11, 17, 36) 24px
+    ok  11.84  subtítulo  «Tu taller hoy» rgb(196, 205, 232) / rgb(11, 17, 35) 14px
+    ok  5.80–6.24  Nueva Orden  «Nueva Orden» rgb(255, 255, 255) / rgb(116, 61, 236) 15px
+    ok  7.23–7.86  Nueva Orden (hover)  «Nueva Orden» rgb(255, 255, 255) / rgb(102, 44, 215) 15px
+    ok  6.29  Nuevo Comprobante  «Nuevo Comprobante» rgb(255, 255, 255) / rgb(79, 70, 229) 13px
+    ok  7.90  Nuevo Comprobante (hover)  «Nuevo Comprobante» rgb(255, 255, 255) / rgb(67, 56, 202) 13px
+    ok  12.27  Gestionar Caja  «Gestionar Caja» rgb(196, 205, 232) / rgb(6, 13, 25) 13px
+    ok  16.69  Gestionar Caja (hover)  «Gestionar Caja» rgb(240, 244, 255) / rgb(13, 19, 42) 13px
+    ok  6.55  Registrar gasto  «Registrar gasto» rgb(248, 113, 113) / rgb(24, 20, 32) 13px
+    ok  5.87  Registrar gasto (hover)  «Registrar gasto» rgb(248, 113, 113) / rgb(42, 28, 38) 13px
+    ok  16.47  chip caja · estado  «Caja abierta» rgb(240, 244, 255) / rgb(15, 22, 35) 12px
+    ok  11.42  chip caja · desde  «desde 09:20» rgb(196, 205, 232) / rgb(15, 22, 35) 12px
+    ok  16.71  chip caja · estado (hover)  «Caja abierta» rgb(240, 244, 255) / rgb(12, 19, 42) 12px
+    ok  11.53  chip dólar · USD  «USD» rgb(196, 205, 232) / rgb(14, 21, 34) 12px
+    ok  16.61  chip dólar · valor  «$1.556» rgb(240, 244, 255) / rgb(14, 21, 34) 12px
+    ok  15.81  Hoy · valor  «9» rgb(240, 244, 255) / rgb(13, 26, 48) 28px
+    ok  10.97  Hoy · etiqueta  «Órdenes activas» rgb(196, 205, 232) / rgb(13, 26, 48) 13px
+    ok  10.97  Hoy · +nuevas  «+4 nuevas hoy» rgb(196, 205, 232) / rgb(13, 26, 48) 12px
+    ok  10.22  Hoy · etiqueta (hover)  «Órdenes activas» rgb(196, 205, 232) / rgb(19, 31, 63) 13px
+    ok  15.81  Tareas · título  «Mis tareas» rgb(240, 244, 255) / rgb(13, 26, 48) 18px
+    ok  10.97  Tareas · subtítulo  «Lo que necesita tu atenció» rgb(196, 205, 232) / rgb(13, 26, 48) 13px
+    ok  5.78–6.22  Nueva tarea  «Nueva tarea» rgb(255, 255, 255) / rgb(117, 61, 236) 13px
+    ok  7.23–7.81  Nueva tarea (hover)  «Nueva tarea» rgb(255, 255, 255) / rgb(103, 43, 215) 13px
+    ok  10.97  Ver todas (tareas)  «Ver todas» rgb(196, 205, 232) / rgb(13, 26, 48) 13px
+    ok  6.29  Vencidas · valor  «2» rgb(248, 113, 113) / rgb(13, 26, 48) 24px
+    ok  6.29  Vencidas · etiqueta  «Vencidas» rgb(248, 113, 113) / rgb(13, 26, 48) 13px
+    ok  5.86  Vencidas · etiqueta (hover)  «Vencidas» rgb(248, 113, 113) / rgb(19, 31, 63) 13px
+    ok  5.83  Para hoy · valor  «2» rgb(129, 140, 248) / rgb(13, 26, 48) 24px
+    ok  10.97  Para hoy · etiqueta  «Para hoy» rgb(196, 205, 232) / rgb(13, 26, 48) 13px
+    ok  5.43  Para hoy · valor (hover)  «2» rgb(129, 140, 248) / rgb(19, 31, 63) 24px
+    ok  15.81  Pendientes · valor  «6» rgb(240, 244, 255) / rgb(13, 26, 48) 24px
+    ok  10.97  Pendientes · etiqueta  «Pendientes» rgb(196, 205, 232) / rgb(13, 26, 48) 13px
+    ok  15.81  tarea · título  «Llamar a Juan Pérez por el» rgb(240, 244, 255) / rgb(13, 26, 48) 15px
+    ok  6.29  tarea · vencida  «Vencida · Hace 2d» rgb(248, 113, 113) / rgb(13, 26, 48) 12.48px
+    ok  5.83  tarea · hoy  «Hoy» rgb(129, 140, 248) / rgb(13, 26, 48) 12.48px
+    ok  10.97  tarea · próxima  «12-oct» rgb(196, 205, 232) / rgb(13, 26, 48) 12.48px
+    ok  10.97  tarea · prioridad  «Prioridad alta» rgb(196, 205, 232) / rgb(13, 26, 48) 12.48px
+    ok  14.74  tarea · título (hover)  «Llamar a Juan Pérez por el» rgb(240, 244, 255) / rgb(19, 31, 63) 15px
+    ok  5.86  tarea · vencida (hover)  «Vencida · Hace 2d» rgb(248, 113, 113) / rgb(19, 31, 63) 12.48px
+    ok  10.22  tarea · prioridad (hover)  «Prioridad alta» rgb(196, 205, 232) / rgb(19, 31, 63) 12.48px
+    Todo al día: (no visible)
+    No tenés tareas: (no visible)
+    ok  15.16  Órdenes · título  «Órdenes recientes» rgb(240, 244, 255) / rgb(17, 30, 52) 16px
+    ok  10.52  Ver todas (órdenes)  «Ver todas» rgb(196, 205, 232) / rgb(17, 30, 52) 13px
+    ok  10.39  tabla · encabezado  «Orden» rgb(196, 205, 232) / rgb(18, 30, 59) 11.04px
+    ok  5.83  tabla · #orden  «#A1B2C310» rgb(129, 140, 248) / rgb(13, 26, 48) 14px
+    ok  15.81  tabla · cliente  «Juan Pérez» rgb(240, 244, 255) / rgb(13, 26, 48) 14px
+    ok  10.97  tabla · dispositivo  «Samsung Galaxy S24 Ultra 5» rgb(196, 205, 232) / rgb(13, 26, 48) 14px
+    ok  10.53  tabla · estado  «En Reparación» rgb(196, 205, 232) / rgb(15, 30, 53) 12px
+    ok  5.43  tabla · #orden (hover)  «#A1B2C310» rgb(129, 140, 248) / rgb(19, 31, 63) 14px
+    ok  14.74  tabla · dispositivo (hover)  «Samsung Galaxy S24 Ultra 5» rgb(240, 244, 255) / rgb(19, 31, 63) 14px
+    ok  15.81  tabla · fecha  «09-oct» rgb(240, 244, 255) / rgb(13, 26, 48) 14px
+    tarjeta · #orden: (no visible)
+    tarjeta · cliente: (no visible)
+    tarjeta · meta: (no visible)
+    tarjeta · estado: (no visible)
+
+[dashboard-tech-desktop] 1440x900 light  errors=0
+  desborde: scrollW=1440 innerW=1440 fuera=0px 
+  recortes: ninguno
+  orden: dashboard-actions@169  setup-checklist:ausente  dashboard-today@252  dashboard-tasks@378  dashboard-recent-orders@880
+  importes en Inicio: ninguno
+  requests: GET business_settings, GET businesses, GET customers, GET dollar_rate_history, GET exchange_rates, GET inventory, GET notifications, GET orders, GET payments, GET system_admins, GET tasks, HEAD orders, PATCH business_settings, POST dollar_rate_history, POST exchange_rates, fn:fetch-dollar-rate, rpc:current_user_has_internal_tool_access, rpc:get_current_exchange_rate, rpc:get_my_first_steps, rpc:get_my_profile
+    ok  15.60–16.09  título  «Inicio» rgb(15, 23, 42) / rgb(237, 239, 252) 24px
+    ok  9.09  subtítulo  «Tu taller hoy» rgb(51, 65, 85) / rgb(236, 240, 252) 14px
+    ok  5.78–6.24  Nueva Orden  «Nueva Orden» rgb(255, 255, 255) / rgb(117, 61, 236) 15px
+    ok  7.23–7.86  Nueva Orden (hover)  «Nueva Orden» rgb(255, 255, 255) / rgb(103, 43, 215) 15px
+    Nuevo Comprobante: (no visible)
+    Nuevo Comprobante: (no visible)
+    Gestionar Caja: (no visible)
+    Gestionar Caja: (no visible)
+    Registrar gasto: (no visible)
+    Registrar gasto: (no visible)
+    chip caja · estado: (no visible)
+    chip caja · desde: (no visible)
+    chip caja · estado: (no visible)
+    ok  9.43  chip dólar · USD  «USD» rgb(51, 65, 85) / rgb(244, 244, 246) 12px
+    ok  16.25  chip dólar · valor  «$1.556» rgb(15, 23, 42) / rgb(244, 244, 246) 12px
+    ok  17.85  Hoy · valor  «9» rgb(15, 23, 42) / rgb(255, 255, 255) 28px
+    ok  10.35  Hoy · etiqueta  «Órdenes activas» rgb(51, 65, 85) / rgb(255, 255, 255) 13px
+    ok  10.35  Hoy · +nuevas  «+4 nuevas hoy» rgb(51, 65, 85) / rgb(255, 255, 255) 12px
+    ok  9.63  Hoy · etiqueta (hover)  «Órdenes activas» rgb(51, 65, 85) / rgb(246, 246, 254) 13px
+    ok  17.85  Tareas · título  «Mis tareas» rgb(15, 23, 42) / rgb(255, 255, 255) 18px
+    ok  10.35  Tareas · subtítulo  «Lo que necesita tu atenció» rgb(51, 65, 85) / rgb(255, 255, 255) 13px
+    ok  5.78–6.22  Nueva tarea  «Nueva tarea» rgb(255, 255, 255) / rgb(117, 61, 236) 13px
+    ok  7.23–7.81  Nueva tarea (hover)  «Nueva tarea» rgb(255, 255, 255) / rgb(103, 43, 215) 13px
+    ok  10.35  Ver todas (tareas)  «Ver todas» rgb(51, 65, 85) / rgb(255, 255, 255) 13px
+    ok  6.47  Vencidas · valor  «2» rgb(185, 28, 28) / rgb(255, 255, 255) 24px
+    ok  6.47  Vencidas · etiqueta  «Vencidas» rgb(185, 28, 28) / rgb(255, 255, 255) 13px
+    ok  6.02  Vencidas · etiqueta (hover)  «Vencidas» rgb(185, 28, 28) / rgb(246, 246, 254) 13px
+    ok  6.29  Para hoy · valor  «2» rgb(79, 70, 229) / rgb(255, 255, 255) 24px
+    ok  10.35  Para hoy · etiqueta  «Para hoy» rgb(51, 65, 85) / rgb(255, 255, 255) 13px
+    ok  5.85  Para hoy · valor (hover)  «2» rgb(79, 70, 229) / rgb(246, 246, 254) 24px
+    ok  17.85  Pendientes · valor  «6» rgb(15, 23, 42) / rgb(255, 255, 255) 24px
+    ok  10.35  Pendientes · etiqueta  «Pendientes» rgb(51, 65, 85) / rgb(255, 255, 255) 13px
+    ok  17.85  tarea · título  «Llamar a Juan Pérez por el» rgb(15, 23, 42) / rgb(255, 255, 255) 15px
+    ok  6.47  tarea · vencida  «Vencida · Hace 2d» rgb(185, 28, 28) / rgb(255, 255, 255) 12.48px
+    ok  6.29  tarea · hoy  «Hoy» rgb(79, 70, 229) / rgb(255, 255, 255) 12.48px
+    ok  10.35  tarea · próxima  «12-oct» rgb(51, 65, 85) / rgb(255, 255, 255) 12.48px
+    ok  10.35  tarea · prioridad  «Prioridad alta» rgb(51, 65, 85) / rgb(255, 255, 255) 12.48px
+    ok  16.60  tarea · título (hover)  «Llamar a Juan Pérez por el» rgb(15, 23, 42) / rgb(246, 246, 254) 15px
+    ok  6.02  tarea · vencida (hover)  «Vencida · Hace 2d» rgb(185, 28, 28) / rgb(246, 246, 254) 12.48px
+    ok  9.63  tarea · prioridad (hover)  «Prioridad alta» rgb(51, 65, 85) / rgb(246, 246, 254) 12.48px
+    Todo al día: (no visible)
+    No tenés tareas: (no visible)
+    ok  17.85  Órdenes · título  «Órdenes recientes» rgb(15, 23, 42) / rgb(255, 255, 255) 16px
+    ok  10.35  Ver todas (órdenes)  «Ver todas» rgb(51, 65, 85) / rgb(255, 255, 255) 13px
+    ok  9.79  tabla · encabezado  «Orden» rgb(51, 65, 85) / rgb(248, 248, 254) 11.04px
+    ok  6.29  tabla · #orden  «#A1B2C310» rgb(79, 70, 229) / rgb(255, 255, 255) 14px
+    ok  17.85  tabla · cliente  «Juan Pérez» rgb(15, 23, 42) / rgb(255, 255, 255) 14px
+    ok  10.35  tabla · dispositivo  «Samsung Galaxy S24 Ultra 5» rgb(51, 65, 85) / rgb(255, 255, 255) 14px
+    ok  9.28  tabla · estado  «En Reparación» rgb(51, 65, 85) / rgb(238, 243, 249) 12px
+    ok  5.85  tabla · #orden (hover)  «#A1B2C310» rgb(79, 70, 229) / rgb(246, 246, 254) 14px
+    ok  16.60  tabla · dispositivo (hover)  «Samsung Galaxy S24 Ultra 5» rgb(15, 23, 42) / rgb(246, 246, 254) 14px
+    ok  17.85  tabla · fecha  «09-oct» rgb(15, 23, 42) / rgb(255, 255, 255) 14px
+    tarjeta · #orden: (no visible)
+    tarjeta · cliente: (no visible)
+    tarjeta · meta: (no visible)
+    tarjeta · estado: (no visible)
+
+[dashboard-sales-desktop] 1440x900 light  errors=0
+  desborde: scrollW=1440 innerW=1440 fuera=0px 
+  recortes: ninguno
+  orden: dashboard-actions@169  setup-checklist:ausente  dashboard-today@252  dashboard-tasks@378  dashboard-recent-orders@880
+  importes en Inicio: ninguno
+  requests: GET business_settings, GET businesses, GET cajas, GET customers, GET dollar_rate_history, GET exchange_rates, GET inventory, GET notifications, GET orders, GET payments, GET system_admins, GET tasks, HEAD orders, PATCH business_settings, POST dollar_rate_history, POST exchange_rates, fn:fetch-dollar-rate, rpc:current_user_has_internal_tool_access, rpc:get_current_exchange_rate, rpc:get_my_first_steps, rpc:get_my_profile
+
+[dashboard-owner-mobile] 375x812 light  errors=0
+  desborde: scrollW=375 innerW=375 fuera=0px 
+  recortes: ninguno
+  <44px: 0
+  orden: dashboard-actions@213  setup-checklist:ausente  dashboard-today@359  dashboard-tasks@482  dashboard-recent-orders@1049
+  importes en Inicio: ninguno
+  requests: GET business_settings, GET businesses, GET cajas, GET customers, GET dollar_rate_history, GET exchange_rates, GET inventory, GET notifications, GET orders, GET payments, GET system_admins, GET tasks, HEAD orders, PATCH business_settings, POST dollar_rate_history, POST exchange_rates, fn:fetch-dollar-rate, rpc:current_user_has_internal_tool_access, rpc:get_current_exchange_rate, rpc:get_my_first_steps, rpc:get_my_profile
+    ok  15.47–16.23  título  «Inicio» rgb(15, 23, 42) / rgb(236, 238, 252) 22px
+    ok  9.02–9.49  subtítulo  «Tu taller hoy» rgb(51, 65, 85) / rgb(235, 239, 252) 12.8px
+    ok  5.90  Nueva Orden  «Nueva Orden» rgb(255, 255, 255) / rgb(109, 63, 235) 15px
+    ok  7.41–7.78  Nueva Orden (hover)  «Nueva Orden» rgb(255, 255, 255) / rgb(94, 47, 212) 15px
+    ok  6.29  Nuevo Comprobante  «Nuevo Comprobante» rgb(255, 255, 255) / rgb(79, 70, 229) 13px
+    ok  7.90  Nuevo Comprobante (hover)  «Nuevo Comprobante» rgb(255, 255, 255) / rgb(67, 56, 202) 13px
+    ok  9.32–9.80  Gestionar Caja  «Gestionar Caja» rgb(51, 65, 85) / rgb(239, 243, 253) 13px
+    ok  14.91–15.69  Gestionar Caja (hover)  «Gestionar Caja» rgb(15, 23, 42) / rgb(230, 234, 252) 13px
+    ok  5.53  Registrar gasto  «Registrar gasto» rgb(185, 28, 28) / rgb(243, 235, 240) 13px
+    ok  5.03  Registrar gasto (hover)  «Registrar gasto» rgb(185, 28, 28) / rgb(242, 222, 227) 13px
+    ok  13.99–14.72  chip caja · estado  «Caja abierta» rgb(15, 23, 42) / rgb(224, 227, 243) 12px
+    ok  8.39–8.83  chip caja · desde  «desde 09:20» rgb(51, 65, 85) / rgb(228, 231, 243) 12px
+    ok  13.35–13.94  chip caja · estado (hover)  «Caja abierta» rgb(15, 23, 42) / rgb(218, 221, 250) 12px
+    ok  8.84  chip dólar · USD  «USD» rgb(51, 65, 85) / rgb(234, 237, 244) 12px
+    ok  15.50  chip dólar · valor  «$1.556» rgb(15, 23, 42) / rgb(236, 239, 245) 12px
+    ok  17.85  Hoy · valor  «9» rgb(15, 23, 42) / rgb(255, 255, 255) 24px
+    ok  10.35  Hoy · etiqueta  «Órdenes activas» rgb(51, 65, 85) / rgb(255, 255, 255) 12px
+    ok  10.35  Hoy · +nuevas  «+4 nuevas hoy» rgb(51, 65, 85) / rgb(255, 255, 255) 12px
+    ok  9.63  Hoy · etiqueta (hover)  «Órdenes activas» rgb(51, 65, 85) / rgb(246, 246, 254) 12px
+    ok  17.85  Tareas · título  «Mis tareas» rgb(15, 23, 42) / rgb(255, 255, 255) 18px
+    ok  10.35  Tareas · subtítulo  «Lo que necesita tu atenció» rgb(51, 65, 85) / rgb(255, 255, 255) 13px
+    ok  5.84–6.20  Nueva tarea  «Nueva tarea» rgb(255, 255, 255) / rgb(114, 61, 236) 13px
+    ok  7.30–7.81  Nueva tarea (hover)  «Nueva tarea» rgb(255, 255, 255) / rgb(99, 45, 214) 13px
+    ok  10.35  Ver todas (tareas)  «Ver todas» rgb(51, 65, 85) / rgb(255, 255, 255) 13px
+    ok  6.47  Vencidas · valor  «2» rgb(185, 28, 28) / rgb(255, 255, 255) 24px
+    ok  6.47  Vencidas · etiqueta  «Vencidas» rgb(185, 28, 28) / rgb(255, 255, 255) 12px
+    ok  6.02  Vencidas · etiqueta (hover)  «Vencidas» rgb(185, 28, 28) / rgb(246, 246, 254) 12px
+    ok  6.29  Para hoy · valor  «2» rgb(79, 70, 229) / rgb(255, 255, 255) 24px
+    ok  10.35  Para hoy · etiqueta  «Para hoy» rgb(51, 65, 85) / rgb(255, 255, 255) 12px
+    ok  5.85  Para hoy · valor (hover)  «2» rgb(79, 70, 229) / rgb(246, 246, 254) 24px
+    ok  17.85  Pendientes · valor  «6» rgb(15, 23, 42) / rgb(255, 255, 255) 24px
+    ok  10.35  Pendientes · etiqueta  «Pendientes» rgb(51, 65, 85) / rgb(255, 255, 255) 12px
+    ok  17.85  tarea · título  «Llamar a Juan Pérez por el» rgb(15, 23, 42) / rgb(255, 255, 255) 15px
+    ok  6.47  tarea · vencida  «Vencida · Hace 2d» rgb(185, 28, 28) / rgb(255, 255, 255) 12.48px
+    ok  6.29  tarea · hoy  «Hoy» rgb(79, 70, 229) / rgb(255, 255, 255) 12.48px
+    ok  10.35  tarea · próxima  «12-oct» rgb(51, 65, 85) / rgb(255, 255, 255) 12.48px
+    ok  10.35  tarea · prioridad  «Prioridad alta» rgb(51, 65, 85) / rgb(255, 255, 255) 12.48px
+    ok  16.60  tarea · título (hover)  «Llamar a Juan Pérez por el» rgb(15, 23, 42) / rgb(246, 246, 254) 15px
+    ok  6.02  tarea · vencida (hover)  «Vencida · Hace 2d» rgb(185, 28, 28) / rgb(246, 246, 254) 12.48px
+    ok  9.63  tarea · prioridad (hover)  «Prioridad alta» rgb(51, 65, 85) / rgb(246, 246, 254) 12.48px
+    Todo al día: (no visible)
+    No tenés tareas: (no visible)
+    ok  17.85  Órdenes · título  «Órdenes recientes» rgb(15, 23, 42) / rgb(255, 255, 255) 16px
+    ok  10.35  Ver todas (órdenes)  «Ver todas» rgb(51, 65, 85) / rgb(255, 255, 255) 13px
+    tabla · encabezado: (no visible)
+    tabla · #orden: (no visible)
+    tabla · cliente: (no visible)
+    tabla · dispositivo: (no visible)
+    tabla · estado: (no visible)
+    tabla · #orden: (no visible)
+    tabla · dispositivo: (no visible)
+    tabla · fecha: (no visible)
+    ok  6.29  tarjeta · #orden  «#A1B2C310» rgb(79, 70, 229) / rgb(255, 255, 255) 15px
+    ok  17.85  tarjeta · cliente  «Juan Pérez» rgb(15, 23, 42) / rgb(255, 255, 255) 13px
+    ok  10.35  tarjeta · meta  «Samsung Galaxy S24 Ultra 5» rgb(51, 65, 85) / rgb(255, 255, 255) 13px
+    ok  9.28  tarjeta · estado  «En Reparación» rgb(51, 65, 85) / rgb(238, 243, 249) 12px
+
+[dashboard-owner-mobile-dark] 375x812 dark  errors=0
+  desborde: scrollW=375 innerW=375 fuera=0px 
+  recortes: ninguno
+  <44px: 0
+  orden: dashboard-actions@213  setup-checklist:ausente  dashboard-today@359  dashboard-tasks@482  dashboard-recent-orders@1049
+  importes en Inicio: ninguno
+  requests: GET business_settings, GET businesses, GET cajas, GET customers, GET dollar_rate_history, GET exchange_rates, GET inventory, GET notifications, GET orders, GET payments, GET system_admins, GET tasks, HEAD orders, PATCH business_settings, POST dollar_rate_history, POST exchange_rates, fn:fetch-dollar-rate, rpc:current_user_has_internal_tool_access, rpc:get_current_exchange_rate, rpc:get_my_first_steps, rpc:get_my_profile
+    ok  16.87–17.32  título  «Inicio» rgb(240, 244, 255) / rgb(12, 18, 39) 22px
+    ok  11.71–12.06  subtítulo  «Tu taller hoy» rgb(196, 205, 232) / rgb(12, 18, 39) 12.8px
+    ok  5.90  Nueva Orden  «Nueva Orden» rgb(255, 255, 255) / rgb(109, 63, 235) 15px
+    ok  7.41–7.78  Nueva Orden (hover)  «Nueva Orden» rgb(255, 255, 255) / rgb(94, 47, 212) 15px
+    ok  6.29  Nuevo Comprobante  «Nuevo Comprobante» rgb(255, 255, 255) / rgb(79, 70, 229) 13px
+    ok  7.90  Nuevo Comprobante (hover)  «Nuevo Comprobante» rgb(255, 255, 255) / rgb(67, 56, 202) 13px
+    ok  11.98–12.32  Gestionar Caja  «Gestionar Caja» rgb(196, 205, 232) / rgb(9, 16, 31) 13px
+    ok  16.21–16.69  Gestionar Caja (hover)  «Gestionar Caja» rgb(240, 244, 255) / rgb(16, 22, 47) 13px
+    ok  6.55  Registrar gasto  «Registrar gasto» rgb(248, 113, 113) / rgb(24, 20, 32) 13px
+    ok  5.87  Registrar gasto (hover)  «Registrar gasto» rgb(248, 113, 113) / rgb(42, 28, 38) 13px
+    ok  15.36–16.04  chip caja · estado  «Caja abierta» rgb(240, 244, 255) / rgb(22, 28, 48) 12px
+    ok  10.91–11.31  chip caja · desde  «desde 09:20» rgb(196, 205, 232) / rgb(20, 26, 44) 12px
+    ok  14.43–15.06  chip caja · estado (hover)  «Caja abierta» rgb(240, 244, 255) / rgb(25, 31, 69) 12px
+    ok  11.21–11.53  chip dólar · USD  «USD» rgb(196, 205, 232) / rgb(17, 24, 37) 12px
+    ok  16.33  chip dólar · valor  «$1.556» rgb(240, 244, 255) / rgb(16, 23, 35) 12px
+    ok  15.81  Hoy · valor  «9» rgb(240, 244, 255) / rgb(13, 26, 48) 24px
+    ok  10.97  Hoy · etiqueta  «Órdenes activas» rgb(196, 205, 232) / rgb(13, 26, 48) 12px
+    ok  10.97  Hoy · +nuevas  «+4 nuevas hoy» rgb(196, 205, 232) / rgb(13, 26, 48) 12px
+    ok  10.22  Hoy · etiqueta (hover)  «Órdenes activas» rgb(196, 205, 232) / rgb(19, 31, 63) 12px
+    ok  15.81  Tareas · título  «Mis tareas» rgb(240, 244, 255) / rgb(13, 26, 48) 18px
+    ok  10.97  Tareas · subtítulo  «Lo que necesita tu atenció» rgb(196, 205, 232) / rgb(13, 26, 48) 13px
+    ok  5.84–6.20  Nueva tarea  «Nueva tarea» rgb(255, 255, 255) / rgb(114, 61, 236) 13px
+    ok  7.30–7.81  Nueva tarea (hover)  «Nueva tarea» rgb(255, 255, 255) / rgb(99, 45, 214) 13px
+    ok  10.97  Ver todas (tareas)  «Ver todas» rgb(196, 205, 232) / rgb(13, 26, 48) 13px
+    ok  6.29  Vencidas · valor  «2» rgb(248, 113, 113) / rgb(13, 26, 48) 24px
+    ok  6.29  Vencidas · etiqueta  «Vencidas» rgb(248, 113, 113) / rgb(13, 26, 48) 12px
+    ok  5.86  Vencidas · etiqueta (hover)  «Vencidas» rgb(248, 113, 113) / rgb(19, 31, 63) 12px
+    ok  5.83  Para hoy · valor  «2» rgb(129, 140, 248) / rgb(13, 26, 48) 24px
+    ok  10.97  Para hoy · etiqueta  «Para hoy» rgb(196, 205, 232) / rgb(13, 26, 48) 12px
+    ok  5.43  Para hoy · valor (hover)  «2» rgb(129, 140, 248) / rgb(19, 31, 63) 24px
+    ok  15.81  Pendientes · valor  «6» rgb(240, 244, 255) / rgb(13, 26, 48) 24px
+    ok  10.97  Pendientes · etiqueta  «Pendientes» rgb(196, 205, 232) / rgb(13, 26, 48) 12px
+    ok  15.81  tarea · título  «Llamar a Juan Pérez por el» rgb(240, 244, 255) / rgb(13, 26, 48) 15px
+    ok  6.29  tarea · vencida  «Vencida · Hace 2d» rgb(248, 113, 113) / rgb(13, 26, 48) 12.48px
+    ok  5.83  tarea · hoy  «Hoy» rgb(129, 140, 248) / rgb(13, 26, 48) 12.48px
+    ok  10.97  tarea · próxima  «12-oct» rgb(196, 205, 232) / rgb(13, 26, 48) 12.48px
+    ok  10.97  tarea · prioridad  «Prioridad alta» rgb(196, 205, 232) / rgb(13, 26, 48) 12.48px
+    ok  14.74  tarea · título (hover)  «Llamar a Juan Pérez por el» rgb(240, 244, 255) / rgb(19, 31, 63) 15px
+    ok  5.86  tarea · vencida (hover)  «Vencida · Hace 2d» rgb(248, 113, 113) / rgb(19, 31, 63) 12.48px
+    ok  10.22  tarea · prioridad (hover)  «Prioridad alta» rgb(196, 205, 232) / rgb(19, 31, 63) 12.48px
+    Todo al día: (no visible)
+    No tenés tareas: (no visible)
+    ok  15.16  Órdenes · título  «Órdenes recientes» rgb(240, 244, 255) / rgb(17, 30, 52) 16px
+    ok  10.52  Ver todas (órdenes)  «Ver todas» rgb(196, 205, 232) / rgb(17, 30, 52) 13px
+    tabla · encabezado: (no visible)
+    tabla · #orden: (no visible)
+    tabla · cliente: (no visible)
+    tabla · dispositivo: (no visible)
+    tabla · estado: (no visible)
+    tabla · #orden: (no visible)
+    tabla · dispositivo: (no visible)
+    tabla · fecha: (no visible)
+    ok  5.83  tarjeta · #orden  «#A1B2C310» rgb(129, 140, 248) / rgb(13, 26, 48) 15px
+    ok  15.81  tarjeta · cliente  «Juan Pérez» rgb(240, 244, 255) / rgb(13, 26, 48) 13px
+    ok  10.97  tarjeta · meta  «Samsung Galaxy S24 Ultra 5» rgb(196, 205, 232) / rgb(13, 26, 48) 13px
+    ok  10.53  tarjeta · estado  «En Reparación» rgb(196, 205, 232) / rgb(15, 30, 53) 12px
+
+[dashboard-new-business] 1440x900 light  errors=0
+  desborde: scrollW=1440 innerW=1440 fuera=0px 
+  recortes: ninguno
+  orden: dashboard-actions@169  setup-checklist@252  dashboard-today@598  dashboard-tasks@705  dashboard-recent-orders@982
+  importes en Inicio: ninguno
+  requests: GET business_settings, GET businesses, GET cajas, GET customers, GET dollar_rate_history, GET exchange_rates, GET inventory, GET notifications, GET orders, GET payments, GET system_admins, GET tasks, HEAD orders, PATCH business_settings, POST dollar_rate_history, POST exchange_rates, fn:fetch-dollar-rate, rpc:current_user_has_internal_tool_access, rpc:get_current_exchange_rate, rpc:get_my_first_steps, rpc:get_my_profile
+    ok  15.68–16.10  título  «Inicio» rgb(15, 23, 42) / rgb(236, 240, 253) 24px
+    ok  9.10  subtítulo  «Tu taller hoy» rgb(51, 65, 85) / rgb(236, 240, 253) 14px
+    ok  5.80–6.24  Nueva Orden  «Nueva Orden» rgb(255, 255, 255) / rgb(116, 61, 236) 15px
+    ok  7.23–7.86  Nueva Orden (hover)  «Nueva Orden» rgb(255, 255, 255) / rgb(102, 44, 215) 15px
+    ok  6.29  Nuevo Comprobante  «Nuevo Comprobante» rgb(255, 255, 255) / rgb(79, 70, 229) 13px
+    ok  7.90  Nuevo Comprobante (hover)  «Nuevo Comprobante» rgb(255, 255, 255) / rgb(67, 56, 202) 13px
+    ok  9.63  Gestionar Caja  «Gestionar Caja» rgb(51, 65, 85) / rgb(243, 247, 253) 13px
+    ok  15.42  Gestionar Caja (hover)  «Gestionar Caja» rgb(15, 23, 42) / rgb(234, 238, 252) 13px
+    ok  5.46  Registrar gasto  «Registrar gasto» rgb(185, 28, 28) / rgb(240, 234, 239) 13px
+    ok  5.00  Registrar gasto (hover)  «Registrar gasto» rgb(185, 28, 28) / rgb(239, 222, 226) 13px
+    ok  16.25  chip caja · estado  «Caja cerrada» rgb(15, 23, 42) / rgb(244, 244, 246) 12px
+    chip caja · desde: (no visible)
+    ok  16.47  chip caja · estado (hover)  «Caja cerrada» rgb(15, 23, 42) / rgb(245, 245, 254) 12px
+    ok  9.43  chip dólar · USD  «USD» rgb(51, 65, 85) / rgb(244, 244, 246) 12px
+    ok  16.25  chip dólar · valor  «$1.556» rgb(15, 23, 42) / rgb(244, 244, 246) 12px
+    ok  17.85  Hoy · valor  «0» rgb(15, 23, 42) / rgb(255, 255, 255) 28px
+    ok  10.35  Hoy · etiqueta  «Órdenes activas» rgb(51, 65, 85) / rgb(255, 255, 255) 13px
+    Hoy · +nuevas: (no visible)
+    ok  9.63  Hoy · etiqueta (hover)  «Órdenes activas» rgb(51, 65, 85) / rgb(246, 246, 254) 13px
+    ok  17.85  Tareas · título  «Mis tareas» rgb(15, 23, 42) / rgb(255, 255, 255) 18px
+    ok  10.35  Tareas · subtítulo  «Lo que necesita tu atenció» rgb(51, 65, 85) / rgb(255, 255, 255) 13px
+    ok  5.78–6.22  Nueva tarea  «Nueva tarea» rgb(255, 255, 255) / rgb(117, 61, 236) 13px
+    ok  7.23–7.81  Nueva tarea (hover)  «Nueva tarea» rgb(255, 255, 255) / rgb(103, 43, 215) 13px
+    ok  10.35  Ver todas (tareas)  «Ver todas» rgb(51, 65, 85) / rgb(255, 255, 255) 13px
+    Vencidas · valor: (no visible)
+    Vencidas · etiqueta: (no visible)
+    Vencidas · etiqueta: (no visible)
+    Para hoy · valor: (no visible)
+    Para hoy · etiqueta: (no visible)
+    Para hoy · valor: (no visible)
+    Pendientes · valor: (no visible)
+    Pendientes · etiqueta: (no visible)
+    tarea · título: (no visible)
+    tarea · vencida: (no visible)
+    tarea · hoy: (no visible)
+    tarea · próxima: (no visible)
+    tarea · prioridad: (no visible)
+    tarea · título: (no visible)
+    tarea · vencida: (no visible)
+    tarea · prioridad: (no visible)
+    Todo al día: (no visible)
+    No tenés tareas: (no visible)
+    ok  17.85  Órdenes · título  «Órdenes recientes» rgb(15, 23, 42) / rgb(255, 255, 255) 16px
+    ok  10.35  Ver todas (órdenes)  «Ver todas» rgb(51, 65, 85) / rgb(255, 255, 255) 13px
+    tabla · encabezado: (no visible)
+    tabla · #orden: (no visible)
+    tabla · cliente: (no visible)
+    tabla · dispositivo: (no visible)
+    tabla · estado: (no visible)
+    tabla · #orden: (no visible)
+    tabla · dispositivo: (no visible)
+    tabla · fecha: (no visible)
+    tarjeta · #orden: (no visible)
+    tarjeta · cliente: (no visible)
+    tarjeta · meta: (no visible)
+    tarjeta · estado: (no visible)
+
+[dashboard-new-business-mobile] 375x812 light  errors=0
+  desborde: scrollW=375 innerW=375 fuera=0px 
+  recortes: ninguno
+  <44px: 0
+  orden: dashboard-actions@213  setup-checklist@359  dashboard-today@705  dashboard-tasks@809  dashboard-recent-orders@1134
+  importes en Inicio: ninguno
+  requests: GET business_settings, GET businesses, GET cajas, GET customers, GET dollar_rate_history, GET exchange_rates, GET inventory, GET notifications, GET orders, GET payments, GET system_admins, GET tasks, HEAD orders, PATCH business_settings, POST dollar_rate_history, POST exchange_rates, fn:fetch-dollar-rate, rpc:current_user_has_internal_tool_access, rpc:get_current_exchange_rate, rpc:get_my_first_steps, rpc:get_my_profile
+
+[top-header-utilities] 1440x900 light  errors=0
+  desborde: scrollW=1440 innerW=1440 fuera=0px 
+  recortes: ninguno
+  orden: dashboard-actions@169  setup-checklist:ausente  dashboard-today@252  dashboard-tasks@378  dashboard-recent-orders@880
+  importes en Inicio: ninguno
+  requests: GET business_settings, GET businesses, GET cajas, GET customers, GET dollar_rate_history, GET exchange_rates, GET inventory, GET notifications, GET orders, GET payments, GET system_admins, GET tasks, HEAD orders, PATCH business_settings, POST dollar_rate_history, POST exchange_rates, fn:fetch-dollar-rate, rpc:current_user_has_internal_tool_access, rpc:get_current_exchange_rate, rpc:get_my_first_steps, rpc:get_my_profile
+
+[top-header-utilities-dark] 1440x900 dark  errors=0
+  desborde: scrollW=1440 innerW=1440 fuera=0px 
+  recortes: ninguno
+  orden: dashboard-actions@169  setup-checklist:ausente  dashboard-today@252  dashboard-tasks@378  dashboard-recent-orders@880
+  importes en Inicio: ninguno
+  requests: GET business_settings, GET businesses, GET cajas, GET customers, GET dollar_rate_history, GET exchange_rates, GET inventory, GET notifications, GET orders, GET payments, GET system_admins, GET tasks, HEAD orders, PATCH business_settings, POST dollar_rate_history, POST exchange_rates, fn:fetch-dollar-rate, rpc:current_user_has_internal_tool_access, rpc:get_current_exchange_rate, rpc:get_my_first_steps, rpc:get_my_profile
+
+[dashboard-empty-states-dark] 1440x900 dark  errors=0
+  desborde: scrollW=1440 innerW=1440 fuera=0px 
+  recortes: ninguno
+  orden: dashboard-actions@169  setup-checklist@252  dashboard-today@598  dashboard-tasks@705  dashboard-recent-orders@982
+  importes en Inicio: ninguno
+  requests: GET business_settings, GET businesses, GET cajas, GET customers, GET dollar_rate_history, GET exchange_rates, GET inventory, GET notifications, GET orders, GET payments, GET system_admins, GET tasks, HEAD orders, PATCH business_settings, POST dollar_rate_history, POST exchange_rates, fn:fetch-dollar-rate, rpc:current_user_has_internal_tool_access, rpc:get_current_exchange_rate, rpc:get_my_first_steps, rpc:get_my_profile
+    ok  16.97–17.36  título  «Inicio» rgb(240, 244, 255) / rgb(11, 18, 35) 24px
+    ok  11.84  subtítulo  «Tu taller hoy» rgb(196, 205, 232) / rgb(11, 17, 35) 14px
+    ok  5.80–6.24  Nueva Orden  «Nueva Orden» rgb(255, 255, 255) / rgb(116, 61, 236) 15px
+    ok  7.23–7.86  Nueva Orden (hover)  «Nueva Orden» rgb(255, 255, 255) / rgb(102, 44, 215) 15px
+    ok  6.29  Nuevo Comprobante  «Nuevo Comprobante» rgb(255, 255, 255) / rgb(79, 70, 229) 13px
+    ok  7.90  Nuevo Comprobante (hover)  «Nuevo Comprobante» rgb(255, 255, 255) / rgb(67, 56, 202) 13px
+    ok  12.27  Gestionar Caja  «Gestionar Caja» rgb(196, 205, 232) / rgb(6, 13, 25) 13px
+    ok  16.69  Gestionar Caja (hover)  «Gestionar Caja» rgb(240, 244, 255) / rgb(13, 19, 42) 13px
+    ok  6.55  Registrar gasto  «Registrar gasto» rgb(248, 113, 113) / rgb(24, 20, 32) 13px
+    ok  5.87  Registrar gasto (hover)  «Registrar gasto» rgb(248, 113, 113) / rgb(42, 28, 38) 13px
+    ok  16.47  chip caja · estado  «Caja cerrada» rgb(240, 244, 255) / rgb(15, 22, 35) 12px
+    chip caja · desde: (no visible)
+    ok  16.71  chip caja · estado (hover)  «Caja cerrada» rgb(240, 244, 255) / rgb(12, 19, 42) 12px
+    ok  11.53  chip dólar · USD  «USD» rgb(196, 205, 232) / rgb(14, 21, 34) 12px
+    ok  16.61  chip dólar · valor  «$1.556» rgb(240, 244, 255) / rgb(14, 21, 34) 12px
+    ok  15.81  Hoy · valor  «0» rgb(240, 244, 255) / rgb(13, 26, 48) 28px
+    ok  10.97  Hoy · etiqueta  «Órdenes activas» rgb(196, 205, 232) / rgb(13, 26, 48) 13px
+    Hoy · +nuevas: (no visible)
+    ok  10.22  Hoy · etiqueta (hover)  «Órdenes activas» rgb(196, 205, 232) / rgb(19, 31, 63) 13px
+    ok  15.81  Tareas · título  «Mis tareas» rgb(240, 244, 255) / rgb(13, 26, 48) 18px
+    ok  10.97  Tareas · subtítulo  «Lo que necesita tu atenció» rgb(196, 205, 232) / rgb(13, 26, 48) 13px
+    ok  5.78–6.22  Nueva tarea  «Nueva tarea» rgb(255, 255, 255) / rgb(117, 61, 236) 13px
+    ok  7.23–7.81  Nueva tarea (hover)  «Nueva tarea» rgb(255, 255, 255) / rgb(103, 43, 215) 13px
+    ok  10.97  Ver todas (tareas)  «Ver todas» rgb(196, 205, 232) / rgb(13, 26, 48) 13px
+    Vencidas · valor: (no visible)
+    Vencidas · etiqueta: (no visible)
+    Vencidas · etiqueta: (no visible)
+    Para hoy · valor: (no visible)
+    Para hoy · etiqueta: (no visible)
+    Para hoy · valor: (no visible)
+    Pendientes · valor: (no visible)
+    Pendientes · etiqueta: (no visible)
+    tarea · título: (no visible)
+    tarea · vencida: (no visible)
+    tarea · hoy: (no visible)
+    tarea · próxima: (no visible)
+    tarea · prioridad: (no visible)
+    tarea · título: (no visible)
+    tarea · vencida: (no visible)
+    tarea · prioridad: (no visible)
+    Todo al día: (no visible)
+    No tenés tareas: (no visible)
+    ok  15.16  Órdenes · título  «Órdenes recientes» rgb(240, 244, 255) / rgb(17, 30, 52) 16px
+    ok  10.52  Ver todas (órdenes)  «Ver todas» rgb(196, 205, 232) / rgb(17, 30, 52) 13px
+    tabla · encabezado: (no visible)
+    tabla · #orden: (no visible)
+    tabla · cliente: (no visible)
+    tabla · dispositivo: (no visible)
+    tabla · estado: (no visible)
+    tabla · #orden: (no visible)
+    tabla · dispositivo: (no visible)
+    tabla · fecha: (no visible)
+    tarjeta · #orden: (no visible)
+    tarjeta · cliente: (no visible)
+    tarjeta · meta: (no visible)
+    tarjeta · estado: (no visible)
+
+[geo-owner-390] 390x844 light  errors=0
+  desborde: scrollW=390 innerW=390 fuera=0px 
+  recortes: ninguno
+  <44px: 0
+  orden: dashboard-actions@213  setup-checklist:ausente  dashboard-today@359  dashboard-tasks@467  dashboard-recent-orders@1034
+  importes en Inicio: ninguno
+  requests: GET business_settings, GET businesses, GET cajas, GET customers, GET dollar_rate_history, GET exchange_rates, GET inventory, GET notifications, GET orders, GET payments, GET system_admins, GET tasks, HEAD orders, PATCH business_settings, POST dollar_rate_history, POST exchange_rates, fn:fetch-dollar-rate, rpc:current_user_has_internal_tool_access, rpc:get_current_exchange_rate, rpc:get_my_first_steps, rpc:get_my_profile
+
+[geo-owner-430] 430x932 light  errors=0
+  desborde: scrollW=430 innerW=430 fuera=0px 
+  recortes: ninguno
+  <44px: 0
+  orden: dashboard-actions@213  setup-checklist:ausente  dashboard-today@359  dashboard-tasks@467  dashboard-recent-orders@1034
+  importes en Inicio: ninguno
+  requests: GET business_settings, GET businesses, GET cajas, GET customers, GET dollar_rate_history, GET exchange_rates, GET inventory, GET notifications, GET orders, GET payments, GET system_admins, GET tasks, HEAD orders, PATCH business_settings, POST dollar_rate_history, POST exchange_rates, fn:fetch-dollar-rate, rpc:current_user_has_internal_tool_access, rpc:get_current_exchange_rate, rpc:get_my_first_steps, rpc:get_my_profile
+
+[geo-owner-320] 320x700 light  errors=0
+  desborde: scrollW=320 innerW=320 fuera=0px 
+  recortes: ninguno
+  <44px: 0
+  orden: dashboard-actions@253  setup-checklist:ausente  dashboard-today@399  dashboard-tasks@537  dashboard-recent-orders@1148
+  importes en Inicio: ninguno
+  requests: GET business_settings, GET businesses, GET cajas, GET customers, GET dollar_rate_history, GET exchange_rates, GET inventory, GET notifications, GET orders, GET payments, GET system_admins, GET tasks, HEAD orders, PATCH business_settings, POST dollar_rate_history, POST exchange_rates, fn:fetch-dollar-rate, rpc:current_user_has_internal_tool_access, rpc:get_current_exchange_rate, rpc:get_my_first_steps, rpc:get_my_profile
+
+[geo-owner-768] 768x1024 light  errors=0
+  desborde: scrollW=768 innerW=768 fuera=0px 
+  recortes: ninguno
+  <44px: 5
+    - a "#A1B2C310" 77.8x17
+    - a "#A1B2C311" 74.4x17
+    - a "#A1B2C312" 77.2x17
+    - a "#A1B2C313" 77.4x17
+    - a "#A1B2C314" 77.9x17
+  orden: dashboard-actions@241  setup-checklist:ausente  dashboard-today@309  dashboard-tasks@434  dashboard-recent-orders@936
+  importes en Inicio: ninguno
+  requests: GET business_settings, GET businesses, GET cajas, GET customers, GET dollar_rate_history, GET exchange_rates, GET inventory, GET notifications, GET orders, GET payments, GET system_admins, GET tasks, HEAD orders, PATCH business_settings, POST dollar_rate_history, POST exchange_rates, fn:fetch-dollar-rate, rpc:current_user_has_internal_tool_access, rpc:get_current_exchange_rate, rpc:get_my_first_steps, rpc:get_my_profile
+
+[geo-owner-1024] 1024x768 light  errors=0
+  desborde: scrollW=1024 innerW=1024 fuera=0px 
+  recortes: ninguno
+  orden: dashboard-actions@244  setup-checklist:ausente  dashboard-today@360  dashboard-tasks@486  dashboard-recent-orders@988
+  importes en Inicio: ninguno
+  requests: GET business_settings, GET businesses, GET cajas, GET customers, GET dollar_rate_history, GET exchange_rates, GET inventory, GET notifications, GET orders, GET payments, GET system_admins, GET tasks, HEAD orders, PATCH business_settings, POST dollar_rate_history, POST exchange_rates, fn:fetch-dollar-rate, rpc:current_user_has_internal_tool_access, rpc:get_current_exchange_rate, rpc:get_my_first_steps, rpc:get_my_profile
+
+[geo-owner-1280] 1280x800 light  errors=0
+  desborde: scrollW=1280 innerW=1280 fuera=0px 
+  recortes: ninguno
+  orden: dashboard-actions@169  setup-checklist:ausente  dashboard-today@252  dashboard-tasks@378  dashboard-recent-orders@880
+  importes en Inicio: ninguno
+  requests: GET business_settings, GET businesses, GET cajas, GET customers, GET dollar_rate_history, GET exchange_rates, GET inventory, GET notifications, GET orders, GET payments, GET system_admins, GET tasks, HEAD orders, PATCH business_settings, POST dollar_rate_history, POST exchange_rates, fn:fetch-dollar-rate, rpc:current_user_has_internal_tool_access, rpc:get_current_exchange_rate, rpc:get_my_first_steps, rpc:get_my_profile
+
+[geo-tech-375] 375x812 light  errors=0
+  desborde: scrollW=375 innerW=375 fuera=0px 
+  recortes: ninguno
+  <44px: 0
+  orden: dashboard-actions@213  setup-checklist:ausente  dashboard-today@285  dashboard-tasks@408  dashboard-recent-orders@975
+  importes en Inicio: ninguno
+  requests: GET business_settings, GET businesses, GET customers, GET dollar_rate_history, GET exchange_rates, GET inventory, GET notifications, GET orders, GET payments, GET system_admins, GET tasks, HEAD orders, PATCH business_settings, POST dollar_rate_history, POST exchange_rates, fn:fetch-dollar-rate, rpc:current_user_has_internal_tool_access, rpc:get_current_exchange_rate, rpc:get_my_first_steps, rpc:get_my_profile
+
+[geo-sales-375] 375x812 light  errors=0
+  desborde: scrollW=375 innerW=375 fuera=0px 
+  recortes: ninguno
+  <44px: 0
+  orden: dashboard-actions@213  setup-checklist:ausente  dashboard-today@337  dashboard-tasks@460  dashboard-recent-orders@1027
+  importes en Inicio: ninguno
+  requests: GET business_settings, GET businesses, GET cajas, GET customers, GET dollar_rate_history, GET exchange_rates, GET inventory, GET notifications, GET orders, GET payments, GET system_admins, GET tasks, HEAD orders, PATCH business_settings, POST dollar_rate_history, POST exchange_rates, fn:fetch-dollar-rate, rpc:current_user_has_internal_tool_access, rpc:get_current_exchange_rate, rpc:get_my_first_steps, rpc:get_my_profile
+
+SIN MOCK (respondidos vacío/null): rpc:get_current_exchange_rate, table:customers, table:inventory, table:notifications, table:payments, table:system_admins

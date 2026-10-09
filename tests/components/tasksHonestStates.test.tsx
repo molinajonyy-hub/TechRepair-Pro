@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   tasks: [] as Record<string, unknown>[],
   myTasks: [] as Record<string, unknown>[],
-  summary: { pending: 0, completed: 0, overdue: 0 } as Record<string, number>,
+  summary: { pending: 0, completed: 0, overdue: 0, dueToday: 0 } as Record<string, number>,
   getTasksError: null as unknown,
   getMyTasksError: null as unknown,
   setStatusError: null as unknown,
@@ -122,7 +122,7 @@ const renderTasks = (state?: unknown) => render(
 beforeEach(() => {
   mocks.tasks = [task()]
   mocks.myTasks = [task()]
-  mocks.summary = { pending: 1, completed: 0, overdue: 0 }
+  mocks.summary = { pending: 1, completed: 0, overdue: 0, dueToday: 0 }
   mocks.getTasksError = null
   mocks.getMyTasksError = null
   mocks.setStatusError = null
@@ -296,8 +296,12 @@ describe('widget del dashboard', () => {
     renderWidget()
     await screen.findByText('Llamar a Juan')
 
+    // BETA-UX-1F: en Inicio el resumen es Vencidas / Para hoy / Pendientes.
+    // «Completadas» sigue en el módulo de Tareas.
     expect(screen.getByText('Pendientes')).toBeInTheDocument()
-    expect(screen.getByText('Completadas')).toBeInTheDocument()
+    expect(screen.getByText('Vencidas')).toBeInTheDocument()
+    expect(screen.getByText('Para hoy')).toBeInTheDocument()
+    expect(screen.queryByText('Completadas')).not.toBeInTheDocument()
     expect(screen.queryByText('En proceso')).not.toBeInTheDocument()
   })
 

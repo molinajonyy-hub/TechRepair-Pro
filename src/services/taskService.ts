@@ -16,6 +16,7 @@
  */
 import { supabase } from '../lib/supabase'
 import { logger } from '../lib/logger'
+import { todayAR } from '../utils/dateUtils'
 
 // ─── Contrato TEMPORAL de estados ─────────────────────────────────────────────
 
@@ -189,6 +190,11 @@ export interface TaskSummary {
   pending: number
   completed: number
   overdue: number
+  /**
+   * BETA-UX-1F — tareas activas que vencen HOY, en fecha de negocio argentina.
+   * Sale de las mismas filas que el resto del resumen: no agrega una consulta.
+   */
+  dueToday: number
 }
 
 export interface TaskChecklistItem {
@@ -238,6 +244,26 @@ function isOverdue(t: Pick<TaskLite, 'status' | 'due_date'>) {
     t.status !== 'completed' &&
     t.status !== 'cancelled' &&
     new Date(t.due_date + 'T23:59:59') < new Date()
+}
+
+/**
+ * ¿Vence hoy? `due_date` es un DATE (sin hora): se compara como día de
+ * calendario contra la fecha de negocio argentina, nunca contra la fecha UTC.
+ * De noche en Argentina el día UTC ya es mañana, y «para hoy» contaría las
+ * tareas del día siguiente.
+ *
+ * Es la misma regla que `isDueTodayTask` (components/tasks/taskGrouping.ts), con
+ * la que la página del módulo arma el grupo «Hoy». Vive también acá porque el
+ * resumen se calcula en el servicio; un test fija que las dos coinciden.
+ */
+export function isTaskDueToday(
+  t: Pick<TaskLite, 'status' | 'due_date'>,
+  today: string = todayAR(),
+): boolean {
+  return !!t.due_date &&
+    t.status !== 'completed' &&
+    t.status !== 'cancelled' &&
+    t.due_date.slice(0, 10) === today
 }
 
 const PRIORITY_ORDER: Record<TaskPriority, number> = { high: 3, medium: 2, low: 1 }
@@ -323,10 +349,12 @@ export const taskService = {
       .or(`assigned_to.eq.${userId},user_id.eq.${userId}`)
     assertNoError(error, 'getTaskSummary', 'read')
     const tasks = (data || []) as Pick<TaskLite, 'status' | 'due_date'>[]
+    const today = todayAR()
     return {
       pending:   tasks.filter(t => t.status === 'pending').length,
       completed: tasks.filter(t => t.status === 'completed').length,
       overdue:   tasks.filter(isOverdue).length,
+      dueToday:  tasks.filter(t => isTaskDueToday(t, today)).length,
     }
   },
 

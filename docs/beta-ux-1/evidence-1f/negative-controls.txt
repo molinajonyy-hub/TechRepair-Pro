@@ -1,0 +1,26 @@
+OK    01 reintroducir «Ganancia Real Hoy» → rojo (2 tests), incluido «no existen las tarjetas financieras»
+OK    02 reintroducir useFinancialDashboard en Inicio → rojo (2 tests), incluido «ningún montaje de Inicio ni de la barra superior pidió una fuente financiera»
+OK    03 volver a mostrar los accesos rápidos → rojo (2 tests), incluido «no existen los accesos rápidos»
+OK    04 volver a mostrar «Movimientos Caja» → rojo (2 tests), incluido «no existen las pestañas»
+OK    05 mostrar «Registrar gasto» sin finance → rojo (7 tests), incluido «sales null ve»
+OK    06 quitar Tareas de Inicio → rojo (14 tests), incluido ««Mis tareas» está en Inicio»
+OK    07a romper dueToday (fecha UTC en vez de la argentina) → rojo (1 tests), incluido «con la fecha de negocio argentina»
+OK    07b romper dueToday (contar también las completadas) → rojo (4 tests), incluido «compara el día de calendario»
+OK    08a devolver la caja a una franja en el cuerpo de Inicio → rojo (2 tests), incluido «no existe la franja de caja»
+OK    08b convertir el chip de caja en una franja de ancho completo → rojo (1 tests), incluido «la caja en la barra es un chip»
+OK    09a las filas de órdenes recientes dejan de ser clickeables → rojo (1 tests), incluido «la fila entera abre la orden»
+OK    09b las tarjetas mobile dejan de abrir la orden → rojo (1 tests), incluido «tocar la tarjeta abre el detalle»
+OK    10 reintroducir un importe financiero en Inicio → rojo (8 tests), incluido «ningún importe, ningún símbolo de moneda»
+OK    11 el vendedor puede gestionar la caja desde el chip → rojo (1 tests), incluido «conoce el estado y NO puede gestionar»
+OK    12 el chip de caja se muestra a quien no necesita conocerla → rojo (2 tests), incluido «no ve el chip de caja»
+OK    13 el hook operacional vuelve a leer finanzas → rojo (5 tests), incluido «sólo órdenes, tareas, primeros pasos y el estado de la caja»
+OK    14 «Listas para entregar» con el alias legacy `ready` → rojo (1 tests), incluido «activas = total − completadas − canceladas»
+OK    15 «nuevas hoy» cortado en la medianoche UTC → rojo (1 tests), incluido «cuenta desde las 00:00 de Argentina»
+OK    16 el reprecio de inventario vuelve a depender de Inicio → rojo (2 tests), incluido «ninguna página lo dispara»
+OK    17 dos lecturas de la cotización (cada chip pide la suya) → rojo (3 tests), incluido «comparten la misma lectura»
+OK    18 «Registrar gasto» pierde la variante danger → rojo (1 tests), incluido «usa la variante `danger`»
+OK    19 Tareas queda debajo de las órdenes recientes → rojo (1 tests), incluido «después de «Hoy» y antes de las órdenes recientes»
+OK    20 la bienvenida duplicada vuelve junto a Primeros pasos → rojo (3 tests), incluido «sin la bienvenida duplicada»
+
+árbol idéntico al de antes de mutar: sí
+CONTROLES NEGATIVOS: 23/23 detectados

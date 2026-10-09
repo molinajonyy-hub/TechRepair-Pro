@@ -27,6 +27,11 @@
 // ============================================================================
 import { test, expect, type Page, type ConsoleMessage } from '@playwright/test'
 import { consultarJSON } from '../setup/sqlLocal.ts'
+import { sinFuenteDeCotizacion } from '../helpers/dollarRate.ts'
+
+// BETA-UX-1F: el shell pide la cotización del dólar en cada carga y el stack
+// local no tiene la Edge Function que la sirve. Ver helpers/dollarRate.ts.
+test.beforeEach(async ({ page }) => { await sinFuenteDeCotizacion(page) })
 
 const VIEWPORTS = [
   { nombre: 'desktop-1440', width: 1440, height: 900 },

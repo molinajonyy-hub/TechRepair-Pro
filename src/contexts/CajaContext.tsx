@@ -38,6 +38,16 @@ interface CajaContextValue {
    * override explícito la tiene, y un `cashier` la tiene por default.
    */
   canUseCaja: boolean
+  /**
+   * BETA-UX-1F — ¿Este actor puede CONOCER si la caja está abierta?
+   *
+   * Es la misma condición que decide si este provider lee `cajas`
+   * (`necesitaConocerCaja`), expuesta para que la barra superior no la vuelva a
+   * escribir: quien cobra con `comprobantes` necesita saber si hay caja abierta
+   * aunque no tenga `finance`. Conocer el estado NO es poder gestionarla: para
+   * ofrecer `/caja` sigue haciendo falta `canUseCaja`.
+   */
+  canSeeCajaStatus: boolean
 }
 
 // ─── Context ──────────────────────────────────────────────────────────────────
@@ -49,6 +59,7 @@ const CajaContext = createContext<CajaContextValue>({
   loading: true,
   refresh: async () => null,
   canUseCaja: false,
+  canSeeCajaStatus: false,
 })
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
@@ -129,6 +140,7 @@ export function CajaProvider({ children }: { children: ReactNode }) {
       loading,
       refresh,
       canUseCaja,
+      canSeeCajaStatus: necesitaConocerCaja,
     }}>
       {children}
     </CajaContext.Provider>

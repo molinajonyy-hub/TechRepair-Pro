@@ -5,7 +5,7 @@
  * Un test verde no prueba nada si nunca puede ponerse en rojo. Este script
  * rompe A PROPÓSITO cada invariante y verifica que el gate falle de verdad.
  *
- *   A. quitar el gate visual de Ganancia Real -> el component test debe fallar
+ *   A. quitar el gate de «Registrar gasto»    -> el component test debe fallar
  *   B. dejar entrar a tech en la RLS financiera -> el SQL security test debe fallar
  *   C. permitir /finance sin capacidad          -> el route test debe fallar
  *   D. mostrar SaaS Admin a un owner normal     -> el component test debe fallar
@@ -115,12 +115,15 @@ const mutar = (etiqueta, archivo, buscar, reemplazo, patron) => {
 }
 
 console.log('==============================================================')
-console.log('A. Quitar el gate visual de Ganancia Real')
+// BETA-UX-1F: «Ganancia Real» y las demás tarjetas financieras ya no existen en
+// Inicio. El gate de capacidad que queda en esa pantalla es el de la acción
+// «Registrar gasto»; es el que se rompe acá.
+console.log('A. Quitar el gate de «Registrar gasto» en Inicio')
 console.log('==============================================================')
 mutar('A/dashboard', 'src/pages/Dashboard.tsx',
-  "  const puedeVerFinanzas = can('finance')",
-  '  const puedeVerFinanzas = true',
-  'tarjetas financieras')
+  "  const puedeRegistrarGasto = can('finance')",
+  '  const puedeRegistrarGasto = true',
+  'Registrar gasto')
 
 console.log('')
 console.log('==============================================================')
