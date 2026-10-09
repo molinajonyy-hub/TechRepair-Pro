@@ -15,10 +15,12 @@
 // Qué se ve a 375 px (tabla oculta, lista visible, 44 px, sin desborde) lo mide
 // el navegador: `tests/e2e/m7/mobile-orders.spec.ts`.
 // ─────────────────────────────────────────────────────────────────────────────
+import { readFileSync } from 'node:fs'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { OrderFinancialStatus, OrderListItem, UseOrdersFilters } from '../../src/hooks/useOrders'
+import { STATUS_CONFIG } from '../../src/types/orderStatus'
 
 const state = vi.hoisted(() => ({
   orders: [] as unknown[],
@@ -36,8 +38,11 @@ vi.mock('../../src/hooks/useOrders', () => ({
   useOrders: (filters: UseOrdersFilters = {}) => {
     state.filters.push({ status: filters.status ?? '', payment: filters.payment ?? '' })
     const porCobro = filters.payment && state.ordersByPayment ? (state.ordersByPayment[filters.payment] ?? []) : null
+    // El estado técnico se filtra en el servidor con `.eq('status', …)`: acá se
+    // hace lo mismo, igualdad exacta contra la clave que mandó la pantalla.
+    const base = (porCobro ?? state.orders) as Array<{ status: string }>
     return {
-      orders: porCobro ?? state.orders,
+      orders: filters.status ? base.filter(o => o.status === filters.status) : base,
       loading: false,
       error: null,
       total: state.orders.length,
@@ -326,6 +331,78 @@ describe('BETA-UX-1D · Órdenes · importes restringidos (SEC-08A) en la lista 
     fireEvent.click(mobile().getByRole('button', { name: 'Acciones de la orden #aaaaaaaa' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Imprimir' }))
     expect(screen.getByTestId('print-probe')).toHaveAttribute('data-estimated', 'undefined')
+  })
+})
+
+// ── Microfix: el filtro «Listo» mandaba `ready`, un estado que no existe ────
+describe('BETA-UX-1D · Órdenes · el filtro de estado manda la clave canónica', () => {
+  const ORDER_READY: OrderListItem = {
+    id: 'cccccccc-0000-0000-0000-000000000003', status: 'ready_delivery', priority: 'medium',
+    created_at: '2026-10-06T15:00:00Z',
+    customer: { id: 'c3', name: 'Cliente Listo', phone: '3510000003' },
+    device: { id: 'd3', brand: 'Apple', model: 'iPhone 13', type: 'smartphone' },
+  }
+
+  it('«Listo para Entregar» filtra por `ready_delivery`: aparece esa orden y no las de otro estado', () => {
+    state.orders = [ORDER_A, ORDER_B, ORDER_READY]
+    renderOrders()
+    expect(cards()).toHaveLength(3)
+
+    const filtro = screen.getByTestId('orders-status-filter') as HTMLSelectElement
+    fireEvent.change(filtro, { target: { value: 'ready_delivery' } })
+
+    // La pantalla ofrece esa clave (si la opción no existiera, el select no la tomaría).
+    expect(filtro).toHaveValue('ready_delivery')
+    expect(filtro.selectedOptions[0]).toHaveTextContent('Listo para Entregar')
+    // Y es la que viaja al servidor, sin alias.
+    expect(state.filters.at(-1)).toEqual({ status: 'ready_delivery', payment: '' })
+
+    expect(cards()).toHaveLength(1)
+    expect(cards()[0]).toHaveTextContent('Cliente Listo')
+    expect(cards()[0]).toHaveTextContent('Listo para Entregar')
+    expect(screen.getByTestId('orders-mobile-list')).not.toHaveTextContent('Cliente Uno')
+    expect(screen.getByTestId('orders-mobile-list')).not.toHaveTextContent('#bbbbbbbb')
+    // La tabla de escritorio, lo mismo.
+    expect(desktop().getAllByRole('row')).toHaveLength(1 + 1)
+    expect(screen.getByTestId('orders-desktop-table')).toHaveTextContent('#cccccccc')
+  })
+
+  it('con otro estado elegido, la orden lista para entregar no aparece', () => {
+    state.orders = [ORDER_A, ORDER_B, ORDER_READY]
+    renderOrders()
+
+    fireEvent.change(screen.getByTestId('orders-status-filter'), { target: { value: 'repair' } })
+
+    expect(state.filters.at(-1)).toEqual({ status: 'repair', payment: '' })
+    expect(cards()).toHaveLength(1)
+    expect(cards()[0]).toHaveTextContent('Cliente Uno')
+    expect(screen.getByTestId('orders-mobile-list')).not.toHaveTextContent('Cliente Listo')
+  })
+
+  it('cada opción del filtro es una clave de STATUS_CONFIG y se llama igual que ese estado', () => {
+    renderOrders()
+
+    const opciones = within(screen.getByTestId('orders-status-filter')).getAllByRole('option') as HTMLOptionElement[]
+    expect(opciones[0]).toHaveValue('')
+    const conEstado = opciones.slice(1)
+    expect(conEstado.length).toBeGreaterThanOrEqual(6)
+    for (const opcion of conEstado) {
+      const config = STATUS_CONFIG[opcion.value as keyof typeof STATUS_CONFIG]
+      expect(config, `«${opcion.value}» no es un estado de orden`).toBeDefined()
+      expect(opcion.textContent, `la opción «${opcion.value}» no se llama como su estado`).toBe(config.label)
+    }
+    expect(conEstado.map(o => o.value)).toContain('ready_delivery')
+    expect(conEstado.map(o => o.value)).not.toContain('ready')
+  })
+
+  it('la fuente no vuelve a traer `value="ready"` ni un alias en el hook', () => {
+    const pagina = readFileSync('src/pages/Orders.tsx', 'utf8')
+    expect(pagina).not.toMatch(/value=["']ready["']/)
+    expect(pagina).toMatch(/<option value="ready_delivery">Listo para Entregar<\/option>/)
+    // El hook manda el filtro tal cual: sin traducir `ready` a nada.
+    const hook = readFileSync('src/hooks/useOrders.ts', 'utf8')
+    expect(hook).toMatch(/\.eq\('status', statusFilter\)/)
+    expect(hook).not.toMatch(/['"]ready['"]/)
   })
 })
 

@@ -203,6 +203,26 @@ async function tokenDeSesion(page: Page): Promise<string> {
   return token
 }
 
+/**
+ * La impresión de la lista abre una ventana nueva y le escribe el documento.
+ * Se captura lo que se le escribe en vez de abrirla.
+ */
+async function capturarImpresion(page: Page) {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __PRINT__: string[] }
+    w.__PRINT__ = []
+    window.open = (() => ({
+      document: { write: (html: string) => { w.__PRINT__.push(html) }, close: () => undefined },
+      focus: () => undefined, print: () => undefined, close: () => undefined,
+    })) as unknown as typeof window.open
+  })
+}
+const documentosImpresos = (page: Page) =>
+  page.evaluate(() => (window as unknown as { __PRINT__: string[] }).__PRINT__)
+/** Lo que queda en el papel: el documento sin estilos ni etiquetas. */
+const textoImpreso = (html: string) =>
+  html.replace(/<style[\s\S]*?<\/style>/g, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')
+
 const tarjetaDeOrden = (page: Page, id: string) =>
   page.getByTestId('orders-mobile-item').filter({ hasText: `#${corto(id)}` })
 const tarjetaDeCliente = (page: Page, nombre: string) =>
@@ -604,16 +624,7 @@ test.describe('@beta-ux-1d Órdenes · lista mobile', () => {
   })
 
   test('375×812 · el menú imprime la orden y pide confirmación antes de eliminar', async ({ page }) => {
-    // La impresión abre una ventana nueva y le escribe el documento: se captura
-    // lo que se le escribe en vez de abrirla.
-    await page.addInitScript(() => {
-      const w = window as unknown as { __PRINT__: string[] }
-      w.__PRINT__ = []
-      window.open = (() => ({
-        document: { write: (html: string) => { w.__PRINT__.push(html) }, close: () => undefined },
-        focus: () => undefined, print: () => undefined, close: () => undefined,
-      })) as unknown as typeof window.open
-    })
+    await capturarImpresion(page)
     await abrir(page, '/orders', 'light', 375, 812, 'orders-mobile-list')
     const disparador = tarjetaDeOrden(page, O.cobrada).getByTestId('orders-mobile-actions')
 
@@ -631,8 +642,8 @@ test.describe('@beta-ux-1d Órdenes · lista mobile', () => {
 
     // ── Imprimir ─────────────────────────────────────────────────────────
     await menu.getByRole('menuitem', { name: 'Imprimir' }).click()
-    await expect.poll(() => page.evaluate(() => (window as unknown as { __PRINT__: string[] }).__PRINT__.length), { timeout: 10_000 }).toBe(1)
-    const documento = await page.evaluate(() => (window as unknown as { __PRINT__: string[] }).__PRINT__[0])
+    await expect.poll(async () => (await documentosImpresos(page)).length, { timeout: 10_000 }).toBe(1)
+    const documento = (await documentosImpresos(page))[0]
     expect(documento, 'el documento impreso no es el de la orden').toContain(T.mayorista)
     expect(documento).toContain('iPhone 13')
     await expect(page.getByTestId('order-print-hidden-root')).toHaveCount(0)
@@ -655,6 +666,108 @@ test.describe('@beta-ux-1d Órdenes · lista mobile', () => {
     await confirmacion.getByRole('button', { name: 'Cancelar' }).click()
     await expect(confirmacion).toBeHidden()
     expect(consultarJSON<{ n: number }>(`SELECT count(*)::int AS n FROM public.orders WHERE id = '${O.sinEquipo}'`).n).toBe(1)
+  })
+
+  // ── Microfix ────────────────────────────────────────────────────────────
+  // «Imprimir» está en el menú de cada tarjeta, y una orden puede no tener
+  // cliente o equipo. Antes la hoja leía `order.device.brand` sin guarda: el
+  // render lanzaba y la app entera caía en «Algo salió mal».
+  test('375×812 · una orden sin dispositivo, sin cliente o sin ninguno se imprime desde su tarjeta sin romper la pantalla', async ({ page }) => {
+    await capturarImpresion(page)
+    const errores: string[] = []
+    page.on('pageerror', error => errores.push(error.message))
+    await abrir(page, '/orders', 'light', 375, 812, 'orders-mobile-list')
+
+    const casos = [
+      { id: O.sinEquipo, tiene: [T.minorista, 'Sin dispositivo'], noTiene: ['Sin cliente'] },
+      { id: O.sinCliente, tiene: ['Sin cliente', T.equipoSinDueno], noTiene: ['Sin dispositivo'] },
+      { id: O.sinNada, tiene: ['Sin cliente', 'Sin dispositivo'], noTiene: [] as string[] },
+    ]
+    // La lista ya las muestra así; ahora la hoja dice lo mismo.
+    await expect(tarjetaDeOrden(page, O.sinCliente)).toContainText('Sin cliente')
+    await expect(tarjetaDeOrden(page, O.sinNada)).toContainText('Sin dispositivo')
+
+    for (const [i, caso] of casos.entries()) {
+      await tarjetaDeOrden(page, caso.id).getByTestId('orders-mobile-actions').click()
+      await page.getByRole('menuitem', { name: 'Imprimir' }).click()
+
+      await expect.poll(async () => (await documentosImpresos(page)).length, {
+        message: `la orden #${corto(caso.id)} no llegó a imprimirse`, timeout: 10_000,
+      }).toBe(i + 1)
+      const texto = textoImpreso((await documentosImpresos(page))[i])
+      expect(texto, 'el documento no es el de esa orden').toContain(`N° ${corto(caso.id).toUpperCase()}`)
+      expect(texto).toContain('COPIA CLIENTE')
+      expect(texto).toContain('USO INTERNO')
+      for (const esperado of caso.tiene) expect(texto, `falta «${esperado}» en la hoja de #${corto(caso.id)}`).toContain(esperado)
+      for (const ausente of caso.noTiene) expect(texto, `sobra «${ausente}» en la hoja de #${corto(caso.id)}`).not.toContain(ausente)
+      expect(texto, 'un valor ausente llegó al papel').not.toMatch(/undefined|\bnull\b|NaN/)
+
+      // La pantalla sigue en pie: ni error boundary ni lista desmontada.
+      await expect(page.getByText('Algo salió mal')).toHaveCount(0)
+      await expect(page.getByTestId('orders-mobile-list')).toBeVisible()
+      await expect(page.getByTestId('order-print-hidden-root')).toHaveCount(0)
+    }
+    expect(errores, 'errores de JavaScript al imprimir').toEqual([])
+  })
+
+  test('1440px · el botón de imprimir de la tabla tampoco rompe con una orden sin cliente ni dispositivo', async ({ page }) => {
+    await capturarImpresion(page)
+    const errores: string[] = []
+    page.on('pageerror', error => errores.push(error.message))
+    await abrir(page, '/orders', 'light', 1440, 900, 'orders-desktop-table')
+
+    const fila = page.getByTestId('orders-desktop-table').getByRole('row').filter({ hasText: `#${corto(O.sinNada)}` })
+    await fila.getByTestId('order-print-button').click()
+
+    await expect.poll(async () => (await documentosImpresos(page)).length, { timeout: 10_000 }).toBe(1)
+    const texto = textoImpreso((await documentosImpresos(page))[0])
+    expect(texto).toContain(`N° ${corto(O.sinNada).toUpperCase()}`)
+    expect(texto).toContain('Sin cliente')
+    expect(texto).toContain('Sin dispositivo')
+    expect(texto).not.toMatch(/undefined|\bnull\b|NaN/)
+    await expect(page.getByText('Algo salió mal')).toHaveCount(0)
+    await expect(page.getByTestId('orders-desktop-table')).toBeVisible()
+    expect(errores).toEqual([])
+  })
+
+  // El filtro mandaba `ready`; el estado se llama `ready_delivery` y el servidor
+  // compara por igualdad, así que nunca devolvía una orden.
+  test('375×812 · «Listo para Entregar» filtra por la clave canónica `ready_delivery`', async ({ page }) => {
+    await abrir(page, '/orders', 'light', 375, 812, 'orders-mobile-list')
+    await expect(tarjetaDeOrden(page, O.parcial)).toBeVisible()
+    await expect(tarjetaDeOrden(page, O.cobrada)).toBeVisible()
+
+    const filtro = page.getByTestId('orders-status-filter')
+    const valores = await filtro.locator('option').evaluateAll(opciones => opciones.map(o => (o as HTMLOptionElement).value))
+    expect(valores).toContain('ready_delivery')
+    expect(valores, 'volvió la clave que no existe').not.toContain('ready')
+
+    // Lo que viaja al servidor es la clave canónica, sin alias.
+    const pedido = page.waitForRequest(r =>
+      r.method() === 'GET' && r.url().includes('/rest/v1/orders?') && r.url().includes('status=eq.ready_delivery'))
+    await filtro.selectOption({ label: 'Listo para Entregar' })
+    await pedido
+    await expect(filtro).toHaveValue('ready_delivery')
+
+    // Aparece la orden lista para entregar; las de otro estado, no.
+    await expect(tarjetaDeOrden(page, O.cobrada)).toBeVisible({ timeout: 15_000 })
+    await expect(tarjetaDeOrden(page, O.parcial)).toHaveCount(0)
+    await expect(tarjetaDeOrden(page, O.sinEquipo)).toHaveCount(0)
+    await expect(tarjetaDeOrden(page, O.sinEspacios)).toHaveCount(0)
+    const estados = await page.getByTestId('orders-mobile-item')
+      .evaluateAll(tarjetas => tarjetas.map(t => t.querySelector('.order-card__badges .badge')?.textContent ?? ''))
+    expect([...new Set(estados)], 'hay tarjetas de otro estado').toEqual(['Listo para Entregar'])
+    // Y son exactamente las que la base tiene en ese estado.
+    const enBase = consultarJSON<{ n: number }>(
+      `SELECT count(*)::int AS n FROM public.orders WHERE business_id = '${E2E.business}' AND status = 'ready_delivery'`).n
+    expect(enBase).toBeGreaterThanOrEqual(1)
+    expect(estados).toHaveLength(Math.min(enBase, 50))
+    await sinDesborde(page, 'Órdenes filtradas por estado')
+
+    // «Limpiar filtros» devuelve la lista completa.
+    await page.getByTestId('orders-clear-filters').click()
+    await expect(filtro).toHaveValue('')
+    await expect(tarjetaDeOrden(page, O.parcial)).toBeVisible({ timeout: 15_000 })
   })
 
   test('375×812 · el menú de una tarjeta pegada a la barra inferior queda entero a la vista', async ({ page }) => {

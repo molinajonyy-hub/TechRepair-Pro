@@ -26,7 +26,10 @@ function mapOrderToServiceData(order: OrderDetailSimple, orderItems?: PrintOrder
     status: order.status,
     technician: order.technician?.name,
     customer: {
-      name: order.customer?.name || '—',
+      // BETA-UX-1D: sin nombre no se manda un guion de relleno. La hoja sabe
+      // decir «Sin cliente» cuando no hay nada que imprimir del cliente, y es
+      // el mismo texto que usan la lista y el detalle.
+      name: order.customer?.name,
       phone: order.customer?.phone,
       email: order.customer?.email,
       address: order.customer?.address,

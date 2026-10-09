@@ -351,7 +351,9 @@ export function Orders() {
           <option value="new">Nueva</option>
           <option value="diagnosis">Diagnóstico</option>
           <option value="repair">En Reparación</option>
-          <option value="ready">Listo</option>
+          {/* La clave canónica es `ready_delivery` (types/orderStatus.ts) y el
+              filtro viaja tal cual al servidor: con `ready` nunca coincidía. */}
+          <option value="ready_delivery">Listo para Entregar</option>
           <option value="completed">Completada</option>
           <option value="cancelled">Cancelada</option>
         </select>

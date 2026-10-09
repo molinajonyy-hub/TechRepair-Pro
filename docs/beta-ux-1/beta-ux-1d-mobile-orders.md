@@ -9,6 +9,11 @@ Sólo presentación. **Sin migraciones, sin cambios en Edge Functions, sin `db p
 tocar producción.** No cambia RLS, permisos, la autoridad financiera, ninguna consulta ni ninguna
 regla de negocio. No toca el POS, Inventario, Proveedores ni Usuarios.
 
+**Microfix (§14), en el mismo PR:** dos defectos que ya estaban y que este lote dejó a un toque de
+distancia. La hoja impresa de la orden tolera que falten el cliente o el equipo (antes tumbaba la
+aplicación) y el filtro de estado «Listo» manda la clave que existe, `ready_delivery` (antes mandaba
+`ready` y nunca devolvía nada). Tampoco lleva migraciones, Edge ni cambios de permisos.
+
 ---
 
 ## 1. Problema
@@ -280,7 +285,8 @@ jsdom no aplica `index.css`: ahí la tabla y las tarjetas conviven. Se mide lo q
 | `betaUx1dResponsiveContract.test.ts` | el bloque de CSS: < 768 tarjetas / una columna, ≥ 768 tabla / dos columnas, sólo `max-width`, sólo tokens definidos en claro y en oscuro; la fuente: sin `innerWidth` / `matchMedia`, sin grilla ni `span 2` en línea, sin estado vacío en una celda, primitivos importados desde `../ui`, una única lectura de importes gateada |
 
 Corre además con las suites vecinas que montan estas pantallas: `mobileFoundations`,
-`orderDetailHistory`, `customerSurfaces` y `customerEdit`.
+`orderDetailHistory`, `customerSurfaces` y `customerEdit`. El microfix le sumó dos archivos propios y
+`printNoCredentials` (§14.4).
 
 `customerSurfaces.test.tsx` cambió en un punto: cinco esperas `findByText(nombre)` ahora se acotan a
 la tabla de escritorio (`tableLoaded`). El nombre del cliente aparece en las dos presentaciones y esos
@@ -402,20 +408,22 @@ Las capturas acompañan a los asserts geométricos; no los reemplazan.
 4. Buscar algo que no exista en las dos listas: estado vacío con su acción.
 5. Con un usuario sin «Ver precios en órdenes»: ningún importe en Órdenes ni en Clientes.
 6. En una computadora: las tres pantallas como estaban.
+7. *(microfix)* Órdenes: «⋯» → Imprimir en una orden sin dispositivo o sin cliente: se abre la hoja,
+   dice «Sin dispositivo» / «Sin cliente» y la pantalla sigue en pie.
+8. *(microfix)* Órdenes: filtro de estado → «Listo para Entregar»: aparecen las órdenes en ese estado.
 
 ## 13. Fuera de alcance — hallazgos
 
-No se tocaron. Los dos primeros conviene mirarlos antes de la beta.
+Los dos primeros se **corrigieron en el microfix** (§14). El resto es backlog: no se tocó.
 
-1. **P1 · Imprimir desde la lista una orden sin dispositivo (o sin cliente) tumba la aplicación.**
-   `ServiceOrderPrint.tsx:348` y `:356` (y `:485` / `:493`) leen `order.customer.name` y
-   `order.device.brand` sin guarda, y la lista sí contempla órdenes con `customer: null` o
-   `device: null`. Reproducido **en la base `6f47faa`** con el botón de imprimir de la tabla de
-   escritorio: pantalla «Algo salió mal» (`desktop-parity.json`, `imprimirSinDispositivo`). El menú
-   de la tarjeta llama al mismo `handlePrint`, así que lo hereda tal cual.
-2. **P1 · El filtro «Listo» de Órdenes nunca devuelve nada.** La opción manda `ready` y el estado se
-   llama `ready_delivery`. Tampoco se pueden filtrar `waiting_approval`, `waiting_parts` ni
-   `waiting_payment` (`Orders.tsx`, opciones del filtro de estado).
+1. ~~**P1 · Imprimir desde la lista una orden sin dispositivo (o sin cliente) tumba la aplicación.**~~
+   **Corregido (§14).** `ServiceOrderPrint.tsx` leía `order.customer.name` y `order.device.brand`
+   sin guarda, y la lista sí contempla órdenes con `customer: null` o `device: null`. Reproducido en
+   la base `6f47faa` con el botón de imprimir de la tabla de escritorio: pantalla «Algo salió mal»
+   (`desktop-parity.json`, `imprimirSinDispositivo`, medido antes del microfix).
+2. ~~**P1 · El filtro «Listo» de Órdenes nunca devuelve nada.**~~ **Corregido (§14).** La opción
+   mandaba `ready` y el estado se llama `ready_delivery`. Sigue en backlog que el filtro no ofrezca
+   `waiting_approval`, `waiting_parts` ni `waiting_payment`.
 3. **P2 · Clientes queda en error ante una falla transitoria al montar.** `customersService.getAll()`
    empieza por `supabase.auth.getUser()` (`api.ts:101-109`); si esa llamada falla, la pantalla dice
    «No hay una sesión activa para operar con clientes» y no reintenta sola. Visto una vez en ~60
@@ -440,3 +448,116 @@ No se tocaron. Los dos primeros conviene mirarlos antes de la beta.
     `DeviceLockCard` trae un `margin-top` propio y queda con 32 px arriba en vez de 16; el
     desplegable de WhatsApp de escritorio se cierra con `onMouseLeave`.
 11. **P3 · «Exportar» de Clientes avisa con `alert()`.**
+12. **P2 · La hoja impresa nombra mal cuatro estados.** `ServiceOrderPrint` tiene su propio mapa de
+    estados (`received`, `budget_pending`, `in_repair`, `delivered`…) que no coincide con
+    `types/orderStatus.ts`. Para `repair`, `ready_delivery`, `waiting_approval` y `waiting_payment`
+    cae en el respaldo y el papel dice «REPAIR», «READY DELIVERY», «WAITING APPROVAL» o «WAITING
+    PAYMENT». Visto al leer la hoja para el microfix; no se tocó (no es parte de la tolerancia a
+    datos ausentes).
+
+---
+
+## 14. Microfix antes del merge
+
+Dos defectos confirmados sobre el head `4313288`, cerrados en el mismo PR. No se volvió a tocar el
+layout de `OrderDetail`, `Orders` ni `Customers`.
+
+### 14.1 Imprimir una orden sin cliente o sin dispositivo
+
+`OrderListItem` modela `customer` y `device` como `| null`, pero la hoja los declaraba obligatorios y
+los leía sin guarda; la lista se los pasaba por `any`. Con una orden sin equipo el render lanzaba y la
+aplicación entera caía en el error boundary. Era anterior a 1D, pero 1D puso «Imprimir» en el menú de
+cada tarjeta.
+
+En `src/components/print/ServiceOrderPrint.tsx`:
+
+- **El tipo dice la verdad**: `customer` y `device` son opcionales y admiten `null`, y cada uno de
+  sus campos también. Ya no hace falta un `any` para pasarle una orden de la lista.
+- **Se normaliza una vez**: `customer = order.customer ?? {}` y `device = order.device ?? {}`. De ahí
+  en adelante la hoja no vuelve a leer `order.customer.*` ni `order.device.*`.
+- **Se imprime lo que hay**: cada fila ya se omitía sola si su valor faltaba (`Row` no imprime ni la
+  etiqueta); ahora eso vale también cuando falta el objeto entero.
+- **Si no hay NADA que imprimir** del cliente o del equipo, la sección lo dice en vez de quedar vacía:
+  «Nombre: Sin cliente» / «Dispositivo: Sin dispositivo», en las dos copias. Es el mismo texto que
+  usan la lista y el detalle.
+- **No se fabrica nada**: sin cliente no aparece teléfono, DNI, email ni dirección; sin equipo no
+  aparece tipo, color, IMEI, serie ni accesorios. Un cliente con teléfono y sin nombre imprime el
+  teléfono y no dice «Sin cliente»; un equipo con IMEI y sin marca imprime el IMEI.
+
+No cambió la plantilla, el A4, la configuración de impresión, el presupuesto autorizado (SEC-08A), el
+nombre del archivo ni la ventana de impresión. «Imprimir» no se ocultó: la orden sigue siendo
+imprimible.
+
+Un cambio en un segundo archivo, de una línea: `OrderPrintPreviewModal` (la vista previa del detalle)
+le mandaba a la hoja `'—'` como nombre cuando no había cliente. Ahora le manda lo que hay y la hoja
+dice «Sin cliente», igual que al imprimir desde la lista.
+
+### 14.2 Filtro «Listo» → `ready_delivery`
+
+`Orders.tsx` ofrecía `<option value="ready">Listo</option>`. El estado canónico es `ready_delivery`
+(`types/orderStatus.ts`) y `useOrders` filtra con `.eq('status', statusFilter)`: nunca coincidía.
+
+- La opción ahora es `value="ready_delivery"` con el texto de `STATUS_CONFIG`: **«Listo para
+  Entregar»**.
+- Sin alias: no hay ningún `ready → ready_delivery` en el hook ni en la base. La pantalla manda la
+  clave canónica.
+- No se agregaron los otros estados que el filtro no ofrece (backlog, punto 2 de §13).
+
+### 14.3 `OverflowMenu` compartido
+
+No se revirtió el `scrollIntoView`. Tareas es el otro consumidor del menú y no tenía ningún test que lo
+abriera: se agregó una regresión chica sobre `TaskListItem` (abre, ofrece Editar / Eliminar, llama a
+sus handlers, cierra con Escape, y abre igual con y sin `scrollIntoView` disponible). No se tocó Tareas.
+
+### 14.4 Tests del microfix
+
+| Archivo | Qué fija |
+|---|---|
+| `betaUx1dOrderPrintIncomplete.test.tsx` (nuevo, 19) | la hoja REAL con cliente nulo, equipo nulo, los dos, propiedades ausentes, objetos vacíos y datos parciales: renderiza, dice «Sin cliente» / «Sin dispositivo» en las dos copias, no fabrica filas y nunca imprime «undefined» ni «null»; una orden completa se imprime como antes; desde Órdenes, «Imprimir» del menú de la tarjeta (y el botón de la tabla) no cae en el error boundary; la vista previa del detalle usa el mismo texto |
+| `betaUx1dOrdersList.test.tsx` (+4, 24) | «Listo para Entregar» manda `ready_delivery`; aparece la orden de ese estado y no las de otro; cada opción del filtro es una clave de `STATUS_CONFIG` con su misma etiqueta; la fuente no trae `value="ready"` ni un alias en el hook |
+| `betaUx1dTasksOverflowMenu.test.tsx` (nuevo, 5) | el menú de una tarea con el primitivo compartido |
+| `m7/mobile-orders.spec.ts` (+3, 44) | a 375 px se imprimen desde su tarjeta una orden sin dispositivo, una sin cliente y una sin ninguno: el documento dice lo que corresponde, no hay «Algo salió mal» ni errores de JavaScript; a 1440 px, lo mismo con el botón de la tabla; «Listo para Entregar» pide `status=eq.ready_delivery` al servidor y muestra exactamente las órdenes que la base tiene en ese estado |
+
+El fixture suma dos órdenes incompletas (una sin cliente, otra sin cliente ni equipo); la orden sin
+dispositivo ya existía.
+
+Controles negativos del microfix — se reintrodujo cada defecto y los tests nuevos se pusieron rojos:
+
+| Defecto reintroducido | Tests rojos |
+|---|---|
+| la hoja del commit anterior (lee `order.customer.name` / `order.device.brand` sin guarda) | 12 de 19 |
+| sin cliente se imprime una fila de teléfono fabricada | 1 de 19 |
+| el filtro vuelve a mandar `ready` | 3 de 24 |
+| la clave es canónica pero la etiqueta no coincide con `STATUS_CONFIG` | 3 de 24 |
+| el menú compartido deja de traerse a la vista | 1 de 5 |
+| el menú llama a `scrollIntoView` sin guarda | 3 de 5 |
+
+Y en el navegador, reconstruyendo el bundle con cada defecto (los tres tests nuevos del spec):
+
+| Defecto reintroducido | Tests rojos |
+|---|---|
+| la hoja del commit anterior | 2 de 3: imprimir desde la tarjeta a 375 px y desde la tabla a 1440 px |
+| el filtro vuelve a mandar `ready` | 1 de 3: «Listo para Entregar» |
+
+Cada mutación se restauró (hashes idénticos) y la línea de base volvió a verde.
+
+### 14.5 Resultados del microfix (local, 2026-10-08)
+
+| Gate | Resultado |
+|---|---|
+| `tsc --noEmit` | 0 errores |
+| `eslint src --quiet` | 0 errores |
+| `npm run test:beta-ux-1d` | 11 archivos · **163 / 163** (108 son los seis archivos de 1D: 24 + 13 + 20 + 27 + 19 + 5) |
+| Impresión vecina (componentes) | `printNoCredentials` **5 / 5**; desde ahora corre dentro de `test:beta-ux-1d` |
+| Tareas / `OverflowMenu` vecinos | `tasksMobileUx`, `tasksUnifiedShell`, `tasksHonestStates`, `taskGrouping`, `taskServiceAuthority`, `mobileFoundations` y el nuevo: 7 archivos · **101 / 101** |
+| Suite de componentes completa | 134 archivos · **2.858 / 2.858** (los 2.830 de antes + 28 nuevos) |
+| `node --test tests/unit` | **1.215 / 1.215** |
+| Guards | los mismos de §10: todos en verde |
+| `vite build` (variables de CI) | correcto |
+| E2E `@beta-ux-1d` — Chromium, `m7-local` | **44 / 44** sobre un stack local aislado con las 285 migraciones |
+| Specs `m7-local` vecinos que abren Órdenes y el detalle | `ordersV20Desktop`, `whatsapp-w1-vertical`, `mobile-shell`, `mobile2a-order-intake`, `dialog-touch-actions`: **21 / 21** |
+| Spec legacy de impresión (`orders-print.spec.ts`, proyecto `chromium`, que CI no corre) | sus 3 tests fallan, igual que en `4313288` y en la base (§10), por motivos ajenos a este cambio: el primero llega a la hoja impresa y falla porque el negocio sembrado no tiene nombre comercial; los otros dos no llegan a imprimir (el helper que crea la orden busca un `data-testid` que ya no existe) |
+| Controles negativos | **6 / 6** en componentes y **2 / 2** en el navegador |
+
+No se repitieron el `m7-local` completo, la corrida en WebKit, las capturas ni la sonda de paridad de
+escritorio: el microfix no cambia layout ni CSS. El CI del head final corre `m7-local` entero.

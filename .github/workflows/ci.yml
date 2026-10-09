@@ -202,6 +202,20 @@ jobs:
       # sólo `max-width`, sólo tokens definidos en claro y en oscuro; y la
       # fuente: sin `innerWidth`/`matchMedia`, sin grilla ni `span 2` en línea,
       # sin estado vacío en una celda, y una única lectura de importes gateada.
+      # MICROFIX: «Imprimir» quedó en el menú de cada tarjeta y la hoja
+      # (`ServiceOrderPrint`) leía `order.customer.name` / `order.device.brand`
+      # sin guarda, aunque la lista modela los dos como `| null`: imprimir una
+      # orden sin cliente o sin equipo tumbaba la app. `betaUx1dOrderPrintIncomplete`
+      # monta la hoja REAL con cliente nulo, equipo nulo, los dos, y con datos
+      # parciales: dice «Sin cliente» / «Sin dispositivo» en las dos copias, no
+      # fabrica ninguna fila y nunca imprime «undefined»; y la imprime desde el
+      # menú de la tarjeta sin caer en el error boundary. El filtro de estado
+      # mandaba `ready`, que no existe (el estado es `ready_delivery` y el
+      # servidor compara por igualdad): la suite fija que cada opción del filtro
+      # es una clave de `STATUS_CONFIG` con su misma etiqueta y que la clave
+      # viaja tal cual. `betaUx1dTasksOverflowMenu` abre el menú de una tarea: el
+      # primitivo compartido se trae a la vista al abrirse y Tareas es su otro
+      # consumidor.
       # Corre con las suites vecinas que montan estas pantallas. La geometría a
       # 320/375 px, los 44 px, el contraste y el EMPLEADO real sin
       # `orders_view_financials` contra el servidor viven en

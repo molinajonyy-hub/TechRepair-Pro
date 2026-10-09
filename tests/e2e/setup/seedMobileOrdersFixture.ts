@@ -30,6 +30,8 @@ export const MOBILE_ORDERS = {
     largo:      id('d1'),
     corto:      id('d2'),
     sinEspacio: id('d4'),
+    /** Equipo de una orden SIN cliente. */
+    sinDueno:   id('d5'),
   },
   ordenes: {
     /** Parcial, urgente, modelo largo, con ítems y comprobante. */
@@ -40,6 +42,10 @@ export const MOBILE_ORDERS = {
     sinEquipo:    orden('03'),
     /** Modelo sin ningún espacio: la única forma de envolver es partir la palabra. */
     sinEspacios:  orden('04'),
+    /** Con equipo y SIN cliente. */
+    sinCliente:   orden('05'),
+    /** Sin cliente y sin equipo. */
+    sinNada:      orden('06'),
   },
   comprobantes: {
     parcial: id('f1'),
@@ -60,6 +66,7 @@ export const MOBILE_ORDERS_TEXT = {
   emailLargo: 'administracion.compras.y.pagos@distribuidora-sintetica-de-ejemplo.test',
   modeloLargo: 'Galaxy S24 Ultra 5G 512GB Titanium Black',
   modeloSinEspacios: 'SM-S928BZKDEUB-INTERNATIONAL-DUALSIM-ENTERPRISE-EDITION',
+  equipoSinDueno: 'Motorola Moto G54',
   totalParcial: '185.000',
   saldoParcial: '100.000',
   totalCobrada: '60.000',
@@ -112,7 +119,8 @@ INSERT INTO public.devices (id, business_id, customer_id, type, brand, model, is
   ('${D.largo}',      '${E2E.business}', '${C.minorista}',   'smartphone', 'Samsung', '${T.modeloLargo}',
    'No enciende después de una caída. La pantalla quedó con una línea vertical y el puerto de carga está flojo.'),
   ('${D.corto}',      '${E2E.business}', '${C.mayorista}',   'smartphone', 'Apple',   'iPhone 13', 'Cambio de batería'),
-  ('${D.sinEspacio}', '${E2E.business}', '${C.sinContacto}', 'smartphone', 'Samsung', '${T.modeloSinEspacios}', 'Revisión general');
+  ('${D.sinEspacio}', '${E2E.business}', '${C.sinContacto}', 'smartphone', 'Samsung', '${T.modeloSinEspacios}', 'Revisión general'),
+  ('${D.sinDueno}',   '${E2E.business}', NULL,               'smartphone', 'Motorola', 'Moto G54', 'No da señal');
 
 -- Fechas escalonadas y recientes: quedan arriba de la lista, en este orden.
 INSERT INTO public.orders (id, business_id, customer_id, device_id, status, priority,
@@ -120,7 +128,11 @@ INSERT INTO public.orders (id, business_id, customer_id, device_id, status, prio
   ('${O.parcial}',     '${E2E.business}', '${C.minorista}',   '${D.largo}',      'repair',         'urgent', 185000, 0,     'pin',  now() - interval '1 minute', now()),
   ('${O.cobrada}',     '${E2E.business}', '${C.mayorista}',   '${D.corto}',      'ready_delivery', 'medium', 0,      60000, 'none', now() - interval '2 minute', now()),
   ('${O.sinEquipo}',   '${E2E.business}', '${C.minorista}',   NULL,              'new',            'low',    0,      0,     NULL,   now() - interval '3 minute', now()),
-  ('${O.sinEspacios}', '${E2E.business}', '${C.sinContacto}', '${D.sinEspacio}', 'diagnosis',      'high',   42000,  0,     NULL,   now() - interval '4 minute', now());
+  ('${O.sinEspacios}', '${E2E.business}', '${C.sinContacto}', '${D.sinEspacio}', 'diagnosis',      'high',   42000,  0,     NULL,   now() - interval '4 minute', now()),
+  -- Órdenes incompletas: la lista las muestra como «Sin cliente» / «Sin
+  -- dispositivo» y tienen que poder imprimirse igual.
+  ('${O.sinCliente}',  '${E2E.business}', NULL,               '${D.sinDueno}',   'new',            'low',    0,      0,     NULL,   now() - interval '5 minute', now()),
+  ('${O.sinNada}',     '${E2E.business}', NULL,               NULL,              'new',            'low',    0,      0,     NULL,   now() - interval '6 minute', now());
 
 INSERT INTO public.order_items (order_id, business_id, tipo, descripcion, cantidad, precio_unitario, costo_unitario, cliente_paga_repuesto) VALUES
   ('${O.parcial}', '${E2E.business}', 'servicio', 'Diagnóstico y mano de obra de reparación de placa', 1, 95000, 0,     true),
