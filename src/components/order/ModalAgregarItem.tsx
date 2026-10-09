@@ -8,6 +8,7 @@ import { ProductFormModalSafe as ProductFormModal } from '../products/ProductFor
 import { productService } from '../../services/productService'
 import { searchSellableProducts } from '../../services/productSearchService'
 import type { InventoryItem } from '../../hooks/useInventory'
+import { accentCta } from '../../lib/tokens'
 
 interface InventoryProduct {
   id: string
@@ -366,8 +367,10 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
                   padding: '0.625rem',
                   borderRadius: '0.375rem',
                   border: 'none',
-                  backgroundColor: tipo === value ? '#6366f1' : 'transparent',
-                  color: tipo === value ? '#fff' : '#64748b',
+                  // BETA-UX-1E: la opción activa lleva `accentCta` (texto y fondo).
+                  // Con `'#fff'` en línea el tema claro la dejaba con texto oscuro.
+                  backgroundColor: tipo === value ? accentCta.solid : 'transparent',
+                  color: tipo === value ? accentCta.text : '#64748b',
                   fontWeight: 600, fontSize: '0.875rem',
                   cursor: 'pointer',
                   transition: 'all 0.15s'
@@ -604,8 +607,10 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
                       style={{
                         padding: '0.25rem 0.75rem',
                         borderRadius: '0.25rem', border: 'none',
-                        backgroundColor: baseCurrency === cur ? (cur === 'USD' ? '#10b981' : '#6366f1') : 'transparent',
-                        color: baseCurrency === cur ? '#fff' : '#64748b',
+                        // BETA-UX-1E: sobre el verde de USD el blanco mide 2,54:1;
+                        // ahí va la tinta oscura. ARS activo es un CTA de acento.
+                        backgroundColor: baseCurrency === cur ? (cur === 'USD' ? '#10b981' : accentCta.solid) : 'transparent',
+                        color: baseCurrency === cur ? (cur === 'USD' ? accentCta.textOnBright : accentCta.text) : '#64748b',
                         fontSize: '0.8125rem', fontWeight: 700,
                         cursor: 'pointer', transition: 'all 0.15s'
                       }}
@@ -814,10 +819,14 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
               disabled={isSubmitting}
               style={{
                 flex: 2, padding: '0.75rem',
-                background: isSubmitting ? '#374151' : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                background: isSubmitting ? '#374151' : accentCta.background,
                 border: 'none',
                 borderRadius: '0.5rem',
-                color: '#fff', fontWeight: 700, fontSize: '0.875rem',
+                // BETA-UX-1E: sobre el acento, `accentCta.text`. Mientras se envía
+                // el fondo es gris y el tema claro lo vuelve una superficie clara:
+                // ahí el texto es el del tema, no blanco.
+                color: isSubmitting ? 'var(--text-primary)' : accentCta.text,
+                fontWeight: 700, fontSize: '0.875rem',
                 cursor: isSubmitting ? 'not-allowed' : 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem'
               }}

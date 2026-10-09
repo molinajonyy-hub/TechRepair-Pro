@@ -28,6 +28,7 @@ import { ModalImportExcel } from '../components/ModalImportExcel'
 import { StockRepairTool } from '../components/inventory/StockRepairTool'
 import { ExcelService, ExcelRow } from '../services/excelService'
 import { supabase } from '../lib/supabase'
+import { accentCta } from '../lib/tokens'
 import { ProductMovementsModal } from '../components/inventory/ProductMovementsModal'
 import { ProductFormModalSafe as ProductFormModal, VARIANTS_V2_ENABLED } from '../components/products/ProductFormModal'
 import { fetchInventoryCosts } from '../services/inventoryCostAccess'
@@ -1714,12 +1715,14 @@ export function Inventory() {
         <AlertTriangle size={48} style={{ color: '#ef4444' }} />
         <h3 style={{ color: '#ffffff', marginTop: '1rem' }}>Error al cargar inventario</h3>
         <p style={{ color: '#94a3b8' }}>{error}</p>
+        {/* BETA-UX-1E: texto y fondo de los CTAs de acento salen de `accentCta`.
+            Con `'#ffffff'` en línea el tema claro los dejaba con texto oscuro. */}
         <button onClick={() => { void refresh() }} style={{
           marginTop: '1rem',
           padding: '0.625rem 1.25rem',
-          background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+          background: accentCta.background,
           border: 'none',
-          color: '#ffffff',
+          color: accentCta.text,
           borderRadius: '0.625rem',
           cursor: 'pointer',
           fontWeight: 600,
@@ -1864,7 +1867,10 @@ export function Inventory() {
                   backgroundColor: stockStatusFilter === 'low' ? '#f59e0b' : 'rgba(255,255,255,0.05)',
                   border: '1px solid rgba(245, 158, 11, 0.35)',
                   borderRadius: '0.5rem',
-                  color: '#ffffff',
+                  // BETA-UX-1E: activo, el blanco mide 2,15:1 sobre el ámbar
+                  // (3,76:1 sobre el rojo de «Ver agotados»). Tinta oscura para el
+                  // activo y texto del tema para el inactivo, en los dos temas.
+                  color: stockStatusFilter === 'low' ? accentCta.textOnBright : 'var(--text-primary)',
                   cursor: 'pointer',
                   fontSize: '0.875rem',
                   fontWeight: 500
@@ -1881,7 +1887,7 @@ export function Inventory() {
                   backgroundColor: stockStatusFilter === 'out' ? '#ef4444' : 'rgba(255,255,255,0.05)',
                   border: '1px solid rgba(239, 68, 68, 0.35)',
                   borderRadius: '0.5rem',
-                  color: '#ffffff',
+                  color: stockStatusFilter === 'out' ? accentCta.textOnBright : 'var(--text-primary)',
                   cursor: 'pointer',
                   fontSize: '0.875rem',
                   fontWeight: 500
@@ -2107,9 +2113,9 @@ export function Inventory() {
                           alignItems: 'center',
                           gap: '0.5rem',
                           padding: '0.75rem 1.5rem',
-                          background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                          background: accentCta.background,
                           border: 'none',
-                          color: '#ffffff',
+                          color: accentCta.text,
                           borderRadius: '0.625rem',
                           cursor: 'pointer',
                           fontWeight: 600,
@@ -2459,9 +2465,9 @@ export function Inventory() {
                       onClick={addVariant}
                       style={{
                         padding: '0.5rem 1rem',
-                        background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                        background: accentCta.background,
                         border: 'none',
-                        color: '#ffffff',
+                        color: accentCta.text,
                         borderRadius: '0.625rem',
                         cursor: 'pointer',
                         fontSize: '0.875rem',
@@ -2672,7 +2678,7 @@ export function Inventory() {
                                       backgroundColor: (variant.base_currency || 'ARS') === cur
                                         ? (cur === 'USD' ? '#4f46e5' : '#0f766e')
                                         : 'rgba(15,23,42,0.8)',
-                                      color: (variant.base_currency || 'ARS') === cur ? '#fff' : '#94a3b8',
+                                      color: (variant.base_currency || 'ARS') === cur ? accentCta.text : '#94a3b8',
                                       transition: 'all 0.15s'
                                     }}
                                   >
@@ -3185,9 +3191,9 @@ export function Inventory() {
                 </button>
                 <button type="submit" disabled={isSubmitting} style={{
                   padding: '0.625rem 1.25rem',
-                  background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                  background: accentCta.background,
                   border: 'none',
-                  color: '#ffffff',
+                  color: accentCta.text,
                   borderRadius: '0.625rem',
                   cursor: isSubmitting ? 'not-allowed' : 'pointer',
                   fontWeight: 600,

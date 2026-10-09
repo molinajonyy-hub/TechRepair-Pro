@@ -20,9 +20,16 @@
    (ver `[data-theme="light"] :is([style*="color: rgb(255, 255, 255)"] …)` más
    abajo), y eso dejaba los CTAs del embudo con texto casi negro sobre índigo.
    Un inline `var(--text-on-accent)` no matchea ese patrón, así que el texto
-   queda blanco en los dos temas sin tocar la regla global. */
+   queda blanco en los dos temas sin tocar la regla global.
+
+   --text-on-bright (BETA-UX-1E): tinta para fondos SÓLIDOS claros de estado
+   (ámbar #f59e0b, rojo #ef4444, verde #10b981). Sobre ellos el blanco no llega
+   a AA —2,15 / 3,76 / 2,54:1— y esta tinta sí: 8,31 / 4,74 / 7,04:1. En claro
+   ya se veía así por accidente (el mismo barrido oscurecía el blanco en línea);
+   el token lo vuelve explícito y lo iguala en oscuro. */
 :root {
   --text-on-accent: #ffffff;
+  --text-on-bright: #0f172a;
 }
 
 /* ── DARK MODE (default) ──────────────────────────────────────────────────── */
@@ -3741,6 +3748,24 @@ tbody tr:hover td {
 
 @media (prefers-reduced-motion: reduce) {
   .arca-setup-choice, .arca-setup-dropzone { transition:none; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   BETA-UX-1E — etiqueta «Cifrado · interno» de «Acceso del equipo»
+
+   Era un `.badge` a secas: Bootstrap le da `color: #fff` y ningún fondo, así
+   que en tema claro quedaba blanco sobre la tarjeta blanca (medido: 1,00:1).
+   Ninguna variante existente llega a AA en los dos temas (medido:
+   `.badge-neutral` da 2,11:1 en oscuro y 2,56:1 en claro; `.badge-info`,
+   2,55:1 en claro; `.badge-primary`, 3,53:1 en oscuro), así que lleva su
+   propia superficie, hecha sólo con tokens de tema. Doble clase para ganarle
+   a Bootstrap sin depender del orden de carga.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.badge.device-lock-badge {
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-strong);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

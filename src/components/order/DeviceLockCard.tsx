@@ -39,12 +39,16 @@ export function DeviceLockCard({ orderId, accessMode, onChanged }: { orderId:str
   const save=async()=>{const value=mode==='pattern'?JSON.stringify(pattern):secret;if(!value||(mode==='pattern'&&pattern.length<2)){setError('Completá el acceso.');return}setBusy(true);setError('');try{await setDeviceAccess(orderId,mode,value);setSecret('');setPattern([]);setEditing(false);await onChanged?.()}catch(cause){setError(cause instanceof Error?cause.message:'No se pudo guardar.')}finally{setBusy(false)}}
   const remove=async()=>{if(!window.confirm('¿Eliminar el acceso guardado?'))return;setBusy(true);setError('');try{await deleteDeviceAccess(orderId);setRevealed(null);await onChanged?.()}catch(cause){setError(cause instanceof Error?cause.message:'No se pudo eliminar.')}finally{setBusy(false)}}
 
+  // BETA-UX-1E — sólo presentación. Tres textos de esta tarjeta no declaraban
+  // color y quedaban con el de Bootstrap, que no sigue al tema: la etiqueta
+  // (`.badge` a secas, blanca) no se veía en claro, y el ícono y el estado
+  // (gris casi negro) no se veían en oscuro. Ahora toman tokens de tema.
   return <div className="card" style={{marginTop:'1rem'}}>
-    <div className="card-header" style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'.75rem'}}><div style={{display:'flex',alignItems:'center',gap:'.5rem'}}><Lock size={18}/><h3 className="card-title">Acceso del equipo</h3></div><span className="badge">Cifrado · interno</span></div>
+    <div className="card-header" style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'.75rem'}}><div style={{display:'flex',alignItems:'center',gap:'.5rem'}}><Lock size={18} style={{color:'var(--text-secondary)'}}/><h3 className="card-title">Acceso del equipo</h3></div><span className="badge device-lock-badge" data-testid="device-lock-badge">Cifrado · interno</span></div>
     <div className="card-body" style={{display:'flex',flexDirection:'column',gap:'1rem'}}>
       {!allowed&&<p style={{margin:0,color:'var(--text-subtle)'}}>No tenés permiso para consultar el acceso del equipo.</p>}
       {allowed&&!editing&&<>
-        <p style={{margin:0}}>{LABELS[accessMode||'']||'Sin información'}{hasSecret?' configurado':''}</p>
+        <p data-testid="device-lock-status" style={{margin:0,color:'var(--text-primary)'}}>{LABELS[accessMode||'']||'Sin información'}{hasSecret?' configurado':''}</p>
         {revealed&&<div className="intake-security-note" role="status"><span style={{fontFamily:'monospace',overflowWrap:'anywhere'}}>{visibleSecret(accessMode??null,revealed)}</span></div>}
         <div style={{display:'flex',gap:'.5rem',flexWrap:'wrap'}}>
           {hasSecret&&<AppButton variant="secondary" loading={busy} leftIcon={revealed?<EyeOff size={16}/>:<Eye size={16}/>} onClick={reveal}>{revealed?'Ocultar':'Revelar'}</AppButton>}

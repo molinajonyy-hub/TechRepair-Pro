@@ -48,6 +48,7 @@ import {
   isStockInt,
   manualStockKey,
 } from '../../services/inventoryStockAdjustmentService'
+import { accentCta } from '../../lib/tokens'
 
 /**
  * Variants v2 («Con variantes») no es operativo para la beta: queda OCULTO y no
@@ -1703,7 +1704,9 @@ export function ProductFormModal({
             data-testid="product-form-save-button"
             onClick={handleSubmit}
             disabled={saving}
-            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.625rem 1.5rem', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: 'none', borderRadius: '0.75rem', color: '#fff', fontWeight: 700, fontSize: '0.875rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, fontFamily: F }}
+            // BETA-UX-1E: `accentCta.text`, no `'#fff'`. El tema claro remapea el
+            // blanco en línea a texto oscuro; lo mismo en los otros tres CTAs.
+            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.625rem 1.5rem', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: 'none', borderRadius: '0.75rem', color: accentCta.text, fontWeight: 700, fontSize: '0.875rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, fontFamily: F }}
           >
             {saving
               ? <><RefreshCw size={14} style={{ animation: 'tr-spin 0.8s linear infinite' }} /> Guardando...</>
@@ -1729,7 +1732,7 @@ export function ProductFormModal({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0.75rem 1.5rem 1.25rem' }}>
               <button
                 onClick={keepEditing}
-                style={{ width: '100%', padding: '0.625rem 1rem', background: 'linear-gradient(135deg,#6366f1,#4f46e5)', border: 'none', borderRadius: '0.75rem', color: '#fff', fontWeight: 700, fontSize: '0.875rem', cursor: 'pointer', fontFamily: F }}
+                style={{ width: '100%', padding: '0.625rem 1rem', background: 'linear-gradient(135deg,#6366f1,#4f46e5)', border: 'none', borderRadius: '0.75rem', color: accentCta.text, fontWeight: 700, fontSize: '0.875rem', cursor: 'pointer', fontFamily: F }}
               >
                 Seguir editando
               </button>
@@ -1773,7 +1776,7 @@ export function ProductFormModal({
                   cleanFormRef.current = serializeForm(draftInfo.form)
                   setDraftInfo(null)
                 }}
-                style={{ width: '100%', padding: '0.625rem 1rem', background: 'linear-gradient(135deg,#6366f1,#4f46e5)', border: 'none', borderRadius: '0.75rem', color: '#fff', fontWeight: 700, fontSize: '0.875rem', cursor: 'pointer', fontFamily: F }}
+                style={{ width: '100%', padding: '0.625rem 1rem', background: 'linear-gradient(135deg,#6366f1,#4f46e5)', border: 'none', borderRadius: '0.75rem', color: accentCta.text, fontWeight: 700, fontSize: '0.875rem', cursor: 'pointer', fontFamily: F }}
               >
                 Restaurar borrador
               </button>
@@ -1840,7 +1843,7 @@ class ProductFormModalErrorBoundary extends Component<
               Ocurrió un error inesperado. Tu borrador puede estar guardado en localStorage.
             </p>
             <button onClick={() => { this.setState({ hasError: false, error: null }); this.props.onClose() }}
-              style={{ padding: '0.625rem 1.5rem', background: 'linear-gradient(135deg,#6366f1,#4f46e5)', border: 'none', borderRadius: '0.75rem', color: '#fff', fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
+              style={{ padding: '0.625rem 1.5rem', background: 'linear-gradient(135deg,#6366f1,#4f46e5)', border: 'none', borderRadius: '0.75rem', color: accentCta.text, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
               Cerrar
             </button>
           </div>

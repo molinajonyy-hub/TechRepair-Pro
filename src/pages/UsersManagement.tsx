@@ -13,7 +13,7 @@ import {
   resolvePermissions, ALL_PERMISSIONS, CONFIGURABLE_PERMISSIONS,
 } from '../config/permissions';
 import { hasAutomaticWholesaleAccess } from '../lib/permissions/wholesalePermissions';
-import { colors } from '../lib/tokens';
+import { accentCta, colors } from '../lib/tokens';
 
 /**
  * `showToast` arma el mensaje con innerHTML. Un correo es texto que escribió una
@@ -799,9 +799,11 @@ const secondaryButtonStyle = {
   borderRadius: '0.5rem', cursor: 'pointer', fontWeight: 500,
 };
 
+// BETA-UX-1E: con `color: '#ffffff'` en línea el tema claro lo remapeaba a
+// texto oscuro sobre índigo. Texto y fondo salen de `accentCta` (ver tokens).
 const primaryButtonStyle = {
   padding: '0.625rem 1.25rem',
-  background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-  border: 'none', color: '#ffffff', borderRadius: '0.625rem',
+  background: accentCta.background,
+  border: 'none', color: accentCta.text, borderRadius: '0.625rem',
   fontWeight: 600, boxShadow: '0 4px 12px rgba(99,102,241,0.35)',
 };

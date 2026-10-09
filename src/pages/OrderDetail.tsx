@@ -43,6 +43,7 @@ import { useOrderCanonicalBalance } from '../hooks/useOrderCanonicalBalance'
 import { formatImporteWhatsApp } from '../services/whatsappTemplate'
 import { comprobanteTipoLabel } from '../lib/comprobanteTipoLabel'
 import { OverflowMenu, type OverflowMenuAction } from '../ui'
+import { accentCta } from '../lib/tokens'
 
 /**
  * Plantillas de WhatsApp que se ofrecen desde la orden. Una sola lista para el
@@ -529,12 +530,15 @@ export function OrderDetail() {
                 style={{
                   display: 'flex', alignItems: 'center', gap: '0.375rem',
                   padding: '0.375rem 0.875rem',
+                  // BETA-UX-1E: sin guardar es un CTA de acento y toma texto y
+                  // fondo de `accentCta`. Con `'#fff'` en línea el tema claro lo
+                  // dejaba con texto oscuro. El estado «Guardado» no cambia.
                   background: notesSaved
                     ? 'rgba(16,185,129,0.15)'
-                    : 'linear-gradient(135deg,#6366f1,#8b5cf6)',
+                    : accentCta.background,
                   border: notesSaved ? '1px solid rgba(16,185,129,0.4)' : 'none',
                   borderRadius: '0.5rem',
-                  color: notesSaved ? '#10b981' : '#fff',
+                  color: notesSaved ? '#10b981' : accentCta.text,
                   fontWeight: 600, fontSize: '0.8125rem',
                   cursor: savingNotes ? 'not-allowed' : 'pointer',
                   opacity: savingNotes ? 0.7 : 1,
