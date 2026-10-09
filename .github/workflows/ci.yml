@@ -223,6 +223,42 @@ jobs:
       - name: BETA-UX-1D — order detail and core lists on mobile
         run: npm run test:beta-ux-1d
 
+      # BETA-UX-1E: CTAs de acento legibles fuera del embudo. Usuarios,
+      # Producto, Inventario, «Agregar ítem» y las notas de la orden tenían CTAs
+      # con fondo de acento y `color: '#fff'` EN LÍNEA; el barrido de tema claro
+      # remapea todo blanco en línea a `--text-primary` y quedaban con texto
+      # casi negro sobre índigo. Ahora toman texto y fondo de `accentCta`
+      # (`src/lib/tokens.ts`): el token `--text-on-accent` no cae en el barrido,
+      # y el fondo es un tono más oscuro que el gradiente legacy, sobre el que el
+      # blanco medía 4,20–4,50:1 y no llegaba a AA en ningún punto. jsdom no
+      # aplica `index.css` ni pinta: acá NO se mide contraste. La suite fija lo
+      # que hace que esa medida no pueda volver a caerse: qué valen los tokens y
+      # que el blanco / la tinta llegan a 4,5:1 sobre sus fondos (aritmética
+      # WCAG); que un `var(--…)` en línea no cae en el barrido y que el barrido
+      # NO se relajó; que en las seis superficies ningún estilo con fondo de
+      # acento vuelve a declarar blanco literal (AST, acotado a esos archivos) y
+      # que cada CTA identificado usa el token; que el submit de «Agregar ítem»
+      # usa el texto del tema mientras envía (ahí el fondo pasa a ser una
+      # superficie clara); y que «Cifrado · interno» ya no es un `.badge` a
+      # secas (Bootstrap lo dejaba blanco sobre blanco) sino una superficie
+      # propia hecha sólo con tokens definidos en los dos temas.
+      # MICROFIX: `.btn-primary` global (blanco sobre índigo → cyan) tampoco
+      # llega a AA y NO se toca en este lote: es deuda del sistema de diseño.
+      # Los primarios de clase que viven en estas superficies («Invitar
+      # Usuario», «Nuevo Producto», «Generar Comprobante», «Agregar ítem»…)
+      # llevan además una variante local, `btn-primary-aa`. La suite fija que
+      # el gradiente tiene UNA fuente (`--gradient-primary-aa`, que también lee
+      # `accentCta.background`), que el blanco llega a 4,5:1 en reposo y en
+      # hover, que el hover está declarado aparte (sin eso vuelve el cyan), que
+      # la regla global y `--gradient-primary` no cambiaron, y que en los
+      # archivos de estas superficies ningún primario depende sólo de
+      # `.btn-primary`.
+      # Corre con las suites vecinas que montan estas pantallas. El contraste
+      # sobre píxeles pintados, en claro y en oscuro, a 375 y 1440 px, vive en
+      # `m7/cta-contrast.spec.ts` (job `e2e-local`).
+      - name: BETA-UX-1E — readable accent CTAs in light mode
+        run: npm run test:beta-ux-1e
+
       # BETA-MP: Billing SaaS por Mercado Pago. El frontend propone, Mercado Pago
       # confirma, el backend decide. Corre el código REAL de las Edge Functions
       # (`supabase/functions/_shared/billing`) contra un PostgREST en memoria que

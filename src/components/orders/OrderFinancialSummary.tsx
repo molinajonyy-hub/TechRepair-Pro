@@ -291,7 +291,9 @@ export function OrderFinancialSummary({ orderId, businessId: bizProp, customerId
               Este cliente tiene <strong>{money(credito)}</strong> de crédito sin imputar.
             </p>
             {customerId && montos.saldo_pendiente > 0 && (
-              <button data-testid="order-allocate-button" className="btn btn-primary btn-sm"
+              // BETA-UX-1E: `btn-primary-aa` — sólo presentación (texto y fondo del
+              // botón). Sobre el gradiente de `.btn-primary` el blanco no llega a AA.
+              <button data-testid="order-allocate-button" className="btn btn-primary btn-primary-aa btn-sm"
                       style={{ marginTop: '0.5rem' }} onClick={() => setImputando(true)}>
                 Imputar crédito
               </button>

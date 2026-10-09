@@ -186,10 +186,12 @@ export function NotificationCard({
           )}
         </div>
 
+        {/* BETA-UX-1E: `btn-primary-aa` — sobre el gradiente de `.btn-primary`
+            el texto blanco no llega a AA (3,23:1 en oscuro). */}
         <button
           onClick={handleSendNotification}
           disabled={isSending || !customerEmail}
-          className="btn btn-primary"
+          className="btn btn-primary btn-primary-aa"
           style={{ width: '100%' }}
         >
           {isSending ? (
