@@ -12,6 +12,12 @@ global de tema claro, ni `--text-on-accent`, ni `.btn-primary`.
 Superficies del lote, cerradas: Usuarios · Producto · Inventario · Agregar ítem a la orden · Notas de
 la orden · «Acceso del equipo».
 
+**Microfix (§11), en el mismo PR.** El relevamiento de este lote midió que `.btn-primary`, el
+primario global, no llega a AA, y en estas mismas superficies quedaban primarios de esa clase
+(«Invitar Usuario», «Nuevo Producto», «Generar Comprobante», «Agregar ítem»…). La regla global
+**sigue sin tocarse**: es deuda del sistema de diseño. Los primarios de estas superficies llevan además
+una variante local, `btn-primary-aa`, que cierra su contrato. El CTA de Auth queda para BETA-UX-1G.
+
 ---
 
 ## 1. Problema y causa raíz
@@ -94,20 +100,23 @@ estos CTAs:
 | Token | Valor | Para qué |
 |---|---|---|
 | `accentCta.text` | `var(--text-on-accent)` | texto sobre fondo de acento |
-| `accentCta.background` | `linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)` | el fondo de acento con gradiente |
+| `accentCta.background` | `var(--gradient-primary-aa)` | el fondo de acento con gradiente (`#4f46e5 → #7c3aed`) |
 | `accentCta.solid` | `#4f46e5` | el fondo de acento plano (opción activa de un selector) |
 | `accentCta.textOnBright` | `var(--text-on-bright)` | tinta sobre ámbar / rojo / verde sólidos |
 
-`src/index.css` — un token invariante nuevo, al lado del que ya existía:
+`src/index.css` — tokens invariantes nuevos, al lado del que ya existía:
 
 ```css
 :root {
   --text-on-accent: #ffffff;   /* sin cambios */
   --text-on-bright: #0f172a;   /* nuevo */
+  --gradient-primary-aa:       linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);   /* nuevo */
+  --gradient-primary-aa-hover: linear-gradient(135deg, #4338ca 0%, #6d28d9 100%);   /* nuevo */
 }
 ```
 
-No se creó ninguna clase global ni se usó `!important`.
+El gradiente tiene **una sola fuente**: `accentCta.background` (los CTAs en línea) y `.btn-primary-aa`
+(los botones de clase, §11) leen el mismo token, así que no pueden divergir. No se usó `!important`.
 
 ### CTAs, uno por uno
 
@@ -148,7 +157,8 @@ Notas:
   estilo: el barrido no los alcanza) y la perilla blanca del interruptor «El cliente paga este
   repuesto».
 - `.btn-primary` (`Invitar Usuario`, `Nuevo Producto`, `Agregar ítem`) vive en CSS, no en línea: no
-  es este defecto y no se tocó. Ver §9.
+  es el defecto de la regla de tema claro. La regla global no se tocó; los primarios de estas
+  superficies se cerraron con una variante local en el microfix (§11).
 
 ## 4. Contraste: antes → después
 
@@ -269,7 +279,8 @@ y más de 15 con el texto oscuro del defecto, que la medida pintada sí reprueba
 ### Componentes y fuente — `npm run test:beta-ux-1e` (job `quality`)
 
 jsdom no aplica `index.css` ni pinta: ahí **no se mide contraste**. `betaUx1eAccentContrast.test.tsx`
-(37 tests) fija lo que hace que la medida del navegador no pueda volver a caerse:
+(37 tests; 60 con el microfix de §11) fija lo que hace que la medida del navegador no pueda volver a
+caerse:
 
 | Bloque | Qué fija |
 |---|---|
@@ -289,7 +300,7 @@ bloques de `index.css`).
 
 ### Navegador — `npx playwright test --project=m7-local --grep @beta-ux-1e` (job `e2e-local`)
 
-`tests/e2e/m7/cta-contrast.spec.ts`, 40 tests. Cada superficie en claro y en oscuro, a 375×812 y a
+`tests/e2e/m7/cta-contrast.spec.ts`, 40 tests (48 con el microfix de §11). Cada superficie en claro y en oscuro, a 375×812 y a
 1440×900:
 
 - **Usuarios** — «Enviar Invitación» (normal y hover) y «Guardar permisos».
@@ -345,6 +356,8 @@ filtros de Inventario en claro (2) y «Guardando...» (2).
 
 ### Resultados medidos (local, 2026-10-09, base `main` `2e1d0e5`)
 
+Son los del lote, sobre `20fa807`. Los del microfix están en §11.
+
 | Gate | Resultado |
 |---|---|
 | `tsc --noEmit` | 0 errores |
@@ -381,6 +394,7 @@ salen de la misma corrida con las fuentes revertidas a la base.
 | `antes-order-notes-light.png` → `order-notes-light.png` | «Guardar» de las notas en claro |
 | `antes-device-lock-badge-light.png` → `device-lock-badge-light.png` | la etiqueta, que en claro no se veía |
 | `antes-device-lock-badge-dark.png` → `device-lock-badge-dark.png` | el estado y el ícono, que en oscuro no se veían |
+| `primary-aa-light.png` | *(microfix)* control del primario nuevo: el botón partido «Nuevo Producto», en reposo |
 
 Las capturas acompañan a las medidas; no las reemplazan.
 
@@ -388,15 +402,17 @@ Las capturas acompañan a las medidas; no las reemplazan.
 
 No se tocaron. Los números son medidas de este lote, con el mismo instrumento.
 
-1. **P1 · `.btn-primary`, el botón primario global, no llega a AA.** Su fondo es
-   `--gradient-primary` (índigo → cyan) con texto blanco declarado en CSS. Bajo el texto mide
-   **2,67 – 4,08:1 en oscuro** y **4,01 – 5,92:1 en claro** (medido en «Invitar Usuario», «Nuevo
-   Producto» y «Agregar ítem»). El extremo cyan es el problema: blanco sobre `#06b6d4` da 2,4:1 por
-   fórmula. No es el defecto de este lote (no hay blanco en línea ni depende del tema) y arreglarlo es cambiar el
-   gradiente de marca en toda la aplicación: necesita su propia decisión.
+1. **P1 · `.btn-primary`, el botón primario global, no llega a AA. Sigue siendo deuda del sistema de
+   diseño.** Su fondo es `--gradient-primary` (índigo → cyan) con texto blanco declarado en CSS. Bajo
+   el texto mide **2,67 – 4,08:1 en oscuro** y **4,01 – 5,92:1 en claro**. El extremo cyan es el
+   problema: blanco sobre `#06b6d4` da 2,4:1 por fórmula. BETA-UX-1E **no cambia esa regla**: hacerlo
+   modifica el gradiente de marca en toda la aplicación y necesita su propia decisión. Lo que sí se
+   hizo, en el microfix (§11), es cerrar los primarios de las superficies de este lote con una variante
+   local. **El resto de los `.btn-primary` del producto sigue igual: no se puede decir que cumplan AA.**
 2. **P2 · El CTA del embudo de auth usa el gradiente legacy.** «Iniciar sesión» mide **4,32 – 4,44:1**
    en los dos temas (`authCardStyles.btnPrimary`: `#6366f1 → #8b5cf6` con `--text-on-accent`). Mismo
-   caso que §2. Después de este lote queda un tono más claro que los CTAs de adentro.
+   caso que §2. Después de este lote queda un tono más claro que los CTAs de adentro. Se resuelve en
+   BETA-UX-1G.
 3. **P2 · Las variantes de `AppBadge` no llegan a AA en al menos un tema** (tabla de §5; además
    `.badge-warning` 1,96 y `.badge-success` 2,05 en claro). `.badge-neutral`, la variante por defecto,
    falla en los dos.
@@ -438,3 +454,142 @@ de producto, `alert()` / `confirm()`, inputs, Dashboard y el flujo de auth.
 5. La misma orden → Notas: «Guardar».
 6. La misma orden → «Acceso del equipo»: la etiqueta «Cifrado · interno», el estado y el candado se ven
    en los dos temas.
+7. *(microfix)* Los primarios de esas pantallas —«Invitar Usuario», «Nuevo Producto» y su flecha,
+   «Generar Comprobante», «Ver Detalle», «Agregar ítem»— son índigo → violeta con texto blanco, y al
+   pasarles el puntero se oscurecen un tono (no vuelve el cyan).
+
+---
+
+## 11. Microfix: el primario de las superficies
+
+### El hueco
+
+El lote corrigió los CTAs escritos en línea. Pero su propio relevamiento (§9.1) había medido que
+`.btn-primary` —la clase del primario global— no llega a AA, y dentro de las **mismas** superficies
+quedaban primarios de esa clase a la vista. Con ellos sin corregir no se podía decir «las superficies
+de 1E cumplen AA».
+
+### La decisión
+
+**No se cambia `.btn-primary` global en este PR**: afecta a toda la aplicación, modifica el gradiente
+de marca fuera del alcance, Auth tiene su propio lote (1G) y sería un cambio visual global sin
+auditar. Se creó una variante **local**:
+
+```css
+.btn-primary.btn-primary-aa {
+  color: var(--text-on-accent);
+  background: var(--gradient-primary-aa);
+}
+.btn-primary.btn-primary-aa:hover:not(:disabled) {
+  color: var(--text-on-accent);
+  background: var(--gradient-primary-aa-hover);
+}
+```
+
+- Se **suma** a `.btn-primary`, no lo reemplaza: sólo cambia texto y fondo. La elevación, la sombra, el
+  estado activo y el deshabilitado siguen viniendo de `.btn-primary` y de `.btn-lift`.
+- Doble clase: gana por especificidad, no por orden de carga (Bootstrap también define un
+  `.btn-primary`).
+- El hover se declara aparte. Sin esa regla, `.btn-primary:hover` vuelve a poner
+  `--gradient-primary-hover`, que también termina en cyan.
+- Usa el mismo fondo ya aprobado en `accentCta`, desde **la misma fuente**: el token
+  `--gradient-primary-aa` de `index.css`. `accentCta.background` pasó a apuntar a ese token, así que el
+  gradiente está escrito una sola vez.
+
+### Elementos migrados
+
+Los que pedía el microfix, más tres que aparecieron en el discovery del árbol renderizado *(d)*. A
+esos tres se los midió primero sin la variante; fallaban, y por eso la llevan.
+
+Peor punto del fondo bajo el texto. En **negrita**, por debajo de 4,5:1. «Antes» es el mismo spec con
+las dos reglas de la variante borradas (todos vuelven a ser `.btn-primary`).
+
+| Superficie | Primario | Antes · reposo (claro / oscuro) | Antes · hover (claro / oscuro) | Después · reposo | Después · hover |
+|---|---|---|---|---|---|
+| Usuarios | «Invitar Usuario» (`invite-open`) | **4,04** / **2,67** | 5,77 / **4,04** | 5,78 | 7,23 |
+| Inventario | «Nuevo Producto» | **4,01** / **2,68** | 5,72 / **4,00** | 5,75 | 7,18 |
+| Inventario | la flecha del botón partido (sólo ícono) | 4,55 / **3,00** | 6,31 / 4,55 | 5,90 | 7,40 |
+| Detalle de orden | «Generar Comprobante» (`order-primary-action`) | **3,93** / **2,60** | 5,66 / **3,93** | 5,73 | 7,18 |
+| Detalle de orden | «Ver Detalle» del comprobante | **4,46** / **2,97** | 6,25 / **4,46** | 5,89 | 7,37 |
+| Ítems de la orden | «Agregar ítem» | **4,04** / **2,67** | 5,77 / **4,04** | 5,78 | 7,23 |
+| Ítems de la orden | «Agregar primer ítem» | **3,97** / **2,60** | 5,66 / **3,97** | 5,73 | 7,18 |
+| Estado financiero | «Imputar crédito» (`order-allocate-button`) *(d)* | **4,04** / **2,67** | 5,77 / **4,04** | 5,79 | 7,23 |
+| Acceso del equipo | «Guardar», en edición (`AppButton` primario) *(d)* | **4,19** / **2,77** | 5,93 / **4,19** | 5,80 | 7,25 |
+| Comunicación | «Enviar Notificación» *(d)* | 4,85 / **3,23** | 6,67 / 4,85 | 5,96 | 7,48 |
+
+«Después» es el peor valor entre claro, oscuro, 375 px y 1440 px (el hover, a 1440 px): el token no
+depende del tema, así que da lo mismo en los dos. De las 54 medidas de estos primarios, **38** estaban
+por debajo de 4,5:1 antes y **0** después. El mínimo es 5,73 en reposo y 7,18 bajo el puntero.
+
+Dos lecturas del «antes»: en oscuro fallaban los diez en reposo y ocho de los diez bajo el puntero; y
+en claro el hover pasaba sólo porque `--gradient-primary-hover` es más oscuro que el de reposo.
+
+Sobre los tres del discovery:
+
+- **«Imputar crédito»** vive en el bloque de estado financiero. El cambio es una clase en un botón: no
+  toca la imputación, el RPC ni ningún importe. Para medirlo se responde desde el navegador que el
+  cliente tiene crédito sin imputar; no se imputa nada.
+- **«Guardar» de Acceso del equipo** es un `AppButton` del sistema de diseño. El lote original decía no
+  tocarlo *si pasaba contraste*: medido, no pasa (2,77:1 en oscuro). Recibe la variante por
+  `className`; `AppButton` no cambió.
+- **«Enviar Notificación»** pasaba en claro (4,85) y no en oscuro (3,23).
+
+No se encontró ningún otro `.btn-primary` en el árbol de estas superficies. Los modales que se abren
+desde ellas —importar Excel, historial de producto, vista previa de impresión, garantía, vista previa
+de WhatsApp— no usan esa clase. El POS (`ComprobanteProModal`) es otra superficie y no se tocó.
+
+### Cómo se mide el hover
+
+Al sumar el hover apareció un defecto del propio spec: algunas medidas «normales» habían salido con
+el puntero encima. El puntero queda donde lo dejó el paso anterior y el siguiente CTA, al ir al centro
+de la pantalla para medirse, cae justo debajo. No afectaba a las medidas del lote (ninguno de aquellos
+CTAs cambia con el puntero), pero acá sí importaba.
+
+Ahora cada medida fija su estado y lo comprueba: en reposo saca el puntero y exige que el elemento no
+esté en `:hover`; en hover lo lleva al centro, le pone el puntero y exige que sí lo esté. Para los
+primarios se comprueba además que el fondo computado bajo el puntero es **otro** que el de reposo.
+
+`paintedContrastOf` aprendió a medir un control de sólo ícono (la flecha del botón partido): si no hay
+texto, toma la caja del SVG, y los íconos se ocultan junto con los glifos al capturar el fondo.
+
+### Tests del microfix
+
+| Archivo | Qué fija |
+|---|---|
+| `betaUx1eAccentContrast.test.tsx` (37 → 60) | el gradiente tiene una fuente (`accentCta.background` es el token y `tokens.ts` no vuelve a escribirlo); el blanco llega a 4,5:1 en todas las paradas de reposo **y** de hover; la variante declara sólo texto y fondo; el hover está declarado aparte; **el `.btn-primary` global y `--gradient-primary` no cambiaron**; cada primario listado lleva las dos clases; en los archivos de estas superficies ningún primario depende sólo de `.btn-primary`, y los `AppButton` primarios reciben la variante; «Guardar» montado termina con las dos clases |
+| `m7/cta-contrast.spec.ts` (40 → 48) | los diez primarios en claro y en oscuro: en reposo a 375 y 1440 px, y bajo el puntero a 1440 px; llevan la clase; siguen recibiendo el click y sin recortarse; «Generar Comprobante» conserva sus 44 px en mobile |
+
+Controles negativos — se quitó la variante, se reconstruyó el bundle y se corrieron los gates:
+
+| # | Defecto reintroducido | Componentes | Navegador |
+|---|---|---|---|
+| A | «Invitar Usuario» vuelve a depender sólo de `.btn-primary` | rojo (2) | rojo (4 de 8) |
+| B | «Agregar ítem» y «Generar Comprobante» pierden la variante | rojo (4) | rojo (6 de 8) |
+| C | se borra la regla de hover de la variante | rojo (1) | rojo (3 de 8) |
+| D | el token único vuelve al gradiente legacy | rojo (3) | rojo (19 de 19: los primarios y también los CTAs en línea de Usuarios y de Notas) |
+| E | se borran las dos reglas de la variante (es el «antes» de la tabla de arriba) | rojo (2) | rojo (8 de 8) |
+
+Los cinco fueron detectados y el árbol quedó idéntico. **D** es la prueba de la fuente única: un solo
+valor mueve a los botones de clase y a los CTAs en línea.
+
+### Resultados del microfix (local, 2026-10-09)
+
+| Gate | Resultado |
+|---|---|
+| `tsc --noEmit` | 0 errores |
+| `eslint src --quiet` | 0 errores |
+| `npm run test:beta-ux-1e` | 10 archivos · **252 / 252** (60 son el archivo de 1E; se sumó `orderFinancialSummary`, vecino de «Imputar crédito») |
+| Suite de componentes completa | 135 archivos · **2.918 / 2.918** en una de dos corridas. En la otra, el mismo timeout de `orderIntakeMobile › … el scanner ABRE igual` de siempre |
+| `node --test tests/unit` | **1.215 / 1.215** |
+| Guards | los mismos de §7: todos en verde |
+| `vite build` (variables de CI) | correcto |
+| E2E `@beta-ux-1e` — Chromium, `m7-local` | **48 / 48** · 143 medidas, 0 por debajo de su mínimo |
+| El mismo spec en **WebKit real** | **48 / 48** · 143 medidas, 0 por debajo de su mínimo (el proceso no cierra solo; se lo cortó a mano con los 48 en `ok`) |
+| E2E `m7-local` completo | **338 / 339**. El que falló, `order-history.spec.ts`, no falló por una aserción: fue `ENOSPC` al escribir una captura, porque el disco de la máquina se llenó durante la corrida. Corrido solo, con espacio, pasa **2 / 2**. Incluye a los vecinos de Usuarios (`prebeta2f-invitation-email`), Inventario (`g2c3a2-stock-authority`) y Detalle de orden (`mobile-orders`, `order-history`) |
+| Controles negativos | **5 / 5** detectados |
+
+Después del `m7-local` completo sólo cambió el spec de 1E (sacar el puntero antes de la captura de
+control) y este documento; ese test se volvió a correr.
+
+No se repitió la comparación de specs legacy contra la base (§7): el cambio de este microfix es una
+clase y dos reglas de CSS, y el disco no daba para otro build de la base.

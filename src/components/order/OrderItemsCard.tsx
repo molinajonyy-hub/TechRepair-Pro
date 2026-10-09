@@ -156,9 +156,11 @@ export function OrderItemsCard({ orderId, onTotalsChange }: OrderItemsCardProps)
               {items.length}
             </span>
           </h3>
+          {/* BETA-UX-1E: `btn-primary-aa` (acá y en «Agregar primer ítem») —
+              sobre el gradiente de `.btn-primary` el texto blanco no llega a AA. */}
           <button
             onClick={() => setShowModal(true)}
-            className="btn btn-sm btn-primary"
+            className="btn btn-sm btn-primary btn-primary-aa"
             style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}
           >
             <Plus size={15} />
@@ -197,7 +199,7 @@ export function OrderItemsCard({ orderId, onTotalsChange }: OrderItemsCardProps)
               </p>
               <button
                 onClick={() => setShowModal(true)}
-                className="btn btn-sm btn-primary"
+                className="btn btn-sm btn-primary btn-primary-aa"
               >
                 <Plus size={14} />
                 Agregar primer ítem

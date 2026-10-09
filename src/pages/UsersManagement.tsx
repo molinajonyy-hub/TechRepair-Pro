@@ -510,7 +510,9 @@ export function UsersManagement() {
             </button>
           )}
           {canManageUsers && (
-            <button onClick={() => setShowInviteModal(true)} data-testid="invite-open" className="btn btn-primary btn-lift">
+            // BETA-UX-1E: `btn-primary-aa` — sobre el gradiente de `.btn-primary`
+            // (índigo → cyan) el texto blanco no llega a AA.
+            <button onClick={() => setShowInviteModal(true)} data-testid="invite-open" className="btn btn-primary btn-primary-aa btn-lift">
               <Plus size={18} />
               Invitar Usuario
             </button>

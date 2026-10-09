@@ -26,10 +26,19 @@
    (ámbar #f59e0b, rojo #ef4444, verde #10b981). Sobre ellos el blanco no llega
    a AA —2,15 / 3,76 / 2,54:1— y esta tinta sí: 8,31 / 4,74 / 7,04:1. En claro
    ya se veía así por accidente (el mismo barrido oscurecía el blanco en línea);
-   el token lo vuelve explícito y lo iguala en oscuro. */
+   el token lo vuelve explícito y lo iguala en oscuro.
+
+   --gradient-primary-aa (BETA-UX-1E): el fondo de acento sobre el que el blanco
+   llega a AA en TODOS sus puntos (5,67–6,33:1). Es la única fuente del
+   gradiente: lo usan `accentCta.background` (tokens.ts) y `.btn-primary-aa`.
+   NO reemplaza a --gradient-primary: sobre ése (índigo → cyan) el blanco mide
+   2,67–4,08:1 en oscuro y 4,01–5,92 en claro, y sigue siendo deuda del sistema
+   de diseño. `-hover` es un tono más oscuro, también medido. */
 :root {
   --text-on-accent: #ffffff;
   --text-on-bright: #0f172a;
+  --gradient-primary-aa:       linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  --gradient-primary-aa-hover: linear-gradient(135deg, #4338ca 0%, #6d28d9 100%);
 }
 
 /* ── DARK MODE (default) ──────────────────────────────────────────────────── */
@@ -3766,6 +3775,33 @@ tbody tr:hover td {
   color: var(--text-secondary);
   background: var(--bg-tertiary);
   border: 1px solid var(--border-strong);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   BETA-UX-1E — `.btn-primary-aa`: botón primario que llega a AA
+
+   `.btn-primary` pinta texto blanco sobre --gradient-primary (índigo → cyan),
+   y sobre el extremo cyan el blanco no llega a AA. Cambiar esa regla cambia el
+   gradiente de marca en toda la aplicación: NO se toca acá.
+
+   Esta variante es LOCAL: se suma al `.btn-primary` de los primarios que viven
+   en las superficies de BETA-UX-1E (Usuarios, Inventario, Detalle de orden) y
+   sólo le cambia el texto y el fondo. La elevación, la sombra, el estado
+   activo y el deshabilitado siguen viniendo de `.btn-primary`.
+
+   Doble clase: gana por especificidad, no por orden de carga. El hover se
+   declara aparte porque `.btn-primary:hover` volvería a poner el gradiente con
+   cyan; repite el color para no depender de qué hoja lo fije en ese estado.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.btn-primary.btn-primary-aa {
+  color: var(--text-on-accent);
+  background: var(--gradient-primary-aa);
+}
+
+.btn-primary.btn-primary-aa:hover:not(:disabled) {
+  color: var(--text-on-accent);
+  background: var(--gradient-primary-aa-hover);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

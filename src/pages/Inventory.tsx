@@ -1759,12 +1759,14 @@ export function Inventory() {
             </button>
             {/* Split button — ref propio, outside click via useEffect, stopPropagation en flecha */}
             <div ref={newProductMenuRef} style={{ position: 'relative', display: 'inline-flex' }}>
-              {/* Botón principal: abre modal directamente */}
+              {/* Botón principal: abre modal directamente.
+                  BETA-UX-1E: las dos mitades llevan `btn-primary-aa` — sobre el
+                  gradiente de `.btn-primary` el texto blanco no llega a AA. */}
               <button
                 type="button"
                 data-testid="inventory-new-product-button"
                 onClick={() => openCreateProductModal('product')}
-                className="btn btn-primary btn-sm btn-lift"
+                className="btn btn-primary btn-primary-aa btn-sm btn-lift"
                 style={{ borderRadius: 'var(--radius-md) 0 0 var(--radius-md)', borderRight: '1px solid rgba(255,255,255,0.2)', paddingRight: '0.625rem' }}
               >
                 <Plus size={16} />
@@ -1777,7 +1779,7 @@ export function Inventory() {
                 onClick={toggleNewProductMenu}
                 aria-label="Abrir opciones de nuevo producto"
                 aria-expanded={showNewProductMenu}
-                className="btn btn-primary btn-sm btn-lift"
+                className="btn btn-primary btn-primary-aa btn-sm btn-lift"
                 style={{ borderRadius: '0 var(--radius-md) var(--radius-md) 0', padding: '0 0.5rem', minWidth: '2rem' }}
               >
                 <ChevronDown size={14} style={{ transition: 'transform 0.15s', transform: showNewProductMenu ? 'rotate(180deg)' : 'none' }} />

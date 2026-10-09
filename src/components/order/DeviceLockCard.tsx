@@ -43,6 +43,8 @@ export function DeviceLockCard({ orderId, accessMode, onChanged }: { orderId:str
   // color y quedaban con el de Bootstrap, que no sigue al tema: la etiqueta
   // (`.badge` a secas, blanca) no se veía en claro, y el ícono y el estado
   // (gris casi negro) no se veían en oscuro. Ahora toman tokens de tema.
+  // «Guardar» lleva además `btn-primary-aa`: sobre el gradiente de
+  // `.btn-primary` el texto blanco no llega a AA (2,77:1 en oscuro).
   return <div className="card" style={{marginTop:'1rem'}}>
     <div className="card-header" style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'.75rem'}}><div style={{display:'flex',alignItems:'center',gap:'.5rem'}}><Lock size={18} style={{color:'var(--text-secondary)'}}/><h3 className="card-title">Acceso del equipo</h3></div><span className="badge device-lock-badge" data-testid="device-lock-badge">Cifrado · interno</span></div>
     <div className="card-body" style={{display:'flex',flexDirection:'column',gap:'1rem'}}>
@@ -62,7 +64,7 @@ export function DeviceLockCard({ orderId, accessMode, onChanged }: { orderId:str
           ? <PatternGrid value={pattern} onChange={setPattern}/>
           : <AppInput semantic="password" inputMode={mode==='pin'?'numeric':undefined} autoComplete="new-password" label={mode==='pin'?'PIN':'Contraseña'} value={secret} onChange={event=>setSecret(mode==='pin'?event.target.value.replace(/\D/g,'').slice(0,12):event.target.value.slice(0,256))}/>
         }
-        <div style={{display:'flex',gap:'.5rem'}}><AppButton variant="primary" loading={busy} leftIcon={<Save size={16}/>} onClick={save}>Guardar</AppButton><AppButton variant="secondary" onClick={()=>{setEditing(false);setSecret('');setPattern([])}}>Cancelar</AppButton></div>
+        <div style={{display:'flex',gap:'.5rem'}}><AppButton variant="primary" className="btn-primary-aa" loading={busy} leftIcon={<Save size={16}/>} onClick={save}>Guardar</AppButton><AppButton variant="secondary" onClick={()=>{setEditing(false);setSecret('');setPattern([])}}>Cancelar</AppButton></div>
       </>}
       {error&&<p className="form-error" role="alert">{error}</p>}
     </div>

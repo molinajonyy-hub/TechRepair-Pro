@@ -254,12 +254,15 @@ export function OrderDetail() {
 
                 BETA-UX-1D: es la acción PRINCIPAL de la orden. Es el mismo
                 elemento en escritorio y en mobile; el CSS le da el ancho y el
-                alto táctil. */}
+                alto táctil.
+
+                BETA-UX-1E: `btn-primary-aa` — sobre el gradiente de
+                `.btn-primary` (índigo → cyan) el texto blanco no llega a AA. */}
             {comprobantes.length === 0 && facturable && (
               <button
                 data-testid="order-primary-action"
                 onClick={() => setShowModalCrearComprobante(true)}
-                className="btn btn-primary btn-sm"
+                className="btn btn-primary btn-primary-aa btn-sm"
               >
                 <Receipt size={15} />
                 Generar Comprobante
@@ -488,7 +491,7 @@ export function OrderDetail() {
                     </div>
                     <Link
                       to={`/comprobantes/${comprobantes[0].id}`}
-                      className="btn btn-primary btn-sm"
+                      className="btn btn-primary btn-primary-aa btn-sm"
                       style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
                     >
                       Ver Detalle

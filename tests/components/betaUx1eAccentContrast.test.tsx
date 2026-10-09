@@ -171,9 +171,8 @@ function literales(rel: string): { estilo: Estilo; linea: number }[] {
   return out
 }
 
-/** El `style` del elemento más chico de esa etiqueta cuya fuente contiene `aguja`. */
-function estiloDe(rel: string, aguja: string, etiqueta = 'button'): Estilo {
-  const sf = parsear(rel)
+/** Los atributos del elemento más chico de esa etiqueta cuya fuente contiene `aguja`. */
+function atributosDe(sf: ts.SourceFile, rel: string, aguja: string, etiqueta: string): ts.JsxAttributes {
   let mejor: ts.JsxElement | ts.JsxSelfClosingElement | null = null
   let largo = Infinity
   const visitar = (n: ts.Node) => {
@@ -188,7 +187,24 @@ function estiloDe(rel: string, aguja: string, etiqueta = 'button'): Estilo {
   visitar(sf)
   const hallado = mejor as ts.JsxElement | ts.JsxSelfClosingElement | null
   if (!hallado) throw new Error(`${rel}: no hay <${etiqueta}> que contenga «${aguja}»`)
-  const atributos = ts.isJsxElement(hallado) ? hallado.openingElement.attributes : hallado.attributes
+  return ts.isJsxElement(hallado) ? hallado.openingElement.attributes : hallado.attributes
+}
+
+/** Las clases (`className="…"`) de ese elemento. */
+function clasesDe(rel: string, aguja: string, etiqueta = 'button'): string[] {
+  const sf = parsear(rel)
+  for (const a of atributosDe(sf, rel, aguja, etiqueta).properties) {
+    if (ts.isJsxAttribute(a) && a.name.getText(sf) === 'className' && a.initializer && ts.isStringLiteral(a.initializer)) {
+      return a.initializer.text.split(/\s+/).filter(Boolean)
+    }
+  }
+  throw new Error(`${rel}: el <${etiqueta}> de «${aguja}» no tiene un className literal`)
+}
+
+/** El `style` del elemento más chico de esa etiqueta cuya fuente contiene `aguja`. */
+function estiloDe(rel: string, aguja: string, etiqueta = 'button'): Estilo {
+  const sf = parsear(rel)
+  const atributos = atributosDe(sf, rel, aguja, etiqueta)
   for (const a of atributos.properties) {
     if (!ts.isJsxAttribute(a) || a.name.getText(sf) !== 'style') continue
     const expr = a.initializer && ts.isJsxExpression(a.initializer) ? a.initializer.expression : undefined
@@ -221,19 +237,33 @@ describe('BETA-UX-1E · tokens', () => {
     expect(css.match(/--text-on-bright\s*:/g)).toHaveLength(1)
   })
 
-  it('el blanco llega a AA en TODOS los puntos del fondo de acento', () => {
-    const paradas = hexes(accentCta.background)
-    expect(paradas.length).toBeGreaterThanOrEqual(2)
-    for (const parada of [...paradas, accentCta.solid]) {
-      expect(contraste('#ffffff', parada), `blanco sobre ${parada}`).toBeGreaterThanOrEqual(AA)
+  it('el gradiente de acento tiene UNA fuente: el token de index.css', () => {
+    // `accentCta.background` (CTAs en línea) y `.btn-primary-aa` (botones de
+    // clase) leen el mismo token: no pueden divergir.
+    expect(accentCta.background).toBe('var(--gradient-primary-aa)')
+    expect(tokenInvariante('--gradient-primary-aa')).toBe('linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)')
+    expect(css.match(/--gradient-primary-aa\s*:/g)).toHaveLength(1)
+    expect(css.match(/--gradient-primary-aa-hover\s*:/g)).toHaveLength(1)
+    // Y el gradiente no está escrito otra vez en JS.
+    expect(leer('src/lib/tokens.ts')).not.toMatch(/linear-gradient\(/)
+  })
+
+  it('el blanco llega a AA en TODOS los puntos del fondo de acento, en reposo y en hover', () => {
+    for (const token of ['--gradient-primary-aa', '--gradient-primary-aa-hover']) {
+      const paradas = hexes(tokenInvariante(token) ?? '')
+      expect(paradas.length, `${token} declara sus paradas`).toBeGreaterThanOrEqual(2)
+      for (const parada of paradas) {
+        expect(contraste('#ffffff', parada), `blanco sobre ${parada} (${token})`).toBeGreaterThanOrEqual(AA)
+      }
     }
+    expect(contraste('#ffffff', accentCta.solid)).toBeGreaterThanOrEqual(AA)
   })
 
   it('el gradiente legacy no llegaba: por eso el fondo no puede volver a ser ése', () => {
     // #6366f1 → #8b5cf6: 4,47:1 y 4,23:1. Ningún punto intermedio supera al mejor extremo.
     expect(contraste('#ffffff', '#6366f1')).toBeLessThan(AA)
     expect(contraste('#ffffff', '#8b5cf6')).toBeLessThan(AA)
-    expect(accentCta.background).not.toMatch(/#6366f1|#8b5cf6/i)
+    expect(tokenInvariante('--gradient-primary-aa')).not.toMatch(/#6366f1|#8b5cf6/i)
     expect(accentCta.solid).not.toMatch(/#6366f1/i)
   })
 
@@ -376,6 +406,93 @@ describe('BETA-UX-1E · la fuente de las seis superficies', () => {
     const fuente = leer('src/components/order/DeviceLockCard.tsx')
     expect(fuente).toMatch(/<span className="badge device-lock-badge" data-testid="device-lock-badge">Cifrado · interno<\/span>/)
     expect(fuente).not.toMatch(/<span className="badge">/)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('BETA-UX-1E · `.btn-primary-aa`: el primario de las superficies del lote', () => {
+  const cuerpo = (selector: string) => {
+    const inicio = css.indexOf(`\n${selector} {`)
+    return inicio < 0 ? null : css.slice(css.indexOf('{', inicio) + 1, css.indexOf('}', inicio))
+  }
+  const declaraciones = (texto: string) =>
+    Object.fromEntries(texto.split(';').map(d => d.split(':').map(s => s.trim())).filter(d => d.length === 2))
+
+  it('la variante cambia texto y fondo, y nada más', () => {
+    const regla = cuerpo('.btn-primary.btn-primary-aa')
+    expect(regla, 'no hay regla `.btn-primary.btn-primary-aa`').not.toBeNull()
+    // Elevación, sombra, estado activo y deshabilitado siguen viniendo de `.btn-primary`.
+    expect(declaraciones(regla!)).toEqual({
+      color: 'var(--text-on-accent)',
+      background: 'var(--gradient-primary-aa)',
+    })
+  })
+
+  it('el hover se declara aparte: sin eso `.btn-primary:hover` volvería a poner el cyan', () => {
+    const regla = cuerpo('.btn-primary.btn-primary-aa:hover:not(:disabled)')
+    expect(regla, 'no hay regla de hover para la variante').not.toBeNull()
+    expect(declaraciones(regla!)).toEqual({
+      color: 'var(--text-on-accent)',
+      background: 'var(--gradient-primary-aa-hover)',
+    })
+  })
+
+  it('NO se tocó el `.btn-primary` global ni su gradiente', () => {
+    expect(declaraciones(cuerpo('.btn-primary')!)).toEqual({
+      color: '#ffffff',
+      background: 'var(--gradient-primary)',
+      'border-color': 'transparent',
+      'box-shadow': 'var(--shadow-indigo)',
+    })
+    expect(declaraciones(cuerpo('.btn-primary:hover:not(:disabled)')!).background).toBe('var(--gradient-primary-hover)')
+    // El gradiente de marca sigue siendo índigo → cyan en los dos temas.
+    expect(css.match(/--gradient-primary:\s*([^;]+);/g)).toEqual([
+      '--gradient-primary:   linear-gradient(135deg, #6366f1 0%, #06b6d4 100%);',
+      '--gradient-primary:   linear-gradient(135deg, #4f46e5 0%, #0891b2 100%);',
+    ])
+  })
+
+  // ── Los primarios que viven en estas superficies ───────────────────────────
+  const PRIMARIOS: [string, string, string, string][] = [
+    ['Usuarios · «Invitar Usuario»',                 'src/pages/UsersManagement.tsx', 'invite-open', 'button'],
+    ['Inventario · «Nuevo Producto»',                'src/pages/Inventory.tsx', 'inventory-new-product-button', 'button'],
+    ['Inventario · chevron del botón partido',       'src/pages/Inventory.tsx', 'inventory-new-product-chevron', 'button'],
+    ['Detalle de orden · «Generar Comprobante»',     'src/pages/OrderDetail.tsx', 'Generar Comprobante', 'button'],
+    ['Detalle de orden · «Ver Detalle»',             'src/pages/OrderDetail.tsx', 'Ver Detalle', 'Link'],
+    ['Ítems de la orden · «Agregar ítem»',           'src/components/order/OrderItemsCard.tsx', 'Agregar ítem', 'button'],
+    ['Ítems de la orden · «Agregar primer ítem»',    'src/components/order/OrderItemsCard.tsx', 'Agregar primer ítem', 'button'],
+    ['Estado financiero · «Imputar crédito»',        'src/components/orders/OrderFinancialSummary.tsx', 'order-allocate-button', 'button'],
+    ['Comunicación · «Enviar Notificación»',         'src/components/order/NotificationCard.tsx', 'Enviar Notificación', 'button'],
+  ]
+  it.each(PRIMARIOS)('%s lleva la variante además de `.btn-primary`', (_nombre, rel, aguja, etiqueta) => {
+    const clases = clasesDe(rel, aguja, etiqueta)
+    expect(clases).toContain('btn-primary')
+    expect(clases).toContain('btn-primary-aa')
+  })
+
+  // Los archivos cuyos primarios se renderizan dentro de las superficies de 1E.
+  const ARCHIVOS_DE_SUPERFICIE = [
+    ...SUPERFICIES,
+    'src/components/order/OrderItemsCard.tsx',
+    'src/components/orders/OrderFinancialSummary.tsx',
+    'src/components/order/NotificationCard.tsx',
+  ]
+  it.each(ARCHIVOS_DE_SUPERFICIE)('%s: ningún primario depende sólo de `.btn-primary`', (rel) => {
+    const fuente = leer(rel)
+    const sinVariante = [...fuente.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\})/g)]
+      .map(m => m[1] ?? m[2])
+      .filter(clases => /(^|\s)btn-primary(\s|$)/.test(clases) && !/(^|\s)btn-primary-aa(\s|$)/.test(clases))
+    expect(sinVariante).toEqual([])
+    // Y los del design system (`AppButton variant="primary"`) la reciben por `className`.
+    const appButtons = [...fuente.matchAll(/<AppButton\b[^>]*\bvariant="primary"[^>]*>/g)].map(m => m[0])
+    for (const boton of appButtons) expect(boton).toMatch(/className="[^"]*\bbtn-primary-aa\b[^"]*"/)
+  })
+
+  it('«Guardar» de Acceso del equipo: el AppButton primario termina con las dos clases', () => {
+    render(<DeviceLockCard orderId="o1" accessMode="pin" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Configurar' }))
+    const guardar = screen.getByRole('button', { name: 'Guardar' })
+    expect([...guardar.classList]).toEqual(expect.arrayContaining(['btn', 'btn-primary', 'btn-primary-aa']))
   })
 })
 

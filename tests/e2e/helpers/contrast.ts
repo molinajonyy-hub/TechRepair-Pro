@@ -111,7 +111,15 @@ export async function paintedContrastOf(locator: Locator): Promise<PaintedContra
       rango.selectNodeContents(nodo)
       for (const r of rango.getClientRects()) if (r.width > 0 && r.height > 0) rects.push(r)
     }
-    if (rects.length === 0) throw new Error('paintedContrastOf: el elemento no tiene texto visible')
+    // Un control de sólo ícono (el chevron de un botón partido): su «texto» es el
+    // trazo del SVG, que hereda `color`.
+    if (rects.length === 0) {
+      for (const svg of el.querySelectorAll('svg')) {
+        const r = svg.getBoundingClientRect()
+        if (r.width > 0 && r.height > 0) rects.push(r)
+      }
+    }
+    if (rects.length === 0) throw new Error('paintedContrastOf: el elemento no tiene texto ni ícono visible')
     const left = Math.max(caja.left, Math.min(...rects.map(r => r.left)))
     const top = Math.max(caja.top, Math.min(...rects.map(r => r.top)))
     const right = Math.min(caja.right, Math.max(...rects.map(r => r.right)))
@@ -153,7 +161,10 @@ export async function paintedContrastOf(locator: Locator): Promise<PaintedContra
   await locator.evaluate(el => el.setAttribute('data-contrast-probe', ''))
   const sonda = await page.addStyleTag({
     content: '[data-contrast-probe], [data-contrast-probe] * {'
-      + ' -webkit-text-fill-color: transparent !important; text-shadow: none !important; transition: none !important; }',
+      + ' -webkit-text-fill-color: transparent !important; text-shadow: none !important; transition: none !important; }'
+      // Los íconos también son primer plano: un trazo que pise la caja medida
+      // no puede contar como fondo.
+      + ' [data-contrast-probe] svg { visibility: hidden !important; }',
   })
   let sinTexto: Buffer
   try {

@@ -89,12 +89,36 @@ async function abrir(page: Page, ruta: string, tema: Tema, ancho: Ancho, listo: 
 
 type Contexto = { superficie: string; cta: string; tema: Tema; ancho: Ancho; estado?: string }
 
+/**
+ * Saca el puntero y comprueba que el CTA no quedó debajo. Sin esto una medida
+ * «normal» puede salir en hover: el puntero queda donde lo dejó el paso
+ * anterior y el próximo CTA, al ir al centro de la pantalla, cae justo ahí.
+ */
+async function enReposo(page: Page, cta: Locator) {
+  await page.mouse.move(0, 0)
+  await asentar(page)
+  expect(await cta.evaluate(el => el.matches(':hover')), 'el CTA se mide en reposo, sin el puntero encima').toBe(false)
+}
+
+/**
+ * Lleva el CTA al centro, le pone el puntero encima y comprueba que quedó ahí.
+ * Primero al centro: la medida lo lleva a ese lugar, y si el scroll ocurriera
+ * después el puntero quedaría sobre otra cosa.
+ */
+async function bajoElPuntero(page: Page, cta: Locator) {
+  await cta.evaluate(el => el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' }))
+  await cta.hover()
+  await asentar(page)
+  expect(await cta.evaluate(el => el.matches(':hover')), 'el CTA se mide con el puntero encima').toBe(true)
+}
+
 /** Mide un CTA, lo deja asentado en el registro y exige el mínimo. */
 async function medir(page: Page, cta: Locator, c: Contexto, minimo = AA_SMALL_TEXT) {
   await expect(cta).toBeVisible()
-  await asentar(page)
-  const m = await paintedContrastOf(cta)
   const estado = c.estado ?? 'normal'
+  if (estado === 'hover') await bajoElPuntero(page, cta)
+  else await enReposo(page, cta)
+  const m = await paintedContrastOf(cta)
   if (REGISTRO) {
     mkdirSync(dirname(REGISTRO), { recursive: true })
     appendFileSync(REGISTRO, JSON.stringify({ ...c, estado, minimo, ...m }) + '\n', 'utf-8')
@@ -190,7 +214,6 @@ test.describe('@beta-ux-1e Usuarios', () => {
       const c = { superficie: 'Usuarios', cta: 'Enviar Invitación', tema, ancho }
       await medir(page, cta, c)
       if (ancho === 'desktop') {
-        await cta.hover()
         await medir(page, cta, { ...c, estado: 'hover' })
         if (tema === 'light') await capturar(page.locator('.modal-card'), 'users-invite-light')
       }
@@ -221,7 +244,6 @@ test.describe('@beta-ux-1e Producto', () => {
       const c = { superficie: 'Producto', cta: 'Guardar producto', tema, ancho }
       await medir(page, cta, c)
       if (ancho === 'desktop') {
-        await cta.hover()
         await medir(page, cta, { ...c, estado: 'hover' })
         // El pie del formulario: «Cancelar» + el CTA.
         if (tema === 'light') await capturar(cta.locator('xpath=..'), 'product-save-light')
@@ -326,7 +348,6 @@ test.describe('@beta-ux-1e Agregar ítem a la orden', () => {
       const cta = boton(page, 'Agregar repuesto')
       await medir(page, cta, { ...c, cta: 'Agregar repuesto' })
       if (ancho === 'desktop') {
-        await cta.hover()
         await medir(page, cta, { ...c, cta: 'Agregar repuesto', estado: 'hover' })
       }
       await accionable(cta, 'Agregar repuesto')
@@ -395,7 +416,6 @@ test.describe('@beta-ux-1e Notas de la orden', () => {
       const c = { superficie: 'Notas de la orden', cta: 'Guardar', tema, ancho }
       const m = await medir(page, cta, c)
       if (ancho === 'desktop') {
-        await cta.hover()
         await medir(page, cta, { ...c, estado: 'hover' })
         if (tema === 'light') await capturar(cta.locator('xpath=ancestor::div[contains(@class,"card")][1]'), 'order-notes-light')
       } else {
@@ -403,6 +423,111 @@ test.describe('@beta-ux-1e Notas de la orden', () => {
         expect(m.height, `«Guardar» mide ${m.height}px de alto`).toBeGreaterThanOrEqual(TOUCH_TARGET - TOUCH_EPSILON)
       }
       await accionable(cta, 'Guardar notas')
+    })
+  }
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Los primarios de clase (`.btn-primary`) que viven en estas mismas superficies.
+// `.btn-primary` pinta blanco sobre un gradiente índigo → cyan y sobre el cyan
+// el blanco no llega a AA. La regla global no se toca en este lote: los
+// primarios de acá llevan además `btn-primary-aa`, que les cambia texto y fondo.
+test.describe('@beta-ux-1e Botón primario de las superficies', () => {
+  const ORDEN_SIN_COMPROBANTE = `/orders/${MOBILE_ORDERS.ordenes.sinEquipo}`
+  const fondoComputado = (cta: Locator) => cta.evaluate(el => getComputedStyle(el).backgroundImage)
+
+  /** El primario lleva la variante, se mide en reposo y —si se pide— bajo el puntero. */
+  async function medirPrimario(page: Page, cta: Locator, c: Contexto, { hover = false } = {}) {
+    await expect(cta).toBeVisible()
+    await expect.soft(cta, `«${c.cta}» lleva la variante AA`).toHaveClass(/(^|\s)btn-primary-aa(\s|$)/)
+    await medir(page, cta, c)
+    if (hover) {
+      const fondoEnReposo = await fondoComputado(cta)
+      await medir(page, cta, { ...c, estado: 'hover' })
+      // Y el hover es OTRO fondo: lo que se midió no es dos veces el de reposo.
+      expect.soft(await fondoComputado(cta), `«${c.cta}»: el hover cambia el fondo`).not.toBe(fondoEnReposo)
+    }
+    await accionable(cta, c.cta)
+  }
+
+  /** El cliente tiene crédito sin imputar: es lo que hace aparecer «Imputar crédito». */
+  const conCreditoSinImputar = (page: Page) =>
+    page.route(/\/rest\/v1\/rpc\/get_customer_unallocated_credit/, route => route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ ok: true, authorized: true, unallocated_amount: 5000 }),
+    }))
+
+  for (const tema of ['light', 'dark'] as Tema[]) {
+    test(`desktop ${tema} · Usuarios e Inventario: «Invitar Usuario» y «Nuevo Producto»`, async ({ page }) => {
+      const invitar = page.getByTestId('invite-open')
+      await abrir(page, '/users', tema, 'desktop', invitar)
+      await medirPrimario(page, invitar, { superficie: 'Usuarios', cta: 'Invitar Usuario', tema, ancho: 'desktop' }, { hover: true })
+
+      const nuevo = page.getByTestId('inventory-new-product-button')
+      await abrir(page, '/inventory', tema, 'desktop', nuevo)
+      const c = { superficie: 'Inventario', tema, ancho: 'desktop' as Ancho }
+      await medirPrimario(page, nuevo, { ...c, cta: 'Nuevo Producto' }, { hover: true })
+      // La otra mitad del botón partido no tiene texto: se mide su ícono.
+      await medirPrimario(page, page.getByTestId('inventory-new-product-chevron'), { ...c, cta: 'Nuevo Producto · chevron' }, { hover: true })
+      if (tema === 'light') {
+        // En reposo: el paso anterior dejó el puntero sobre la flecha.
+        await page.mouse.move(0, 0)
+        await asentar(page)
+        await capturar(nuevo.locator('xpath=..'), 'primary-aa-light')
+      }
+    })
+
+    test(`desktop ${tema} · Detalle de orden con comprobante: «Ver Detalle», «Agregar ítem» y los demás primarios`, async ({ page }) => {
+      await conCreditoSinImputar(page)
+      await abrir(page, ORDEN, tema, 'desktop', page.getByTestId('order-detail-grid'))
+      const c = { superficie: 'Detalle de orden', tema, ancho: 'desktop' as Ancho }
+
+      await medirPrimario(page, page.getByTestId('order-comprobante-card').getByRole('link', { name: 'Ver Detalle' }), { ...c, cta: 'Ver Detalle' }, { hover: true })
+      await medirPrimario(page, boton(page, 'Agregar ítem'), { ...c, cta: 'Agregar ítem' }, { hover: true })
+      await medirPrimario(page, page.getByTestId('order-allocate-button'), { ...c, cta: 'Imputar crédito' }, { hover: true })
+
+      // «Acceso del equipo» en edición: su «Guardar» es un AppButton primario.
+      const acceso = page.locator('.card', { hasText: 'Acceso del equipo' }).last()
+      await acceso.getByRole('button', { name: 'Configurar' }).click()
+      await medirPrimario(page, acceso.getByRole('button', { name: 'Guardar' }), { ...c, cta: 'Acceso del equipo · Guardar' }, { hover: true })
+      await acceso.getByRole('button', { name: 'Cancelar' }).click()
+
+      await boton(page, 'Comunicación').click()
+      await medirPrimario(page, boton(page, 'Enviar Notificación'), { ...c, cta: 'Enviar Notificación' }, { hover: true })
+    })
+
+    test(`desktop ${tema} · Detalle de orden sin comprobante: «Generar Comprobante» y «Agregar primer ítem»`, async ({ page }) => {
+      await abrir(page, ORDEN_SIN_COMPROBANTE, tema, 'desktop', page.getByTestId('order-detail-grid'))
+      const c = { superficie: 'Detalle de orden', tema, ancho: 'desktop' as Ancho }
+      const generar = page.getByTestId('order-primary-action')
+      await expect(generar).toHaveText('Generar Comprobante')
+      await medirPrimario(page, generar, { ...c, cta: 'Generar Comprobante' }, { hover: true })
+      await medirPrimario(page, boton(page, 'Agregar primer ítem'), { ...c, cta: 'Agregar primer ítem' }, { hover: true })
+    })
+
+    test(`mobile ${tema} · los primarios de las tres pantallas`, async ({ page }) => {
+      const m = { tema, ancho: 'mobile' as Ancho }
+      const invitar = page.getByTestId('invite-open')
+      await abrir(page, '/users', tema, 'mobile', invitar)
+      await medirPrimario(page, invitar, { ...m, superficie: 'Usuarios', cta: 'Invitar Usuario' })
+
+      const nuevo = page.getByTestId('inventory-new-product-button')
+      await abrir(page, '/inventory', tema, 'mobile', nuevo)
+      await medirPrimario(page, nuevo, { ...m, superficie: 'Inventario', cta: 'Nuevo Producto' })
+      await medirPrimario(page, page.getByTestId('inventory-new-product-chevron'), { ...m, superficie: 'Inventario', cta: 'Nuevo Producto · chevron' })
+
+      await abrir(page, ORDEN_SIN_COMPROBANTE, tema, 'mobile', page.getByTestId('order-detail-grid'))
+      const generar = page.getByTestId('order-primary-action')
+      const d = { ...m, superficie: 'Detalle de orden' }
+      const medida = await medir(page, generar, { ...d, cta: 'Generar Comprobante' })
+      await expect.soft(generar).toHaveClass(/(^|\s)btn-primary-aa(\s|$)/)
+      // BETA-UX-1D: en mobile la acción principal de la orden es un target táctil.
+      expect(medida.height, `«Generar Comprobante» mide ${medida.height}px de alto`).toBeGreaterThanOrEqual(TOUCH_TARGET - TOUCH_EPSILON)
+      await medirPrimario(page, boton(page, 'Agregar primer ítem'), { ...d, cta: 'Agregar primer ítem' })
+
+      await abrir(page, ORDEN, tema, 'mobile', page.getByTestId('order-detail-grid'))
+      await medirPrimario(page, page.getByTestId('order-comprobante-card').getByRole('link', { name: 'Ver Detalle' }), { ...d, cta: 'Ver Detalle' })
+      await medirPrimario(page, boton(page, 'Agregar ítem'), { ...d, cta: 'Agregar ítem' })
     })
   }
 })
