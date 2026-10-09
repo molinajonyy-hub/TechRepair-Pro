@@ -26,22 +26,29 @@ export interface ServiceOrderData {
   created_at: string
   status: string
   technician?: string
-  customer: {
-    name: string
-    phone?: string
-    email?: string
-    address?: string
-    dni?: string
-  }
-  device: {
-    type?: string
-    brand?: string
-    model?: string
-    imei?: string
-    serial?: string
-    color?: string
-    accessories?: string
-    aesthetic_condition?: string
+  /**
+   * BETA-UX-1D — el cliente y el equipo PUEDEN FALTAR, y cualquiera de sus
+   * campos también. La lista de órdenes los modela como `| null` y la orden se
+   * imprime igual, con lo que tenga: la hoja no inventa datos ni lee de un
+   * objeto ausente. Antes el tipo los declaraba obligatorios y el llamador de
+   * la lista los pasaba por `any`: imprimir una orden sin equipo tumbaba la app.
+   */
+  customer?: {
+    name?: string | null
+    phone?: string | null
+    email?: string | null
+    address?: string | null
+    dni?: string | null
+  } | null
+  device?: {
+    type?: string | null
+    brand?: string | null
+    model?: string | null
+    imei?: string | null
+    serial?: string | null
+    color?: string | null
+    accessories?: string | null
+    aesthetic_condition?: string | null
     /**
      * ORDERS-V2-0 — `password` fue RETIRADO de este contrato a propósito.
      *
@@ -54,7 +61,7 @@ export interface ServiceOrderData {
      * volver a pasarle una credencial a la impresión sin que TypeScript lo
      * rechace. No reintroducir: ni password, ni PIN, ni patrón.
      */
-  }
+  } | null
   reported_issue?: string
   diagnosis?: string
   parts_used?: string
@@ -92,7 +99,7 @@ const STATUS_MAP: Record<string, { label: string; bg: string; color: string; bor
 const getStatus = (status: string) =>
   STATUS_MAP[status] ?? { label: status.replace(/_/g, ' ').toUpperCase(), bg: '#f1f5f9', color: '#475569', border: '#cbd5e1' }
 
-const getDeviceTypeLabel = (type?: string) => {
+const getDeviceTypeLabel = (type?: string | null) => {
   const map: Record<string, string> = {
     smartphone: 'Celular', celular: 'Celular', tablet: 'Tablet',
     laptop: 'Notebook', smartwatch: 'Smartwatch', other: 'Otro', otro: 'Otro',
@@ -102,10 +109,10 @@ const getDeviceTypeLabel = (type?: string) => {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-/** Fila label: valor en línea */
-const Row = ({ label, value, bold }: { label: string; value?: string | null; bold?: boolean }) =>
+/** Fila label: valor en línea. Sin valor no imprime nada: ni la etiqueta. */
+const Row = ({ label, value, bold, testId }: { label: string; value?: string | null; bold?: boolean; testId?: string }) =>
   value ? (
-    <div style={{ display: 'flex', gap: '4px', fontSize: '11px', lineHeight: '1.4' }}>
+    <div data-testid={testId} style={{ display: 'flex', gap: '4px', fontSize: '11px', lineHeight: '1.4' }}>
       <span style={{ color: '#475569', fontWeight: 600, minWidth: '78px', flexShrink: 0 }}>{label}:</span>
       <span style={{ color: '#0f172a', fontWeight: bold ? 700 : 400, wordBreak: 'break-word', flex: 1 }}>{value}</span>
     </div>
@@ -228,6 +235,24 @@ export const ServiceOrderPrint = React.forwardRef<HTMLDivElement, ServiceOrderPr
     })
     const statusInfo = getStatus(order.status)
 
+    // BETA-UX-1D — cliente y equipo, tolerantes a que falten.
+    //
+    // Una orden puede no tener cliente o equipo (la lista ya dice «Sin cliente»
+    // / «Sin dispositivo») y «Imprimir» está en cada fila y en cada tarjeta. Se
+    // imprime lo que la orden tenga; lo que no existe se omite, y si no hay
+    // NADA que imprimir de uno de los dos, la sección lo dice en vez de quedar
+    // vacía. No se inventa ningún dato.
+    const customer: NonNullable<ServiceOrderData['customer']> = order.customer ?? {}
+    const device: NonNullable<ServiceOrderData['device']> = order.device ?? {}
+    const deviceName = [device.brand, device.model].filter(Boolean).join(' ')
+    const hasCustomer = Boolean(customer.name || customer.phone || customer.dni || customer.email || customer.address)
+    const hasDevice = Boolean(
+      deviceName || device.type || device.color || device.imei || device.serial
+      || device.accessories || device.aesthetic_condition,
+    )
+    const noCustomer = <Row label="Nombre" value="Sin cliente" bold testId="service-order-no-customer" />
+    const noDevice = <Row label="Dispositivo" value="Sin dispositivo" bold testId="service-order-no-device" />
+
     // ORDERS-V2-0 — el QR de esta hoja fue RETIRADO.
     //
     // Codificaba `ORD-<n>` contra `api.qrserver.com`: le mandaba el
@@ -345,22 +370,28 @@ export const ServiceOrderPrint = React.forwardRef<HTMLDivElement, ServiceOrderPr
           {/* Cliente + Equipo — 2 columnas */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', flexShrink: 0 }}>
             <Section title="Datos del Cliente" accent="#059669">
-              <Row label="Nombre" value={order.customer.name} bold />
-              <Row label="Teléfono" value={order.customer.phone} />
-              <Row label="DNI" value={order.customer.dni} />
-              {order.customer.email && <Row label="Email" value={order.customer.email} />}
-              {order.customer.address && <Row label="Dirección" value={order.customer.address} />}
+              {hasCustomer ? (
+                <>
+                  <Row label="Nombre" value={customer.name} bold />
+                  <Row label="Teléfono" value={customer.phone} />
+                  <Row label="DNI" value={customer.dni} />
+                  {customer.email && <Row label="Email" value={customer.email} />}
+                  {customer.address && <Row label="Dirección" value={customer.address} />}
+                </>
+              ) : noCustomer}
             </Section>
 
             <Section title="Datos del Equipo" accent="#6366f1">
-              {(order.device.brand || order.device.model) && (
-                <Row label="Dispositivo" value={[order.device.brand, order.device.model].filter(Boolean).join(' ')} bold />
-              )}
-              {order.device.type && <Row label="Tipo" value={getDeviceTypeLabel(order.device.type)} />}
-              {order.device.color && <Row label="Color" value={order.device.color} />}
-              {order.device.imei && <Row label="IMEI" value={order.device.imei} />}
-              {order.device.serial && <Row label="Serie" value={order.device.serial} />}
-              {order.device.accessories && <Row label="Accesorios" value={order.device.accessories} />}
+              {hasDevice ? (
+                <>
+                  {deviceName && <Row label="Dispositivo" value={deviceName} bold />}
+                  {device.type && <Row label="Tipo" value={getDeviceTypeLabel(device.type)} />}
+                  {device.color && <Row label="Color" value={device.color} />}
+                  {device.imei && <Row label="IMEI" value={device.imei} />}
+                  {device.serial && <Row label="Serie" value={device.serial} />}
+                  {device.accessories && <Row label="Accesorios" value={device.accessories} />}
+                </>
+              ) : noDevice}
             </Section>
           </div>
 
@@ -482,23 +513,29 @@ export const ServiceOrderPrint = React.forwardRef<HTMLDivElement, ServiceOrderPr
         {/* Resumen cliente + equipo en 1 línea cada uno */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px', flexShrink: 0 }}>
           <Section title="Cliente" accent="#059669">
-            <Row label="Nombre" value={order.customer.name} bold />
-            <Row label="Teléfono" value={order.customer.phone} />
-            <Row label="DNI" value={order.customer.dni || '—'} />
-            {order.customer.email && <Row label="Email" value={order.customer.email} />}
-            {order.customer.address && <Row label="Dirección" value={order.customer.address} />}
+            {hasCustomer ? (
+              <>
+                <Row label="Nombre" value={customer.name} bold />
+                <Row label="Teléfono" value={customer.phone} />
+                <Row label="DNI" value={customer.dni || '—'} />
+                {customer.email && <Row label="Email" value={customer.email} />}
+                {customer.address && <Row label="Dirección" value={customer.address} />}
+              </>
+            ) : noCustomer}
           </Section>
 
           <Section title="Equipo" accent="#6366f1">
-            {(order.device.brand || order.device.model) && (
-              <Row label="Dispositivo" value={[order.device.brand, order.device.model].filter(Boolean).join(' ')} bold />
-            )}
-            {order.device.type && <Row label="Tipo" value={getDeviceTypeLabel(order.device.type)} />}
-            {order.device.color && <Row label="Color" value={order.device.color} />}
-            {order.device.imei && <Row label="IMEI" value={order.device.imei} />}
-            {order.device.serial && <Row label="Serie" value={order.device.serial} />}
-            {order.device.aesthetic_condition && <Row label="Estado estético" value={order.device.aesthetic_condition} />}
-            {order.device.accessories && <Row label="Accesorios" value={order.device.accessories} />}
+            {hasDevice ? (
+              <>
+                {deviceName && <Row label="Dispositivo" value={deviceName} bold />}
+                {device.type && <Row label="Tipo" value={getDeviceTypeLabel(device.type)} />}
+                {device.color && <Row label="Color" value={device.color} />}
+                {device.imei && <Row label="IMEI" value={device.imei} />}
+                {device.serial && <Row label="Serie" value={device.serial} />}
+                {device.aesthetic_condition && <Row label="Estado estético" value={device.aesthetic_condition} />}
+                {device.accessories && <Row label="Accesorios" value={device.accessories} />}
+              </>
+            ) : noDevice}
           </Section>
         </div>
 

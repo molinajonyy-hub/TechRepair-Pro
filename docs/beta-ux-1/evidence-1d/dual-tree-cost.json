@@ -1,0 +1,31 @@
+{
+ "base": {
+  "clientes": {
+   "items": 358,
+   "nodos": 12600,
+   "cargaMs": 6873,
+   "filtrarYLimpiarMs": 10446
+  },
+  "ordenes": {
+   "items": 2,
+   "nodos": 162,
+   "cargaMs": 812,
+   "filtrarYLimpiarMs": 0
+  }
+ },
+ "rama": {
+  "clientes": {
+   "items": 358,
+   "nodos": 19430,
+   "cargaMs": 7287,
+   "filtrarYLimpiarMs": 2068
+  },
+  "ordenes": {
+   "items": 2,
+   "nodos": 215,
+   "cargaMs": 604,
+   "filtrarYLimpiarMs": 0
+  }
+ },
+ "nota": "Chromium, 375x812, CPU ×4. Tiempos = suma de tareas largas (>50ms) del hilo principal, mediana de 5 vueltas."
+}

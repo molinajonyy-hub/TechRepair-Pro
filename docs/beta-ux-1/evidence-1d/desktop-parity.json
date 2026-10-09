@@ -1,0 +1,95 @@
+{
+ "pantallas": 16,
+ "elementosComparados": 940,
+ "toleranciaPx": 0.6,
+ "diferencias": [],
+ "grillaDetalle": {
+  "detalle-parcial@768": {
+   "base": "352px 352px | gap 24px",
+   "rama": "352px 352px | gap 24px"
+  },
+  "detalle-parcial@1024": {
+   "base": "338px 338px | gap 24px",
+   "rama": "338px 338px | gap 24px"
+  },
+  "detalle-parcial@1280": {
+   "base": "466px 466px | gap 24px",
+   "rama": "466px 466px | gap 24px"
+  },
+  "detalle-parcial@1440": {
+   "base": "546px 546px | gap 24px",
+   "rama": "546px 546px | gap 24px"
+  }
+ },
+ "mobile375": {
+  "base": {
+   "orders": {
+    "tablaVisible": true,
+    "anchoTabla": 1176,
+    "columnasGrilla": null,
+    "anchoPrimeraTarjeta": null,
+    "accionesEncabezadoChicas": [
+     "Nueva Orden=33px"
+    ]
+   },
+   "customers": {
+    "tablaVisible": true,
+    "anchoTabla": 837,
+    "columnasGrilla": null,
+    "anchoPrimeraTarjeta": null,
+    "accionesEncabezadoChicas": [
+     "Plantilla=33px",
+     "Exportar=33px",
+     "Importar=33px",
+     "Nuevo Cliente=33px"
+    ]
+   },
+   "detalle-parcial": {
+    "tablaVisible": false,
+    "anchoTabla": null,
+    "columnasGrilla": "159.5px 159.5px",
+    "anchoPrimeraTarjeta": 160,
+    "accionesEncabezadoChicas": [
+     "Volver a Órdenes=33px",
+     "Ver Comprobante=33px",
+     "Imprimir=33px",
+     "WhatsApp=33px",
+     "Garantía=33px"
+    ]
+   }
+  },
+  "rama": {
+   "orders": {
+    "tablaVisible": false,
+    "anchoTabla": null,
+    "columnasGrilla": null,
+    "anchoPrimeraTarjeta": null,
+    "accionesEncabezadoChicas": []
+   },
+   "customers": {
+    "tablaVisible": false,
+    "anchoTabla": null,
+    "columnasGrilla": null,
+    "anchoPrimeraTarjeta": null,
+    "accionesEncabezadoChicas": []
+   },
+   "detalle-parcial": {
+    "tablaVisible": false,
+    "anchoTabla": null,
+    "columnasGrilla": "343px",
+    "anchoPrimeraTarjeta": 343,
+    "accionesEncabezadoChicas": []
+   }
+  }
+ },
+ "imprimirSinDispositivo": {
+  "base": {
+   "pantallaDeError": true,
+   "tablaSigueVisible": false
+  },
+  "rama": {
+   "pantallaDeError": true,
+   "tablaSigueVisible": false
+  }
+ }
+}

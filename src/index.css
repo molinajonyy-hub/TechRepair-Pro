@@ -3192,6 +3192,12 @@ tbody tr:hover td {
   color: var(--text-primary);
   text-align: left;
 }
+/* Una etiqueta que envuelve en dos líneas no achica su ícono. */
+.overflow-menu__action svg { flex-shrink: 0; }
+/* Al abrir, el menú se trae a la vista (`scrollIntoView` en el componente).
+   Este margen le reserva el alto de la barra de navegación mobile, que si no
+   tapa las últimas acciones; en escritorio el offset vale 0. */
+.overflow-menu__popover { scroll-margin-bottom: calc(var(--mobile-bottom-navigation-offset, 0px) + 0.5rem); }
 .overflow-menu__action:hover, .overflow-menu__action:focus-visible { background: var(--bg-hover); }
 .overflow-menu__action.is-destructive {
   margin-top: 0.375rem;
@@ -3735,6 +3741,172 @@ tbody tr:hover td {
 
 @media (prefers-reduced-motion: reduce) {
   .arca-setup-choice, .arca-setup-dropzone { transition:none; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   BETA-UX-1D — la orden en el celular
+   Detalle de orden + listas de Órdenes y de Clientes por debajo de 768px.
+
+   Responsive por CSS y no por JS: no se mide el viewport en el render y una
+   rotación no re-renderiza nada. Sólo tokens de tema.
+
+   Los valores de escritorio de este bloque son los que antes vivían en estilos
+   en línea (no se podían pisar desde una media query): >=768px la composición
+   es la misma de antes.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Detalle de orden · encabezado ────────────────────────────────────────── */
+.order-detail-header { margin-bottom: 2rem; }
+.order-detail-back { margin-bottom: 1rem; }
+.order-detail-header__row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; }
+.order-detail-header__title { min-width: 0; }
+.order-detail-header__title h1 { overflow-wrap: anywhere; }
+.order-detail-header__meta { display: flex; align-items: center; flex-wrap: wrap; gap: 0.375rem 0.75rem; }
+.order-detail-header__actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.625rem; }
+/* Escritorio: las acciones secundarias son hijas directas de la fila, como
+   antes. Mobile: salen de la fila y viven en el menú de «Más acciones». */
+.order-detail-header__secondary { display: contents; }
+.order-detail-header__overflow { display: none; }
+/* El menú lleva las cuatro plantillas de WhatsApp: necesita más ancho que el
+   mínimo del primitivo para que cada opción entre en una línea. */
+.order-header-menu .overflow-menu__popover { min-width: min(19rem, calc(100vw - 2 * var(--mobile-page-padding))); }
+
+/* ── Detalle de orden · contenido ─────────────────────────────────────────── */
+.order-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; }
+/* Bloques de ancho completo: valen igual con dos columnas que con una. */
+.order-detail-grid__full { grid-column: 1 / -1; min-width: 0; }
+/* `word-break: break-word` es el respaldo de `overflow-wrap: anywhere` para
+   WebKit anterior a iOS 15.4, que no conoce `anywhere`. */
+.order-detail-wrap { word-break: break-word; overflow-wrap: anywhere; }
+.order-device-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+
+/* ── Listas · conmutación tabla ↔ tarjetas ────────────────────────────────── */
+.orders-mobile-list,
+.customers-mobile-list,
+.list-hdr-overflow { display: none; }
+.list-hdr-secondary { display: contents; }
+
+/* Filtros: mismos anchos mínimos que tenían en línea. */
+.list-filter-bar__search { position: relative; flex: 1; min-width: 240px; }
+.list-filter-bar__count { white-space: nowrap; align-self: center; }
+.orders-filter-status { min-width: 150px; }
+.orders-filter-payment { min-width: 160px; }
+.orders-filter-priority { min-width: 130px; }
+
+/* ── Tarjetas de la lista mobile ──────────────────────────────────────────────
+   `CompactList` reparte [textos | importe + estado] en una fila. A 375px eso le
+   deja ~140px al nombre y al equipo. Acá los textos usan todo el ancho y la
+   última fila lleva lo que se compara entre tarjetas (estado / cantidad a la
+   izquierda, importe a la derecha). El menú va fijo arriba a la derecha. */
+.orders-mobile-list .compact-list__item,
+.customers-mobile-list .compact-list__item { position: relative; }
+.orders-mobile-list .compact-list__content,
+.customers-mobile-list .compact-list__content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+  border-radius: inherit;
+}
+.orders-mobile-list .compact-list__copy,
+.customers-mobile-list .compact-list__copy { display: contents; }
+.orders-mobile-list .compact-list__primary,
+.orders-mobile-list .compact-list__secondary,
+.customers-mobile-list .compact-list__primary,
+.customers-mobile-list .compact-list__secondary {
+  grid-column: 1 / -1;
+  min-width: 0;
+  /* Lugar para el menú, que flota sobre la esquina. */
+  padding-right: calc(var(--mobile-touch-target) + 0.375rem);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.orders-mobile-list .compact-list__trailing,
+.customers-mobile-list .compact-list__trailing { position: absolute; top: 0.375rem; right: 0.375rem; padding: 0; }
+.orders-mobile-list .compact-list__content:focus-visible,
+.customers-mobile-list .compact-list__content:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: -2px; }
+
+/* Órdenes: [nombre + #id] / equipo / fecha · prioridad / [estados | total]. */
+.orders-mobile-list .compact-list__metadata { grid-column: 1 / -1; min-width: 0; }
+.orders-mobile-list .compact-list__summary {
+  grid-column: 1 / -1;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 0.375rem 0.75rem;
+  margin-top: 0.375rem;
+  text-align: left;
+}
+.orders-mobile-list .compact-list__status { order: 1; min-width: 0; }
+.orders-mobile-list .compact-list__amount { order: 2; margin-left: auto; text-align: right; }
+.order-card__title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 0.5rem; }
+.order-card__id { color: var(--text-tertiary); font-size: 0.8125rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.order-card__meta { display: flex; flex-wrap: wrap; gap: 0 0.375rem; }
+.order-card__priority { color: var(--text-primary); font-weight: 600; }
+.order-card__badges { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem; }
+.order-card__balance,
+.list-card__restricted { display: block; color: var(--text-tertiary); font-size: 0.75rem; font-weight: 500; }
+
+/* Clientes: nombre [+ mayorista] / contacto / [órdenes | total]. */
+.customers-mobile-list .compact-list__metadata { grid-column: 1; min-width: 0; margin-top: 0.25rem; }
+.customers-mobile-list .compact-list__summary { grid-column: 2; margin-top: 0.25rem; }
+.customer-card__title { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.5rem; }
+.customer-card__contact { display: flex; flex-direction: column; gap: 0.125rem; }
+.customer-card__contact-row { display: flex; align-items: center; gap: 0.375rem; min-width: 0; }
+.customer-card__contact-row svg { flex-shrink: 0; }
+
+@media (max-width: 767px) {
+  /* ── Detalle de orden ───────────────────────────────────────────────────── */
+  .order-detail-header { margin-bottom: 1.25rem; }
+  /* Táctil: toda acción del encabezado y de las tarjetas mide al menos 44px. */
+  .order-detail-header .btn,
+  .order-detail-grid .btn,
+  .order-notes-save { min-height: var(--mobile-touch-target); }
+  /* Una primaria visible, de lado a lado; al lado, el menú de secundarias. */
+  .order-detail-header__actions { flex: 1 1 100%; flex-wrap: nowrap; }
+  .order-detail-header__actions > .btn { flex: 1 1 auto; min-width: 0; }
+  .order-detail-header__secondary { display: none; }
+  .order-detail-header__overflow { display: inline-flex; margin-left: auto; }
+  .order-detail-grid { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+  /* Encabezados de tarjeta: si el título y su acción no entran en una fila, la
+     acción baja. A 320px «Ítems de la orden» quedaba pisado por su botón. */
+  .order-detail-grid .card-header { flex-wrap: wrap; gap: 0.5rem 0.75rem; }
+  .order-detail-grid .card-header > .card-title { flex: 1 1 8rem; min-width: 0; }
+
+  /* ── Listas ─────────────────────────────────────────────────────────────── */
+  .orders-desktop-table,
+  .customers-desktop-table,
+  .list-hdr-secondary { display: none; }
+  .orders-mobile-list,
+  .customers-mobile-list { display: block; }
+  .list-hdr-overflow { display: inline-flex; }
+
+  .mobile-list-page .page-hdr { gap: 0.75rem; margin-bottom: 1rem; }
+  .mobile-list-page .page-hdr-left { min-width: 0; }
+  .mobile-list-page .page-hdr-right { flex: 1 1 100%; flex-wrap: nowrap; }
+  .mobile-list-page .page-hdr-right > .btn-primary { flex: 1 1 auto; min-height: var(--mobile-touch-target); }
+
+  /* Búsqueda de lado a lado; los filtros, de a dos. El que queda solo en la
+     última fila la ocupa entera en vez de dejar media fila vacía. */
+  .list-filter-bar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.625rem; padding: 0.75rem; margin-bottom: 1rem; }
+  .list-filter-bar__search,
+  .list-filter-bar__count,
+  .list-filter-bar > .form-select:last-child { grid-column: 1 / -1; }
+  .list-filter-bar__search,
+  .list-filter-bar .form-control,
+  .list-filter-bar .form-select { min-width: 0; width: 100%; }
+  /* «Todos los estados» no entra entero en media fila: se corta con elipsis. */
+  .list-filter-bar .form-select { text-overflow: ellipsis; }
+  .list-filter-bar > .btn { min-height: var(--mobile-touch-target); }
+
+  .list-empty-state button { min-height: var(--mobile-touch-target); }
+  /* La confirmación de borrado a la que lleva el menú de cada tarjeta. */
+  .mobile-list-page .modal-ftr .btn { min-height: var(--mobile-touch-target); }
+}
+@media (max-width: 480px) {
+  /* Un modelo largo no se parte en una columna de 140px: marca y modelo se apilan. */
+  .order-device-grid { grid-template-columns: minmax(0, 1fr); gap: 0.75rem; }
+}
+@media (max-width: 359px) {
+  .list-filter-bar { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

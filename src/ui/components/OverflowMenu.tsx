@@ -13,13 +13,16 @@ export interface OverflowMenuProps {
   label: string
   actions: OverflowMenuAction[]
   className?: string
+  /** Selector estable del disparador (`data-testid` del botón). */
+  testId?: string
 }
 
-export function OverflowMenu({ label, actions, className = '' }: OverflowMenuProps) {
+export function OverflowMenu({ label, actions, className = '', testId }: OverflowMenuProps) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const firstItemRef = useRef<HTMLButtonElement>(null)
+  const popoverRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
@@ -36,6 +39,11 @@ export function OverflowMenu({ label, actions, className = '' }: OverflowMenuPro
     document.addEventListener('pointerdown', onPointerDown)
     document.addEventListener('keydown', onKeyDown)
     firstItemRef.current?.focus()
+    // Un menú que abre cerca del borde inferior queda con sus últimas acciones
+    // debajo de la barra de navegación mobile. Se lo trae entero a la vista; el
+    // alto de la barra lo reserva `scroll-margin-bottom` en el CSS. Si ya entra,
+    // `nearest` no mueve nada.
+    popoverRef.current?.scrollIntoView?.({ block: 'nearest' })
     return () => {
       document.removeEventListener('pointerdown', onPointerDown)
       document.removeEventListener('keydown', onKeyDown)
@@ -51,13 +59,14 @@ export function OverflowMenu({ label, actions, className = '' }: OverflowMenuPro
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={open}
+        data-testid={testId}
         onClick={() => setOpen(value => !value)}
       >
         <MoreHorizontal aria-hidden="true" />
       </button>
 
       {open && (
-        <div className="overflow-menu__popover" role="menu" aria-label={label}>
+        <div ref={popoverRef} className="overflow-menu__popover" role="menu" aria-label={label}>
           {actions.map((action, index) => (
             <button
               key={action.label}
