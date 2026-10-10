@@ -29,7 +29,7 @@
 //   7. Duplicar copia la DEFINICIÓN (withoutStockFields), nunca la existencia.
 //   8. Quick-create contextual (Proveedores, Gastos, POS, Órdenes): el producto
 //      nace en 0 (registerStock={false}); initialQuantity no es stock.
-//   9. «Con variantes» (Variants v2) oculto; «Agregar variante» legacy vivo.
+//   9. «Con variantes» (Variants v2) operativo; «Agregar variante» legacy vivo.
 //  10. createProduct no borra el producto si el stock inicial falla.
 //
 // No marca: SELECT de stock, tipos, form state, render, SQL de migraciones,
@@ -360,9 +360,9 @@ function contracts(files) {
   // ProductFormModal
   const pfm = get(PFM)
   if (pfm) {
-    if (!/export const VARIANTS_V2_ENABLED\s*=\s*false\b/.test(pfm)) f.push(`${PFM}: «Con variantes» dejó de estar deshabilitado (VARIANTS_V2_ENABLED = false)`)
+    if (!/export const VARIANTS_V2_ENABLED\s*=\s*true\b/.test(pfm)) f.push(`${PFM}: «Con variantes» debe permanecer habilitado (PRODUCT-VARIANTS-1)`)
     if (!/\.filter\(\s*o\s*=>\s*o\.v\s*!==\s*'with_variants'\s*\|\|\s*VARIANTS_V2_ENABLED\s*\)/.test(pfm)) f.push(`${PFM}: la opción «Con variantes» es seleccionable`)
-    if (!/initialTipo\s*===\s*'with_variants'\s*&&\s*!VARIANTS_V2_ENABLED/.test(pfm)) f.push(`${PFM}: initialTipo='with_variants' entra al flujo oculto sin degradar`)
+    if (/const resolvedTipo\s*=\s*'product'/.test(pfm)) f.push(`${PFM}: initialTipo pierde el flujo de variantes`)
     if (!/const canSetInitialStock\s*=\s*registerStock\s*&&\s*!isEditMode/.test(pfm)) f.push(`${PFM}: el stock inicial dejó de estar limitado al alta desde Inventario (registerStock)`)
     if (/\binitialQuantity\b(?!\?\s*:)/.test(pfm.replace(/initialQuantity\?\s*:\s*number/, ''))) f.push(`${PFM}: initialQuantity (cantidad del documento) vuelve a usarse como stock`)
     if (!/initialStock\s*=\s*canSetInitialStock\s*&&/.test(pfm)) f.push(`${PFM}: el alta calcula stock inicial fuera de canSetInitialStock`)
@@ -447,7 +447,7 @@ function selfTest() {
 
   const MUTACIONES = [
     // mínimas pedidas
-    ['1 · UPDATE directo de stock_quantity (archivo real)', edit('src/pages/Mayorista.tsx', '.update({ precio_mayorista: price })', '.update({ precio_mayorista: price, stock_quantity: 0 })')],
+    ['1 · UPDATE directo de stock_quantity (archivo real)', edit('src/pages/Mayorista.tsx', '.update({ precio_mayorista: price, wholesale_price_ars: price })', '.update({ precio_mayorista: price, wholesale_price_ars: price, stock_quantity: 0 })')],
     ['1b · UPDATE directo de stock_quantity (archivo nuevo)', add(HYP, "import { supabase } from '../lib/supabase'\nexport async function f(id: string) { await supabase.from('inventory').update({ stock_quantity: 5 }).eq('id', id) }\n")],
     ['2 · INSERT de inventory con stock', edit(PRODUCT_SVC, '.insert({ ...baseRow, code })', '.insert({ ...baseRow, code, stock: 3 })')],
     ['2b · INSERT con stock vía variable local', edit(PRODUCT_SVC, '      min_stock:           minStock,\n', '      min_stock:           minStock,\n      stock_quantity:      5,\n')],
@@ -483,9 +483,9 @@ function selfTest() {
     ['stock inicial fuera de Inventario', edit(PFM, 'const canSetInitialStock = registerStock && !isEditMode', 'const canSetInitialStock = !isEditMode')],
     ['edición sin stale', edit(PFM, "if (result.status === 'stale') {", 'if (false) {')],
     // variantes
-    ['«Con variantes» habilitado', edit(PFM, 'export const VARIANTS_V2_ENABLED = false', 'export const VARIANTS_V2_ENABLED = true')],
+    ['«Con variantes» deshabilitado', edit(PFM, 'export const VARIANTS_V2_ENABLED = true', 'export const VARIANTS_V2_ENABLED = false')],
     ['«Con variantes» seleccionable', edit(PFM, ".filter(o => o.v !== 'with_variants' || VARIANTS_V2_ENABLED)", '.filter(() => true)')],
-    ['initialTipo with_variants sin degradar', edit(PFM, "initialTipo === 'with_variants' && !VARIANTS_V2_ENABLED", "initialTipo === 'nunca'")],
+    ['initialTipo with_variants sin degradar', edit(PFM, "const resolvedTipo = initialTipo ?? 'product'", "const resolvedTipo = 'product'")],
     ['menú «Producto con variantes» visible', edit(INVENTORY_PAGE, '{VARIANTS_V2_ENABLED && <button', '{<button')],
     ['se pierde «Agregar variante» legacy', edit(INVENTORY_PAGE, 'title="Agregar variante"', 'title="Variante"')],
     // rollback destructivo
@@ -534,6 +534,6 @@ if (process.argv.includes('--self-test')) {
   console.log('GUARD G2-C.3A2 OK · src/ sin INSERT/UPDATE/UPSERT de stock en inventory · 0 writes de inventory_movements '
     + '· sin writers legacy (registerMovement & cía.) · RPC canónica sólo vía el adapter · claves estables por intención '
     + '· Excel con «Stock esperado» y stock por RPC · duplicar = definición en 0 · quick-create contextual en 0 '
-    + '· «Con variantes» oculto, «Agregar variante» legacy vivo.')
+    + '· «Con variantes» operativo, «Agregar variante» legacy vivo.')
   console.log('NOTA · alcance A2: el cierre en DB (revocar UPDATE de stock / INSERT de movimientos a authenticated) es G2-C.3A3.')
 }

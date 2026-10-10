@@ -62,6 +62,11 @@ export interface InventoryItem {
   base_price?: number
   exchange_rate_used?: number
   auto_update_price?: boolean
+  has_variants?: boolean
+  parent_id?: string | null
+  variant_name?: string | null
+  barcode?: string | null
+  tipo?: string
 }
 
 /**
@@ -95,7 +100,7 @@ export function useInventory() {
         .from('inventory')
         .select(INVENTORY_OPERATIONAL_COLUMNS)
         .eq('business_id', businessId)
-        .eq('is_active', true)
+        .or('is_active.eq.true,parent_id.not.is.null')
         .order('name', { ascending: true })
         .limit(5000)
 
@@ -213,9 +218,9 @@ export function useInventory() {
   }
 
   const categories = [...new Set(items.map((item) => item.category))].filter(Boolean).sort()
-  const lowStockItems = items.filter((item) => item.stock_quantity > 0 && item.stock_quantity <= item.min_stock)
+  const lowStockItems = items.filter((item) => item.is_active !== false && !item.has_variants && item.stock_quantity > 0 && item.stock_quantity <= item.min_stock)
   // Stock negativo (sobreventa, contrato G2-C) también cuenta como agotado.
-  const outOfStockItems = items.filter((item) => item.stock_quantity <= 0)
+  const outOfStockItems = items.filter((item) => item.is_active !== false && !item.has_variants && item.stock_quantity <= 0)
 
   return {
     items,

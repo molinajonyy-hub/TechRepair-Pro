@@ -126,7 +126,7 @@ function BulkPriceModal({ products, onClose, onApplied, businessId }: BulkModalP
       for (const p of previews) {
         await supabase
           .from('inventory')
-          .update({ precio_mayorista: p.new_price })
+          .update({ precio_mayorista: p.new_price, wholesale_price_ars: p.new_price })
           .eq('id', p.id)
           .eq('business_id', businessId)
       }
@@ -524,13 +524,14 @@ export function Mayorista() {
     try {
       const { data, error: e } = await supabase
         .from('inventory')
-        .select('id, code, name, category, subcategory, stock_quantity, min_stock, sale_price, precio_mayorista, visible_in_wholesale, supplier_code, is_active')
+        .select('id, code, name, variant_name, category, subcategory, stock_quantity, min_stock, sale_price, precio_mayorista, visible_in_wholesale, supplier_code, is_active')
         .eq('business_id', businessId)
         .eq('is_active', true)
+        .not('has_variants', 'is', true)
         .order('name')
       if (e) throw e
       // SEC-08B: el costo se repone por la vista autorizada.
-      setProducts((await attachInventoryCosts(data || [])) as WholesaleProduct[])
+      setProducts((await attachInventoryCosts(data || [])).map(p => ({ ...p, name: p.variant_name ? `${p.name} — ${p.variant_name}` : p.name })) as WholesaleProduct[])
     } catch (err: any) {
       setError(err.message || 'Error al cargar productos')
     } finally {
@@ -558,7 +559,7 @@ export function Mayorista() {
   const savePrecioMayorista = async (id: string, price: number | null) => {
     await supabase
       .from('inventory')
-      .update({ precio_mayorista: price })
+      .update({ precio_mayorista: price, wholesale_price_ars: price })
       .eq('id', id)
       .eq('business_id', businessId)
     setProducts(prev => prev.map(p => p.id === id ? { ...p, precio_mayorista: price } : p))

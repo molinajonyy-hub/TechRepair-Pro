@@ -44,7 +44,7 @@ export interface PortalProduct {
   sale_price: number
   precio_mayorista: number | null
   visible_in_wholesale: boolean
-  cost_price: number
+  cost_price?: number | null
   description?: string | null
 }
 

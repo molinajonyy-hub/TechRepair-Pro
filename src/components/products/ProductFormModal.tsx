@@ -22,7 +22,7 @@
  *   · edición → UPDATE de metadata sin stock; si el usuario cambió el stock,
  *     RPC manual con target = nuevo valor y expected = el stock que vio. Si
  *     cambió entretanto (stale) no se pisa: se informa y se refresca.
- *   · «Con variantes» (Variants v2) queda oculto durante la beta.
+ *   · «Con variantes» usa hijos independientes y stock canónico.
  */
 import { useState, useEffect, useCallback, useMemo, useRef, Component, type ErrorInfo } from 'react'
 import { X, RefreshCw, DollarSign, Package, Check, AlertCircle } from 'lucide-react'
@@ -36,6 +36,9 @@ import {
   convertToARS,
   convertToUSD,
   InitialStockPendingError,
+  VariantInitialStockPendingError,
+  MAX_PRODUCT_VARIANTS,
+  type VariantFamilyRecovery,
   type CreateProductInput,
   type ProductCreationContext,
   type CreateVariantInput,
@@ -49,18 +52,12 @@ import {
   manualStockKey,
 } from '../../services/inventoryStockAdjustmentService'
 import { accentCta } from '../../lib/tokens'
+import { isGroupingParent } from '../../lib/productSellability'
+import { VariantSelector } from './VariantSelector'
+import './product-variants.css'
 
-/**
- * Variants v2 («Con variantes») no es operativo para la beta: queda OCULTO y no
- * seleccionable. La infraestructura se conserva; un caller que pida
- * initialTipo='with_variants' degrada explícitamente a producto simple.
- * El «Agregar variante» legacy de Inventario es otro flujo y sigue disponible.
- */
-export const VARIANTS_V2_ENABLED = false
-
-const WITH_VARIANTS_DISABLED_NOTICE =
-  'La creación «Con variantes» no está disponible en la beta: se abrió como producto simple. ' +
-  'Para variantes usá «Agregar variante» desde Inventario.'
+/** Variants V2 uses independent inventory children and canonical stock. */
+export const VARIANTS_V2_ENABLED = true
 
 /** Motivo de la RPC para el alta desde Inventario (estable: entra en el hash de idempotencia). */
 const INITIAL_STOCK_REASON = 'Alta desde Inventario'
@@ -96,7 +93,7 @@ export interface ProductFormModalProps {
   /** Cantidad de la línea del documento. NO es stock: se ignora (el producto nace en 0). */
   initialQuantity?: number
   initialCurrency?: 'ARS' | 'USD'
-  /** 'with_variants' degrada a 'product' mientras VARIANTS_V2_ENABLED sea false. */
+  /** Tipo inicial del alta. */
   initialTipo?:     'product' | 'service' | 'with_variants'
   supplierId?:      string
   supplierName?:    string
@@ -115,6 +112,10 @@ export interface ProductFormModalProps {
 // ─── Variante en el formulario ────────────────────────────────────────────────
 
 interface VariantRow {
+  cost_currency?: 'ARS' | 'USD'
+  exchange_rate?: string
+  auto_update_price?: boolean
+  touched?: string[]
   _key:        string
   name:        string
   sku:         string
@@ -147,8 +148,9 @@ function emptyVariant(n = 1): VariantRow {
 }
 
 function cartesian(dims: GeneratorDimension[]): Record<string, string>[] {
-  const active = dims.filter(d => d.name.trim() && d.values.length)
-  if (!active.length) return []
+  const active = dims.map(d => ({ ...d, name: d.name.trim(), values: [...new Set(d.values.map(v => v.trim()).filter(Boolean))] }))
+  if (!active.length || active.some(d => !d.name || !d.values.length) || new Set(active.map(d => d.name)).size !== active.length) return []
+  if (active.reduce((n, d) => n * d.values.length, 1) > MAX_PRODUCT_VARIANTS) return []
   return active.reduce<Record<string, string>[]>((acc, dim) => (
     acc.flatMap(combo => dim.values.map(v => ({ ...combo, [dim.name.trim()]: v.trim() })))
   ), [{}])
@@ -209,7 +211,7 @@ function serializeForm(f: FormState): string {
     tipo: f.tipo, name: f.name, code: f.code, barcode: f.barcode,
     brand: f.brand, model: f.model, description: f.description,
     category: f.category, subcategory: f.subcategory, supplier_id: f.supplier_id,
-    base_currency: f.base_currency, cost_ars: f.cost_ars, cost_usd: f.cost_usd,
+    base_currency: f.base_currency, exchange_rate: f.exchange_rate, cost_ars: f.cost_ars, cost_usd: f.cost_usd,
     sale_price_ars: f.sale_price_ars, sale_price_usd: f.sale_price_usd,
     wholesale_price: f.wholesale_price, wholesale_price_usd: f.wholesale_price_usd,
     wholesale_currency: f.wholesale_currency, auto_update_price: f.auto_update_price,
@@ -218,6 +220,8 @@ function serializeForm(f: FormState): string {
     variants: (f.variants ?? []).map(v => ({
       name: v.name ?? '', sku: v.sku ?? '', barcode: v.barcode ?? '',
       attributes: v.attributes ?? {},
+      cost_currency: v.cost_currency, exchange_rate: v.exchange_rate,
+      auto_update_price: v.auto_update_price, touched: v.touched,
       cost_ars: v.cost_ars ?? '', cost_usd: v.cost_usd ?? '',
       sale_price: v.sale_price ?? '', wholesale: v.wholesale ?? '',
       stock: v.stock ?? '0', min_stock: v.min_stock ?? '0',
@@ -228,8 +232,7 @@ function serializeForm(f: FormState): string {
 
 // Fusiona draft con EMPTY para garantizar que todos los campos existan
 function hydrateDraft(draft: Partial<FormState>): FormState {
-  // Un borrador viejo de «Con variantes» no reabre el flujo oculto.
-  const tipo = draft.tipo === 'with_variants' && !VARIANTS_V2_ENABLED ? 'product' : draft.tipo
+  const tipo = draft.tipo
   return {
     ...EMPTY,
     ...draft,
@@ -279,6 +282,8 @@ export function ProductFormModal({
   const [notice, setNotice] = useState('')               // informativo (variantes deshabilitadas, stale)
   /** Producto ya creado cuyo stock inicial no se confirmó: el retry reusa initial-stock:<id>. */
   const [pendingInitialStock, setPendingInitialStock] = useState<{ product: InventoryItem; quantity: number } | null>(null)
+  const [pendingVariantStock, setPendingVariantStock] = useState<VariantFamilyRecovery | null>(null)
+  const submittingRef = useRef(false)
   /** Stock que el usuario VIO al abrir la edición: es el `expected` del ajuste manual. */
   const stockBaselineRef = useRef<number>(0)
   /** Una sesión de edición = una familia de intenciones de ajuste (clave de idempotencia). */
@@ -405,7 +410,7 @@ export function ProductFormModal({
       const editForm: FormState = {
         ...EMPTY,
         tipo:          (ei.tipo as 'product' | 'service') ?? 'product',
-        name:          editItem.name ?? '',
+        name:          editItem.parent_id ? (editItem.variant_name || editItem.name) : editItem.name ?? '',
         code:          editItem.code ?? '',
         barcode:       ei.barcode ?? '',
         brand:         ei.brand ?? '',
@@ -441,7 +446,7 @@ export function ProductFormModal({
       editSessionRef.current = crypto.randomUUID()
       setForm(editForm)
       cleanFormRef.current = serializeForm(editForm)
-      setError(''); setNotice(''); setPendingInitialStock(null); setDuplicate(null); setShowCloseConfirm(false)
+      setError(''); setNotice(''); setPendingInitialStock(null); setPendingVariantStock(null); setDuplicate(null); setShowCloseConfirm(false)
       // Forzar actualización desde InfoDolar en modo edición también
       fetchRate(true)
       loadSuppliers()
@@ -450,9 +455,7 @@ export function ProductFormModal({
     }
 
     // ── Modo creación: pre-rellenar desde props de contexto ──────────────────
-    // «Con variantes» oculto en beta: degradación explícita a producto simple.
-    const variantsBlocked = initialTipo === 'with_variants' && !VARIANTS_V2_ENABLED
-    const resolvedTipo = variantsBlocked ? 'product' : (initialTipo ?? 'product')
+    const resolvedTipo = initialTipo ?? 'product'
     const initialForm: FormState = {
       ...EMPTY,
       tipo:          resolvedTipo,
@@ -469,8 +472,17 @@ export function ProductFormModal({
     }
     setForm(initialForm)
     cleanFormRef.current = serializeForm(initialForm)
-    setError(''); setPendingInitialStock(null); setDuplicate(null); setShowCloseConfirm(false)
-    setNotice(variantsBlocked ? WITH_VARIANTS_DISABLED_NOTICE : '')
+    setError(''); setPendingInitialStock(null); setPendingVariantStock(null); setDuplicate(null); setShowCloseConfirm(false)
+    try {
+      const savedRecovery = sessionStorage.getItem(DRAFT_KEY + '_variant_stock')
+      const recovery = savedRecovery ? JSON.parse(savedRecovery) as VariantFamilyRecovery & { form?: Partial<FormState> } : null
+      if (recovery && recovery.businessId === businessId && recovery.product?.has_variants && recovery.items?.length) {
+        setPendingVariantStock(recovery)
+        if (recovery.form) setForm(hydrateDraft(recovery.form))
+        setError('El producto y sus variantes se crearon, pero no pudimos confirmar el stock inicial. Reintentar no duplica el producto.')
+      }
+    } catch { /* Un recovery inválido no autoriza ningún ajuste. */ }
+    setNotice('')
     // Forzar actualización desde InfoDolar Córdoba en cada apertura del modal
     // (force=true para evitar que el cache en módulo devuelva valor viejo)
     fetchRate(true)
@@ -646,10 +658,10 @@ export function ProductFormModal({
 
   // ── Helpers variantes ──────────────────────────────────────────────────────
   const updateVariant = (key: string, updates: Partial<VariantRow>) =>
-    setForm(f => ({ ...f, variants: f.variants.map(v => v._key === key ? { ...v, ...updates } : v) }))
+    setForm(f => ({ ...f, variants: f.variants.map(v => v._key === key ? { ...v, ...updates, touched: [...new Set([...(v.touched ?? []), ...Object.keys(updates)])] } : v) }))
 
   const addVariantRow = () =>
-    setForm(f => ({ ...f, variants: [...f.variants, emptyVariant(f.variants.length + 1)] }))
+    setForm(f => f.variants.length >= MAX_PRODUCT_VARIANTS ? f : ({ ...f, variants: [...f.variants, emptyVariant(f.variants.length + 1)] }))
 
   const removeVariant = (key: string) =>
     setForm(f => ({ ...f, variants: f.variants.filter(v => v._key !== key) }))
@@ -657,27 +669,42 @@ export function ProductFormModal({
   const duplicateVariant = (key: string) =>
     setForm(f => {
       const src = f.variants.find(v => v._key === key)
-      if (!src) return f
-      const dup: VariantRow = { ...src, _key: crypto.randomUUID(), name: `${src.name} (copia)`, expanded: true }
+      if (!src || f.variants.length >= MAX_PRODUCT_VARIANTS) return f
+      const dup: VariantRow = { ...src, _key: crypto.randomUUID(), name: `${src.name} (copia)`, sku: '', barcode: '', is_default: false, expanded: true }
       const idx = f.variants.findIndex(v => v._key === key)
       const next = [...f.variants]
       next.splice(idx + 1, 0, dup)
       return { ...f, variants: next }
     })
 
-  const applyBaseToVariants = () =>
+  const applyBaseToVariants = () => {
+    const missingRate = form.variants.some(v =>
+      ((v.cost_currency ?? form.base_currency) === 'USD' || form.base_currency === 'USD' || form.wholesale_currency === 'USD')
+      && !(Number(v.exchange_rate ?? form.exchange_rate) > 0))
+    if (missingRate) { setError('Completá una cotización válida antes de aplicar los valores base en USD.'); return }
     setForm(f => ({
       ...f,
-      variants: f.variants.map(v => ({
-        ...v,
-        cost_ars:   f.cost_ars        || v.cost_ars,
-        cost_usd:   f.cost_usd        || v.cost_usd,
-        sale_price: f.sale_price_ars  || v.sale_price,
-        wholesale:  f.wholesale_price || v.wholesale,
-        location:   f.location        || v.location,
-        min_stock:  f.min_stock       || v.min_stock,
-      }))
+      variants: f.variants.map(v => {
+        const variantRate = Number((v.cost_currency ?? f.base_currency) === 'USD' ? v.exchange_rate ?? f.exchange_rate : f.exchange_rate) || 0
+        const baseCostARS = deriveCostARS(f)
+        const baseCostUSD = f.base_currency === 'USD' ? Number(f.cost_usd || 0) : convertToUSD(baseCostARS, variantRate)
+        const baseSaleARS = f.base_currency === 'USD' && f.sale_price_usd !== ''
+          ? convertToARS(Number(f.sale_price_usd), variantRate) : Number(f.sale_price_ars || 0)
+        const baseWholesaleARS = f.wholesale_currency === 'USD' && f.wholesale_price_usd !== ''
+          ? convertToARS(Number(f.wholesale_price_usd), variantRate)
+          : f.wholesale_price === '' ? undefined : Number(f.wholesale_price)
+        const [base] = productService.applyBaseToVariants<Partial<CreateVariantInput>>([{}], {
+          cost_price_ars: baseCostARS, cost_price_usd: baseCostUSD,
+          sale_price_ars: baseSaleARS, wholesale_price_ars: baseWholesaleARS,
+          min_stock: Number(f.min_stock || 0), location: f.location,
+        })
+        return { ...v, cost_ars: v.cost_ars || String(base.cost_price_ars), cost_usd: v.cost_usd || (variantRate > 0 ? String(base.cost_price_usd) : ''),
+          sale_price: v.sale_price || String(base.sale_price_ars), wholesale: v.wholesale || (base.wholesale_price_ars == null ? '' : String(base.wholesale_price_ars)),
+          min_stock: !v.touched?.includes('min_stock') && v.min_stock === '0' ? String(base.min_stock) : v.min_stock,
+          location: v.touched?.includes('location') ? v.location : v.location || base.location || '' }
+      })
     }))
+  }
 
   const setDefaultVariant = (key: string) =>
     setForm(f => ({ ...f, variants: f.variants.map(v => ({ ...v, is_default: v._key === key })) }))
@@ -703,6 +730,12 @@ export function ProductFormModal({
   const generateVariants = () => {
     const combos = cartesian(genDimensions)
     if (!combos.length) return
+    const existing = form.variants.filter(v => v.name !== 'Variante 1' || v.sku || v.barcode || v.sale_price || Number(v.stock) || v.touched?.length)
+    const additionsCount = combos.filter(combo => !existing.some(v => v.name === Object.values(combo).join(' / '))).length
+    if (existing.length + additionsCount > MAX_PRODUCT_VARIANTS) {
+      setError(`La familia no puede superar ${MAX_PRODUCT_VARIANTS} variantes. Las variantes existentes se conservaron.`)
+      return
+    }
     const costARS = deriveCostARS(form)
     const saleARS = parseFloat(form.sale_price_ars) || 0
     const newRows: VariantRow[] = combos.map((combo, i) => ({
@@ -722,7 +755,11 @@ export function ProductFormModal({
       is_default: i === 0,
       expanded:   false,
     }))
-    setForm(f => ({ ...f, variants: newRows }))
+    setForm(f => {
+      const kept = f.variants.filter(v => v.name !== 'Variante 1' || v.sku || v.barcode || v.sale_price || Number(v.stock) || v.touched?.length)
+      const additions = newRows.filter(row => !kept.some(v => v.name === row.name))
+      return { ...f, variants: [...kept, ...additions.map((v, i) => ({ ...v, is_default: !kept.length && i === 0 }))] }
+    })
     setShowGenerator(false)
   }
 
@@ -730,16 +767,27 @@ export function ProductFormModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!businessId || !user) return
+    if (submittingRef.current) return
 
-    // Fail-closed: «Con variantes» está oculto en beta (p. ej. un borrador viejo).
-    if (form.tipo === 'with_variants' && !VARIANTS_V2_ENABLED) {
-      setError(WITH_VARIANTS_DISABLED_NOTICE)
+    if (pendingVariantStock) {
+      submittingRef.current = true
+      setError(''); setSaving(true)
+      try {
+        const result = await productService.retryVariantInitialStock(pendingVariantStock)
+        setPendingVariantStock(null)
+        sessionStorage.removeItem(DRAFT_KEY + '_variant_stock')
+        if (onVariantSelected || !registerStock) setVariantPickerData(result)
+        else { clearDraftOnSave(); onCreated(result.product); onClose() }
+      } catch {
+        setError('El producto y sus variantes se crearon, pero no pudimos confirmar el stock inicial. Reintentar no duplica el producto.')
+      } finally { setSaving(false); submittingRef.current = false }
       return
     }
 
     // El producto ya existe y sólo falta confirmar su stock inicial: se
     // reintenta la MISMA intención (initial-stock:<id>), nunca se crea otro.
     if (pendingInitialStock) {
+      submittingRef.current = true
       setError(''); setSaving(true)
       try {
         const applied = await inventoryStockAdjustmentService.applyInitialStock({
@@ -757,11 +805,13 @@ export function ProductFormModal({
         setError(`El producto ya está creado, pero el stock inicial sigue sin confirmarse: ${(err as Error)?.message || 'error desconocido'}. Reintentá: no se duplica.`)
       } finally {
         setSaving(false)
+        submittingRef.current = false
       }
       return
     }
 
     setError(''); setNotice(''); setSaving(true)
+    submittingRef.current = true
 
     try {
       const costARS = deriveCostARS(form)
@@ -838,7 +888,7 @@ export function ProductFormModal({
         // Stock: metadata y saldo van por caminos distintos. Si el usuario tocó
         // el stock, se valida ANTES de guardar nada.
         const stockExpected = stockBaselineRef.current
-        const wantsStockChange = form.tipo === 'product' && stockText !== '' && stockTyped !== stockExpected
+        const wantsStockChange = !isGroupingParent(editItem) && form.tipo === 'product' && stockText !== '' && stockTyped !== stockExpected
         if (wantsStockChange && !isStockInt(stockTyped)) {
           setError('El stock tiene que ser un número entero.')
           return
@@ -849,10 +899,11 @@ export function ProductFormModal({
           : saleARS
         const wholesaleARSEdit = form.wholesale_currency === 'USD' && parseFloat(form.wholesale_price_usd) > 0
           ? Math.round(convertToARS(parseFloat(form.wholesale_price_usd), rate))
-          : (parseFloat(form.wholesale_price) || undefined)
+          : (form.wholesale_price.trim() === '' ? undefined : Number(form.wholesale_price))
 
         await productService.updateProduct(editItem.id, {
-          name:           form.name.trim(),
+          name:           editItem.parent_id ? editItem.name : form.name.trim(),
+          variant_name:   editItem.parent_id ? form.name.trim() : undefined,
           code:           form.code.trim() || undefined,
           barcode:        form.barcode.trim() || undefined,
           brand:          form.brand.trim() || undefined,
@@ -869,7 +920,7 @@ export function ProductFormModal({
           sale_price:     saleARSEdit,
           wholesale_price_ars: wholesaleARSEdit,
           exchange_rate_used:  form.base_currency === 'USD' ? rate : undefined,
-          auto_update_price:   form.base_currency === 'USD' ? form.auto_update_price : false,
+          auto_update_price:   !isGroupingParent(editItem) && form.base_currency === 'USD' ? form.auto_update_price : false,
           min_stock:      parseInt(form.min_stock) || 0,
           location:       form.location.trim() || undefined,
           is_active:      form.is_active,
@@ -939,33 +990,41 @@ export function ProductFormModal({
       // ── Producto con variantes ──────────────────────────────────────────────
       if (form.tipo === 'with_variants') {
         if (!form.variants.length) { setError('Agregá al menos una variante.'); return }
-        const variantInputs: CreateVariantInput[] = form.variants.map((v, i) => ({
+        const variantInputs: CreateVariantInput[] = form.variants.map((v, i) => {
+          const currency = v.cost_currency ?? form.base_currency
+          const variantRate = v.exchange_rate == null ? rate : Number(v.exchange_rate)
+          const inheritedCostUSD = v.cost_ars !== '' ? convertToUSD(Number(v.cost_ars), variantRate) : costUSD ?? convertToUSD(costARS, variantRate)
+          const inheritedSaleARS = currency === 'USD' && form.base_currency === 'USD' && form.sale_price_usd !== ''
+            ? convertToARS(Number(form.sale_price_usd), variantRate) : saleARSFinal
+          return {
           business_id:  businessId,
           created_by:   user.id,
           product_name: form.name.trim(),
-          name:         v.name.trim() || `Variante ${i + 1}`,
+          name:         v.name.trim(),
           sku:          v.sku.trim() || undefined,
           barcode:      v.barcode.trim() || undefined,
           category:     catName,
           attributes:   Object.keys(v.attributes).length ? v.attributes : undefined,
-          cost_price_ars:  parseFloat(v.cost_ars) || costARS || 0,
-          cost_price_usd:  form.base_currency === 'USD' ? (parseFloat(v.cost_usd) || costUSD) : undefined,
-          cost_currency:   form.base_currency,
-          sale_price_ars:  parseFloat(v.sale_price) || saleARS || 0,
-          wholesale_price_ars: parseFloat(v.wholesale) || undefined,
-          exchange_rate_used:  form.base_currency === 'USD' ? rate : undefined,
+          cost_price_ars:  currency === 'USD' ? convertToARS(v.cost_usd === '' ? inheritedCostUSD : Number(v.cost_usd), variantRate) : (v.cost_ars === '' ? costARS : Number(v.cost_ars)),
+          cost_price_usd:  currency === 'USD' ? (v.cost_usd === '' ? inheritedCostUSD : Number(v.cost_usd)) : undefined,
+          cost_currency: currency,
+          sale_price_ars:  v.sale_price === '' ? inheritedSaleARS : Number(v.sale_price),
+          sale_price_usd: currency === 'USD' ? convertToUSD(v.sale_price === '' ? inheritedSaleARS : Number(v.sale_price), variantRate) : undefined,
+          wholesale_price_ars: v.wholesale === '' ? wholesaleARS : Number(v.wholesale),
+          exchange_rate_used: currency === 'USD' ? variantRate : undefined,
+          auto_update_price: currency === 'USD' && (v.auto_update_price ?? form.auto_update_price),
           // Stock inicial sólo desde Inventario; fuera de ahí la variante nace en 0.
-          stock:      canSetInitialStock ? (parseInt(v.stock) || 0) : 0,
-          min_stock:  parseInt(v.min_stock) || 0,
-          location:   v.location.trim() || undefined,
+          stock:      canSetInitialStock ? Number(v.stock || 0) : 0,
+          min_stock:  Number((v.touched?.includes('min_stock') ? v.min_stock : form.min_stock) || 0),
+          location:   (v.touched?.includes('location') ? v.location : v.location || form.location).trim() || undefined,
           active:     v.is_active,
           is_default: v.is_default,
           sort_order: i,
-        }))
+        }})
         const { product, variants: createdVariants } = await productService.createProductWithVariants(
           baseInput, variantInputs
         )
-        if (onVariantSelected && createdVariants.length > 0) {
+        if ((onVariantSelected || !registerStock) && createdVariants.length > 0) {
           setVariantPickerData({ product, variants: createdVariants })
         } else {
           clearDraftOnSave(); onCreated(product); onClose()
@@ -993,6 +1052,10 @@ export function ProductFormModal({
       const product = await productService.createProduct(input, ctx)
       clearDraftOnSave(); onCreated(product); onClose()
     } catch (err: any) {
+      if (err instanceof VariantInitialStockPendingError) {
+        setPendingVariantStock(err.recovery)
+        try { sessionStorage.setItem(DRAFT_KEY + '_variant_stock', JSON.stringify({ ...err.recovery, form: JSON.parse(serializeForm(form)) })) } catch { /* In-memory recovery still permits a safe retry. */ }
+      }
       if (err instanceof InitialStockPendingError && form.tipo !== 'with_variants') {
         // El producto existe (stock 0 o ya aplicado con la respuesta perdida).
         // NO se borra: el próximo «Guardar» reintenta sólo el stock inicial.
@@ -1001,6 +1064,7 @@ export function ProductFormModal({
       setError(err.message || 'Error al guardar el producto.')
     } finally {
       setSaving(false)
+      submittingRef.current = false
     }
   }
 
@@ -1008,49 +1072,15 @@ export function ProductFormModal({
 
   // ── Variant picker (post-creación con variantes) ────────────────────────────
   if (variantPickerData) {
-    return (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', fontFamily: F }}>
-        <div style={{ background: '#0d1a30', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '1.25rem', width: '100%', maxWidth: '480px', boxShadow: '0 32px 80px rgba(0,0,0,0.7)' }}>
-          <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-            <h3 style={{ margin: 0, color: '#f1f5f9', fontSize: '1rem', fontWeight: 800 }}>¿Qué variante usás en esta operación?</h3>
-            <p style={{ margin: '0.25rem 0 0', color: '#475569', fontSize: '0.8rem' }}>Producto creado: <strong style={{ color: '#94a3b8' }}>{variantPickerData.product.name}</strong></p>
-          </div>
-          <div style={{ padding: '1rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            {variantPickerData.variants.map(variant => (
-              <button
-                key={variant.id}
-                type="button"
-                onClick={() => {
-                  if (variant.inventory_item_id && onVariantSelected) {
-                    // Obtener el inventory item para la variante y llamar el callback
-                    onVariantSelected({ id: variant.inventory_item_id, name: `${variantPickerData.product.name} — ${variant.name}`, sale_price: variant.sale_price_ars, cost_price: variant.cost_price_ars, stock_quantity: variant.stock } as any, variant)
-                  }
-                  clearDraftOnSave(); setVariantPickerData(null); onClose()
-                }}
-                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '0.75rem', cursor: 'pointer', textAlign: 'left' }}
-                onMouseEnter={e => e.currentTarget.style.background = 'rgba(99,102,241,0.14)'}
-                onMouseLeave={e => e.currentTarget.style.background = 'rgba(99,102,241,0.06)'}
-              >
-                <div>
-                  <div style={{ color: '#f1f5f9', fontSize: '0.875rem', fontWeight: 700 }}>{variant.name}</div>
-                  {variant.sku && <div style={{ color: '#475569', fontSize: '0.72rem' }}>SKU: {variant.sku}</div>}
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ color: '#818cf8', fontWeight: 700, fontSize: '0.875rem' }}>${variant.sale_price_ars.toLocaleString('es-AR')}</div>
-                  <div style={{ color: '#334155', fontSize: '0.72rem' }}>Stock: {variant.stock}</div>
-                </div>
-              </button>
-            ))}
-          </div>
-          <div style={{ padding: '0.875rem 1.5rem', borderTop: '1px solid rgba(255,255,255,0.07)', display: 'flex', justifyContent: 'flex-end' }}>
-            <button type="button" onClick={() => { clearDraftOnSave(); onCreated(variantPickerData.product); setVariantPickerData(null); onClose() }}
-              style={{ padding: '0.5rem 1rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.625rem', color: '#475569', fontSize: '0.8rem', cursor: 'pointer', fontFamily: F }}>
-              Sin variante específica
-            </button>
-          </div>
-        </div>
-      </div>
-    )
+    return <VariantSelector isOpen productId={variantPickerData.product.id} productName={variantPickerData.product.name}
+      businessId={businessId!} allowOutOfStock
+      onSelect={(variant) => {
+        if (!variant.inventory) return
+        if (onVariantSelected) onVariantSelected(variant.inventory, variant)
+        else onCreated(variant.inventory)
+        clearDraftOnSave(); setVariantPickerData(null); onClose()
+      }}
+      onClose={() => { clearDraftOnSave(); setVariantPickerData(null); onClose() }} />
   }
 
   // ── Valores derivados para mostrar ─────────────────────────────────────────
@@ -1072,6 +1102,7 @@ export function ProductFormModal({
   return (
     <div
       data-testid="product-form-modal"
+      className="product-variants-form"
       onClick={e => { if (e.target === e.currentTarget) tryClose() }}
       style={{
         position: 'fixed', inset: 0, zIndex: 9999,
@@ -1081,7 +1112,7 @@ export function ProductFormModal({
       }}
     >
       <div style={{
-        background: '#0d1a30', border: '1px solid rgba(255,255,255,0.1)',
+        background: 'var(--bg-modal)', border: '1px solid rgba(255,255,255,0.1)',
         borderRadius: '1.25rem', width: '100%', maxWidth: '720px',
         maxHeight: '90vh', display: 'flex', flexDirection: 'column',
         boxShadow: '0 32px 80px rgba(0,0,0,0.7)',
@@ -1095,12 +1126,12 @@ export function ProductFormModal({
               {isEditMode ? 'Editar producto' : 'Nuevo producto'}
             </h2>
             {supplierName && !isEditMode && (
-              <span style={{ fontSize: '0.75rem', color: '#475569', background: 'rgba(255,255,255,0.04)', padding: '0.2rem 0.625rem', borderRadius: '0.5rem', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', background: 'rgba(255,255,255,0.04)', padding: '0.2rem 0.625rem', borderRadius: '0.5rem', border: '1px solid rgba(255,255,255,0.07)' }}>
                 Proveedor: {supplierName}
               </span>
             )}
           </div>
-          <button onClick={tryClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: '0.25rem' }}>
+          <button onClick={tryClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '0.25rem' }}>
             <X size={20} />
           </button>
         </div>
@@ -1108,7 +1139,8 @@ export function ProductFormModal({
         {/* Body */}
         <form onSubmit={handleSubmit} style={{ overflowY: 'auto', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
 
-          {/* Tipo (solo en modo creación). «Con variantes» oculto en beta. */}
+          <fieldset disabled={saving || !!pendingVariantStock || !!pendingInitialStock} style={{ display: 'contents' }}>
+          {/* Tipo (solo en modo creación). */}
           {!isEditMode && <div data-testid="product-form-tipo" style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' }}>
             {([
               { v: 'product',       label: 'Producto',        color: '#6366f1' },
@@ -1222,7 +1254,7 @@ export function ProductFormModal({
                       placeholder="Nueva categoría"
                       style={{ ...inputS, flex: 1 }}
                     />
-                    <button type="button" onClick={() => setShowCatInput(false)} style={{ padding: '0 0.625rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.625rem', color: '#64748b', cursor: 'pointer', fontFamily: F }}>
+                    <button type="button" onClick={() => setShowCatInput(false)} style={{ padding: '0 0.625rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.625rem', color: 'var(--text-secondary)', cursor: 'pointer', fontFamily: F }}>
                       Cancelar
                     </button>
                   </div>
@@ -1239,7 +1271,7 @@ export function ProductFormModal({
             {/* Cotización — InfoDolar Córdoba (venta), misma fuente que Dashboard */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.625rem 0.875rem', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.625rem' }}>
               <DollarSign size={14} color="#fbbf24" />
-              <span style={{ color: '#64748b', fontSize: '0.78rem' }}>Cotización USD/ARS:</span>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>Cotización USD/ARS:</span>
               <input
                 data-testid="product-form-currency-rate"
                 value={form.exchange_rate}
@@ -1251,12 +1283,12 @@ export function ProductFormModal({
                 data-testid="product-form-refresh-rate-button"
                 onClick={() => fetchRate(true)}
                 title="Actualizar cotización desde InfoDolar Córdoba"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', display: 'flex', padding: '0.125rem' }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', padding: '0.125rem' }}
               >
                 <RefreshCw size={13} style={{ animation: loadingRate ? 'tr-spin 0.8s linear infinite' : 'none' }} />
               </button>
               {rateUpdatedAt && (
-                <span style={{ fontSize: '0.68rem', color: '#334155', marginLeft: 'auto' }}>
+                <span style={{ fontSize: '0.68rem', color: 'var(--text-secondary)', marginLeft: 'auto' }}>
                   {rateUpdatedAt.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
                 </span>
               )}
@@ -1264,7 +1296,7 @@ export function ProductFormModal({
 
             {/* Moneda base */}
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-              <span style={{ color: '#64748b', fontSize: '0.78rem', fontWeight: 600 }}>Moneda del producto:</span>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', fontWeight: 600 }}>Moneda del producto:</span>
               {(['ARS', 'USD'] as const).map(cur => (
                 <button
                   key={cur} type="button"
@@ -1412,7 +1444,7 @@ export function ProductFormModal({
                 · Edición → «Stock actual»: un cambio es un ajuste manual (RPC).
                 · Alta desde Inventario → «Stock inicial» (RPC initial_stock).
                 · Alta contextual (proveedor, gasto, POS, orden) → nace en 0. */}
-          {form.tipo === 'product' && (
+          {form.tipo === 'product' && !isGroupingParent(editItem) && (
             <Section label="Stock">
               <Row2>
                 {isEditMode ? (
@@ -1444,22 +1476,35 @@ export function ProductFormModal({
 
           {/* ── Sección variantes — diseño premium ── */}
           {form.tipo === 'with_variants' && (
+            <Section label="Valores base de las variantes">
+              <Row2>
+                <Field label="Stock mínimo">
+                  <input aria-label="Stock mínimo base" value={form.min_stock} onChange={e => set('min_stock', e.target.value)} type="number" min="0" step="1" style={inputS} />
+                </Field>
+                <Field label="Ubicación">
+                  <input aria-label="Ubicación base" value={form.location} onChange={e => set('location', e.target.value)} placeholder="Ej: Estante A3" style={inputS} />
+                </Field>
+              </Row2>
+              <p style={hintS}>El stock se carga en cada variante. El producto agrupador permanece en cero.</p>
+            </Section>
+          )}
+          {form.tipo === 'with_variants' && (
             <Section label="Variantes">
 
               {/* Toolbar */}
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                <span style={{ color: '#334155', fontSize: '0.75rem', flex: 1 }}>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', flex: 1 }}>
                   {form.variants.length} variante{form.variants.length !== 1 ? 's' : ''}
                 </span>
                 <button type="button" onClick={() => setShowGenerator(v => !v)}
                   style={{ padding: '0.3rem 0.75rem', background: showGenerator ? 'rgba(245,158,11,0.15)' : 'rgba(245,158,11,0.07)', border: `1px solid ${showGenerator ? 'rgba(245,158,11,0.4)' : 'rgba(245,158,11,0.2)'}`, borderRadius: '0.5rem', color: '#f59e0b', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
                   Generador masivo
                 </button>
-                <button type="button" onClick={applyBaseToVariants}
+                <button type="button" onClick={applyBaseToVariants} title="Completa valores sin reemplazar los que ya editaste"
                   style={{ padding: '0.3rem 0.75rem', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '0.5rem', color: '#818cf8', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
-                  Aplicar base
+                  Aplicar a todas las variantes
                 </button>
-                <button type="button" onClick={addVariantRow}
+                <button type="button" onClick={addVariantRow} disabled={form.variants.length >= MAX_PRODUCT_VARIANTS}
                   style={{ padding: '0.3rem 0.75rem', background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: '0.5rem', color: '#22c55e', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
                   + Agregar
                 </button>
@@ -1470,7 +1515,7 @@ export function ProductFormModal({
                 <div style={{ background: 'rgba(245,158,11,0.04)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: '0.875rem', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ color: '#f59e0b', fontSize: '0.8rem', fontWeight: 700 }}>Generador masivo de variantes</span>
-                    <button type="button" onClick={() => setShowGenerator(false)} style={{ background: 'none', border: 'none', color: '#475569', cursor: 'pointer', fontSize: '1rem' }}>✕</button>
+                    <button type="button" onClick={() => setShowGenerator(false)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '1rem' }}>✕</button>
                   </div>
                   {genDimensions.map((dim, di) => (
                     <div key={dim._key} style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
@@ -1479,7 +1524,7 @@ export function ProductFormModal({
                           onChange={e => setGenDimensions(prev => prev.map((d, i) => i === di ? { ...d, name: e.target.value } : d))}
                           placeholder="Color / Capacidad / Tamaño..."
                           style={{ ...inputS, width: '140px', flex: '0 0 auto', fontSize: '0.78rem' }} />
-                        <span style={{ color: '#334155', fontSize: '0.72rem' }}>:</span>
+                        <span style={{ color: 'var(--text-secondary)', fontSize: '0.72rem' }}>:</span>
                         <div style={{ flex: 1, display: 'flex', gap: '0.3rem', flexWrap: 'wrap', alignItems: 'center' }}>
                           {dim.values.map((val, vi) => (
                             <span key={vi} style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', padding: '0.2rem 0.5rem', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: '999px', color: '#f59e0b', fontSize: '0.72rem' }}>
@@ -1524,7 +1569,7 @@ export function ProductFormModal({
                           Generar {combos.length} variante{combos.length !== 1 ? 's' : ''}
                         </button>
                       </div>
-                    ) : null
+                    ) : <p role="status" style={hintS}>Completá nombres únicos y valores en todas las dimensiones. Máximo {MAX_PRODUCT_VARIANTS} combinaciones.</p>
                   })()}
                 </div>
               )}
@@ -1541,6 +1586,8 @@ export function ProductFormModal({
 
                     {/* ─ Header colapsado ─ */}
                     <div
+                      role="button" tabIndex={0} aria-expanded={v.expanded} aria-label={`Editar variante ${v.name}`}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); updateVariant(v._key, { expanded: !v.expanded }) } }}
                       onClick={() => updateVariant(v._key, { expanded: !v.expanded })}
                       style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', padding: '0.75rem 0.875rem', cursor: 'pointer', userSelect: 'none' }}
                     >
@@ -1554,11 +1601,11 @@ export function ProductFormModal({
                             <span style={{ fontSize: '0.6rem', fontWeight: 800, padding: '0.1rem 0.4rem', borderRadius: '999px', background: 'rgba(99,102,241,0.15)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.3)', letterSpacing: '0.04em' }}>DEFAULT</span>
                           )}
                           {attrs.map(([k, val]) => (
-                            <span key={k} style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem', borderRadius: '999px', background: 'rgba(255,255,255,0.05)', color: '#64748b', border: '1px solid rgba(255,255,255,0.08)' }}>
+                            <span key={k} style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem', borderRadius: '999px', background: 'rgba(255,255,255,0.05)', color: 'var(--text-secondary)', border: '1px solid rgba(255,255,255,0.08)' }}>
                               {k}: {val}
                             </span>
                           ))}
-                          {v.sku && <span style={{ fontSize: '0.65rem', color: '#334155' }}>#{v.sku}</span>}
+                          {v.sku && <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>#{v.sku}</span>}
                         </div>
                       </div>
                       {/* price + stock */}
@@ -1569,7 +1616,7 @@ export function ProductFormModal({
                           </span>
                         )}
                         <span style={{ padding: '0.15rem 0.5rem', borderRadius: '999px', background: sb.bg, color: sb.color, fontSize: '0.65rem', fontWeight: 700 }}>{sb.label}</span>
-                        <span style={{ color: '#334155', fontSize: '0.65rem', transform: v.expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▼</span>
+                        <span style={{ color: 'var(--text-secondary)', fontSize: '0.65rem', transform: v.expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▼</span>
                       </div>
                     </div>
 
@@ -1580,18 +1627,18 @@ export function ProductFormModal({
 
                         {/* Atributos dinámicos */}
                         <div>
-                          <label style={{ display: 'block', color: '#64748b', fontSize: '0.72rem', fontWeight: 600, marginBottom: '0.35rem' }}>Atributos</label>
+                          <label style={{ display: 'block', color: 'var(--text-secondary)', fontSize: '0.72rem', fontWeight: 600, marginBottom: '0.35rem' }}>Atributos</label>
                           <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', alignItems: 'center' }}>
                             {attrs.map(([k]) => (
                               <div key={k} style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '999px', overflow: 'hidden' }}>
-                                <span style={{ paddingLeft: '0.5rem', color: '#475569', fontSize: '0.68rem' }}>{k}:</span>
+                                <span style={{ paddingLeft: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.68rem' }}>{k}:</span>
                                 <input
                                   value={v.attributes[k]}
                                   onChange={e => updateVariantAttr(v._key, k, e.target.value)}
-                                  style={{ background: 'transparent', border: 'none', outline: 'none', color: '#818cf8', fontSize: '0.68rem', fontWeight: 600, width: `${Math.max(40, (v.attributes[k] || '').length * 8 + 10)}px`, padding: '0.2rem 0.25rem', fontFamily: F }}
+                                  style={{ background: 'transparent', border: 'none', outline: 'none', color: 'var(--text-primary)', fontSize: '0.68rem', fontWeight: 600, width: `${Math.max(44, (v.attributes[k] || '').length * 10 + 16)}px`, maxWidth: '100%', padding: '0.2rem 0.25rem', fontFamily: F }}
                                 />
                                 <button type="button" onClick={() => removeVariantAttr(v._key, k)}
-                                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: '0.2rem 0.35rem', fontSize: '0.65rem' }}>✕</button>
+                                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '0.2rem 0.35rem', fontSize: '0.65rem' }}>✕</button>
                               </div>
                             ))}
                             {/* Agregar atributo nuevo */}
@@ -1600,7 +1647,7 @@ export function ProductFormModal({
                                 const k = prompt('Nombre del atributo (ej: Color, Capacidad):')
                                 if (k?.trim()) updateVariantAttr(v._key, k.trim(), '')
                               }}
-                              style={{ padding: '0.2rem 0.5rem', background: 'transparent', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: '999px', color: '#334155', fontSize: '0.65rem', cursor: 'pointer', fontFamily: F }}>
+                              style={{ padding: '0.2rem 0.5rem', background: 'transparent', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: '999px', color: 'var(--text-secondary)', fontSize: '0.65rem', cursor: 'pointer', fontFamily: F }}>
                               + Atributo
                             </button>
                           </div>
@@ -1608,25 +1655,42 @@ export function ProductFormModal({
 
                         <Row2>
                           <Field label="Nombre *">
-                            <input value={v.name} onChange={e => updateVariant(v._key, { name: e.target.value })} style={inputS} />
+                            <input aria-label="Nombre de variante" data-testid="variant-name-input" value={v.name} onChange={e => updateVariant(v._key, { name: e.target.value })} style={inputS} />
                           </Field>
                           <Field label="SKU variante">
-                            <input value={v.sku} onChange={e => updateVariant(v._key, { sku: e.target.value })} placeholder="P001-VAR" style={inputS} />
+                            <input aria-label="SKU variante" data-testid="variant-sku-input" value={v.sku} onChange={e => updateVariant(v._key, { sku: e.target.value })} placeholder="P001-VAR" style={inputS} />
                           </Field>
                         </Row2>
                         <Row2>
-                          <Field label={`Costo (${form.base_currency})`}>
+                          <Field label="Moneda de variante">
+                            <select aria-label="Moneda de variante" value={v.cost_currency ?? form.base_currency}
+                              onChange={e => updateVariant(v._key, { cost_currency: e.target.value === 'USD' ? 'USD' : 'ARS' })} style={inputS}>
+                              <option value="ARS">ARS</option><option value="USD">USD</option>
+                            </select>
+                          </Field>
+                          {(v.cost_currency ?? form.base_currency) === 'USD' && <Field label="Cotización de variante">
+                            <input aria-label="Cotización de variante" type="number" min="0.01" step="0.01"
+                              value={v.exchange_rate ?? form.exchange_rate} onChange={e => updateVariant(v._key, { exchange_rate: e.target.value })} style={inputS} />
+                          </Field>}
+                        </Row2>
+                        {(v.cost_currency ?? form.base_currency) === 'USD' && <label style={{ ...hintS, display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <input type="checkbox" checked={v.auto_update_price ?? form.auto_update_price}
+                            onChange={e => updateVariant(v._key, { auto_update_price: e.target.checked })} />
+                          Actualizar precio de esta variante con el dólar
+                        </label>}
+                        <Row2>
+                          <Field label={`Costo (${v.cost_currency ?? form.base_currency})`}>
                             <div style={{ position: 'relative' }}>
-                              <span style={prefixS}>{form.base_currency === 'USD' ? 'U$' : '$'}</span>
-                              <input value={form.base_currency === 'USD' ? v.cost_usd : v.cost_ars}
-                                onChange={e => updateVariant(v._key, form.base_currency === 'USD' ? { cost_usd: e.target.value } : { cost_ars: e.target.value })}
+                              <span style={prefixS}>{(v.cost_currency ?? form.base_currency) === 'USD' ? 'U$' : '$'}</span>
+                              <input aria-label="Costo de variante" value={(v.cost_currency ?? form.base_currency) === 'USD' ? v.cost_usd : v.cost_ars}
+                                onChange={e => updateVariant(v._key, (v.cost_currency ?? form.base_currency) === 'USD' ? { cost_usd: e.target.value } : { cost_ars: e.target.value })}
                                 placeholder="0" style={{ ...inputS, paddingLeft: '1.75rem' }} />
                             </div>
                           </Field>
                           <Field label="Precio venta (ARS)">
                             <div style={{ position: 'relative' }}>
                               <span style={prefixS}>$</span>
-                              <input value={v.sale_price} onChange={e => updateVariant(v._key, { sale_price: e.target.value })} placeholder="0" style={{ ...inputS, paddingLeft: '1.75rem' }} />
+                              <input aria-label="Precio de variante" data-testid="variant-price-input" value={v.sale_price} onChange={e => updateVariant(v._key, { sale_price: e.target.value })} placeholder="0" style={{ ...inputS, paddingLeft: '1.75rem' }} />
                             </div>
                           </Field>
                         </Row2>
@@ -1634,41 +1698,38 @@ export function ProductFormModal({
                           <Field label="Mayorista (ARS)">
                             <div style={{ position: 'relative' }}>
                               <span style={prefixS}>$</span>
-                              <input value={v.wholesale} onChange={e => updateVariant(v._key, { wholesale: e.target.value })} placeholder="Opcional" style={{ ...inputS, paddingLeft: '1.75rem' }} />
+                              <input aria-label="Mayorista de variante" value={v.wholesale} onChange={e => updateVariant(v._key, { wholesale: e.target.value })} placeholder="Opcional" style={{ ...inputS, paddingLeft: '1.75rem' }} />
                             </div>
                           </Field>
                           <Field label="Código de barras">
-                            <input value={v.barcode} onChange={e => updateVariant(v._key, { barcode: e.target.value })} placeholder="Opcional" style={inputS} />
+                            <input aria-label="Código de barras de variante" value={v.barcode} onChange={e => updateVariant(v._key, { barcode: e.target.value })} placeholder="Opcional" style={inputS} />
                           </Field>
                         </Row2>
                         <Row2>
-                          <Field label="Stock inicial">
-                            <input value={v.stock} onChange={e => updateVariant(v._key, { stock: e.target.value })} type="number" min="0" style={inputS} />
-                          </Field>
+                          {canSetInitialStock && <Field label="Stock inicial">
+                            <input aria-label="Stock inicial de variante" data-testid="variant-stock-input" value={v.stock} onChange={e => updateVariant(v._key, { stock: e.target.value })} type="number" min="0" style={inputS} />
+                          </Field>}
                           <Field label="Stock mínimo">
-                            <input value={v.min_stock} onChange={e => updateVariant(v._key, { min_stock: e.target.value })} type="number" min="0" style={inputS} />
+                            <input aria-label="Stock mínimo de variante" value={v.min_stock} onChange={e => updateVariant(v._key, { min_stock: e.target.value })} type="number" min="0" style={inputS} />
                           </Field>
                         </Row2>
                         <Field label="Ubicación">
-                          <input value={v.location} onChange={e => updateVariant(v._key, { location: e.target.value })} placeholder="Estante A3" style={inputS} />
+                          <input aria-label="Ubicación de variante" value={v.location} onChange={e => updateVariant(v._key, { location: e.target.value })} placeholder="Estante A3" style={inputS} />
                         </Field>
 
                         {/* Footer de la card */}
                         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', paddingTop: '0.25rem', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
                           <button type="button" onClick={() => setDefaultVariant(v._key)}
-                            style={{ padding: '0.25rem 0.625rem', background: v.is_default ? 'rgba(99,102,241,0.15)' : 'transparent', border: `1px solid ${v.is_default ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.1)'}`, borderRadius: '0.5rem', color: v.is_default ? '#818cf8' : '#334155', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
+                            style={{ padding: '0.25rem 0.625rem', background: v.is_default ? 'rgba(99,102,241,0.15)' : 'transparent', border: `1px solid ${v.is_default ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.1)'}`, borderRadius: '0.5rem', color: 'var(--text-primary)', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
                             {v.is_default ? 'Default' : 'Marcar default'}
                           </button>
                           <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer' }}>
-                            <div onClick={() => updateVariant(v._key, { is_active: !v.is_active })}
-                              style={{ width: 16, height: 16, borderRadius: 4, flexShrink: 0, background: v.is_active ? '#22c55e' : 'transparent', border: `2px solid ${v.is_active ? '#22c55e' : 'rgba(255,255,255,0.15)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
-                              {v.is_active && <Check size={10} color="#fff" strokeWidth={3} />}
-                            </div>
-                            <span style={{ color: '#475569', fontSize: '0.7rem' }}>Activa</span>
+                            <input type="checkbox" aria-label="Variante activa" checked={v.is_active} onChange={e => updateVariant(v._key, { is_active: e.target.checked })} />
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>Activa</span>
                           </label>
                           <div style={{ flex: 1 }} />
                           <button type="button" onClick={() => duplicateVariant(v._key)}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', fontSize: '0.72rem', fontFamily: F, padding: '0.2rem 0.375rem' }}>
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: '0.72rem', fontFamily: F, padding: '0.2rem 0.375rem' }}>
                             Duplicar
                           </button>
                           {form.variants.length > 1 && (
@@ -1686,6 +1747,7 @@ export function ProductFormModal({
             </Section>
           )}
 
+          </fieldset>
           {/* Error */}
           {error && (
             <div style={{ display: 'flex', gap: '0.5rem', padding: '0.75rem 1rem', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: '0.625rem' }}>
@@ -1697,7 +1759,7 @@ export function ProductFormModal({
 
         {/* Footer */}
         <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', padding: '1rem 1.5rem', borderTop: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}>
-          <button type="button" onClick={tryClose} style={{ padding: '0.625rem 1.25rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.75rem', color: '#64748b', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer', fontFamily: F }}>
+          <button type="button" onClick={tryClose} style={{ padding: '0.625rem 1.25rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer', fontFamily: F }}>
             Cancelar
           </button>
           <button
@@ -1706,11 +1768,11 @@ export function ProductFormModal({
             disabled={saving}
             // BETA-UX-1E: `accentCta.text`, no `'#fff'`. El tema claro remapea el
             // blanco en línea a texto oscuro; lo mismo en los otros tres CTAs.
-            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.625rem 1.5rem', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: 'none', borderRadius: '0.75rem', color: accentCta.text, fontWeight: 700, fontSize: '0.875rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, fontFamily: F }}
+            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.625rem 1.5rem', background: accentCta.background, border: 'none', borderRadius: '0.75rem', color: accentCta.text, fontWeight: 700, fontSize: '0.875rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, fontFamily: F }}
           >
             {saving
               ? <><RefreshCw size={14} style={{ animation: 'tr-spin 0.8s linear infinite' }} /> Guardando...</>
-              : pendingInitialStock ? 'Reintentar stock inicial'
+              : pendingInitialStock || pendingVariantStock ? 'Reintentar stock inicial'
               : isEditMode ? 'Guardar cambios' : 'Guardar producto'}
           </button>
         </div>
@@ -1725,7 +1787,7 @@ export function ProductFormModal({
                 <AlertCircle size={20} color="#f59e0b" />
               </div>
               <h3 style={{ margin: '0 0 0.375rem', color: '#f1f5f9', fontSize: '1rem', fontWeight: 800 }}>Cambios sin guardar</h3>
-              <p style={{ margin: 0, color: '#64748b', fontSize: '0.875rem', lineHeight: 1.5 }}>
+              <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.875rem', lineHeight: 1.5 }}>
                 Tenés cambios en el formulario que se perderán si cerrás ahora.
               </p>
             </div>
@@ -1744,7 +1806,7 @@ export function ProductFormModal({
               </button>
               <button
                 onClick={discardAndClose}
-                style={{ width: '100%', padding: '0.625rem 1rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.75rem', color: '#475569', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer', fontFamily: F }}
+                style={{ width: '100%', padding: '0.625rem 1rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer', fontFamily: F }}
               >
                 Descartar cambios
               </button>
@@ -1762,10 +1824,10 @@ export function ProductFormModal({
                 <Check size={20} color="#22c55e" />
               </div>
               <h3 style={{ margin: '0 0 0.375rem', color: '#f1f5f9', fontSize: '1rem', fontWeight: 800 }}>Borrador guardado encontrado</h3>
-              <p style={{ margin: 0, color: '#64748b', fontSize: '0.875rem', lineHeight: 1.5 }}>
+              <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.875rem', lineHeight: 1.5 }}>
                 Se encontró un borrador sin guardar: <strong style={{ color: '#94a3b8' }}>{draftInfo.form.name}</strong>
               </p>
-              <p style={{ margin: '0.25rem 0 0', color: '#334155', fontSize: '0.75rem' }}>
+              <p style={{ margin: '0.25rem 0 0', color: 'var(--text-secondary)', fontSize: '0.75rem' }}>
                 Guardado {new Date(draftInfo.savedAt).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })}
               </p>
             </div>
@@ -1785,7 +1847,7 @@ export function ProductFormModal({
                   try { localStorage.removeItem(DRAFT_KEY) } catch { /* ignore */ }
                   setDraftInfo(null)
                 }}
-                style={{ width: '100%', padding: '0.625rem 1rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.75rem', color: '#475569', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer', fontFamily: F }}
+                style={{ width: '100%', padding: '0.625rem 1rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer', fontFamily: F }}
               >
                 Empezar de cero
               </button>
@@ -1802,7 +1864,7 @@ export function ProductFormModal({
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-      <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.07em', paddingBottom: '0.25rem', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+      <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.07em', paddingBottom: '0.25rem', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
         {label}
       </div>
       {children}
@@ -1812,7 +1874,7 @@ function Section({ label, children }: { label: string; children: React.ReactNode
 
 function Row2({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+    <div className="product-form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
       {children}
     </div>
   )
@@ -1839,7 +1901,7 @@ class ProductFormModalErrorBoundary extends Component<
           <div style={{ background: '#0d1a30', border: '1px solid rgba(248,113,113,0.3)', borderRadius: '1.25rem', padding: '2rem', maxWidth: 400, width: '100%', textAlign: 'center' }}>
             <AlertCircle size={32} color="#f87171" style={{ margin: '0 auto 1rem' }} />
             <h3 style={{ color: '#f1f5f9', margin: '0 0 0.5rem', fontSize: '1rem', fontWeight: 700 }}>Error en el formulario</h3>
-            <p style={{ color: '#64748b', fontSize: '0.875rem', margin: '0 0 1.5rem', lineHeight: 1.5 }}>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: '0 0 1.5rem', lineHeight: 1.5 }}>
               Ocurrió un error inesperado. Tu borrador puede estar guardado en localStorage.
             </p>
             <button onClick={() => { this.setState({ hasError: false, error: null }); this.props.onClose() }}
@@ -1865,7 +1927,7 @@ export function ProductFormModalSafe(props: ProductFormModalProps) {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label style={{ display: 'block', color: '#64748b', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.35rem' }}>
+      <label style={{ display: 'block', color: 'var(--text-secondary)', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.35rem' }}>
         {label}
       </label>
       {children}
@@ -1888,10 +1950,10 @@ const inputS: React.CSSProperties = {
 
 const prefixS: React.CSSProperties = {
   position: 'absolute', left: '0.75rem', top: '50%',
-  transform: 'translateY(-50%)', color: '#475569', fontSize: '0.82rem',
+  transform: 'translateY(-50%)', color: 'var(--text-secondary)', fontSize: '0.82rem',
   pointerEvents: 'none',
 }
 
 const hintS: React.CSSProperties = {
-  margin: '0.25rem 0 0', color: '#475569', fontSize: '0.72rem',
+  margin: '0.25rem 0 0', color: 'var(--text-secondary)', fontSize: '0.72rem',
 }

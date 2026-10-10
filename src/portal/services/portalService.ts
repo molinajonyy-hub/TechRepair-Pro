@@ -417,15 +417,19 @@ export async function resendWholesaleConfirmation(email: string): Promise<Resend
 export async function getCatalog(businessId: string): Promise<PortalProduct[]> {
   const { data, error } = await supabase
     .from('inventory')
-    .select('id, code, name, category, subcategory, stock_quantity, sale_price, precio_mayorista, visible_in_wholesale, description')
+    .select('id, code, name, variant_name, has_variants, parent_id, category, subcategory, stock_quantity, sale_price, precio_mayorista, wholesale_price_ars, visible_in_wholesale, description')
     .eq('business_id', businessId)
     .eq('is_active', true)
     .eq('visible_in_wholesale', true)
+    .not('has_variants', 'is', true)
     .gt('stock_quantity', 0)
     .order('category')
     .order('name')
   if (error) throw error
-  return (data || []) as PortalProduct[]
+  return (data || []).map(item => ({ ...item,
+    name: item.variant_name && !item.name.includes(item.variant_name) ? `${item.name} — ${item.variant_name}` : item.name,
+    precio_mayorista: item.wholesale_price_ars ?? item.precio_mayorista,
+  })) as PortalProduct[]
 }
 
 // ─── Orders ───────────────────────────────────────────────────────────────────
