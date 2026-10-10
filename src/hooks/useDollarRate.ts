@@ -7,11 +7,26 @@
  * en carrera por cada visita. Acá vive el estado compartido: la cotización se
  * lee una vez por negocio, la consumen todos los que la muestran (la barra de
  * escritorio y la fila de mobile están las dos en el DOM y el CSS elige cuál se
- * ve) y se vuelve a leer sola cada 15 minutos mientras alguien la esté mirando.
+ * ve) y se le vuelve a preguntar al servicio cada 15 minutos mientras alguien la
+ * esté mirando.
  *
- * El módulo NO decide precios: sólo lee y reparte lo que devuelve
- * `dollarRateService`. Quien reacciona a una cotización nueva —hoy, los precios
- * de inventario atados al dólar— lo hace desde `useInventoryDollarPriceSync`.
+ * DOS EFECTOS DISTINTOS, que este módulo no acopla:
+ *
+ *   1. Refrescar la cotización que se MUESTRA. Es del shell: `useDollarRate`
+ *      —la lectura inicial, el botón del chip y la lectura periódica—. No toca
+ *      inventario, en ninguna pantalla.
+ *   2. Repreciar el inventario atado al dólar. Es un efecto heredado de Inicio:
+ *      `useInventoryDollarPriceSync`, que corre sólo mientras Inicio está
+ *      montado. El shell no lo monta.
+ *
+ * Que la cotización cambie no reprecia nada por sí solo.
+ *
+ * El módulo NO decide precios ni fuentes: lee y reparte lo que devuelve
+ * `dollarRateService`, sin lógica propia. Lo que ese servicio hace al leer es
+ * suyo y es anterior a 1F: cuando consulta la fuente (auto-update activo y
+ * caché vencido, o lectura forzada) guarda el valor obtenido en
+ * `exchange_rates`, `dollar_rate_history` y `business_settings.last_dollar_*`.
+ * Eso es persistencia de la COTIZACIÓN; no es inventario.
  */
 import { useCallback, useEffect, useSyncExternalStore } from 'react'
 import { useAuth } from '../contexts/AuthContext'
@@ -41,7 +56,7 @@ const listeners = new Set<() => void>()
 let consumers = 0
 let timer: ReturnType<typeof setInterval> | null = null
 let inFlight: { businessId: string; promise: Promise<void> } | null = null
-/** Última lectura ya aplicada al inventario: evita repetirla al remontar. */
+/** Última lectura ya aplicada al inventario: evita repetirla al volver a Inicio. */
 let inventorySync: { businessId: string; loads: number } | null = null
 
 function publish(next: DollarRateSnapshot): void {
@@ -60,11 +75,9 @@ const getSnapshot = () => snapshot
  * Lee la cotización del negocio. Dos pedidos simultáneos comparten la misma
  * lectura: es lo que impide el doble fetch.
  *
- * `force` ignora el caché del servicio: lo usan el botón de actualizar y la
- * lectura periódica. La periódica no puede apoyarse en el TTL del caché porque
- * dura lo mismo que el intervalo: el caché se llena cuando la lectura TERMINA,
- * así que al dispararse el intervalo todavía estaría «fresco» y la cotización
- * se renovaría recién cada 30 minutos.
+ * `force` ignora el caché del servicio y lo usa SÓLO una acción explícita del
+ * usuario (el botón del chip, «Actualizar» en Inicio). La lectura inicial y la
+ * periódica no fuerzan: respetan el caché del servicio.
  */
 function load(businessId: string, force: boolean): Promise<void> {
   if (inFlight && inFlight.businessId === businessId) return inFlight.promise
@@ -103,8 +116,16 @@ function attach(businessId: string): () => void {
   }
 
   if (!timer) {
+    // Lectura periódica, para que el chip no muestre un valor viejo. NO fuerza:
+    // le pregunta al servicio y es SU caché el que decide si se consulta la
+    // fuente —igual que la lectura periódica que tenía Inicio antes de 1F—. El
+    // caché se llena cuando la lectura termina, así que al dispararse el
+    // intervalo suele seguir fresco: la fuente se consulta, en la práctica, uno
+    // de cada dos ciclos.
+    //
+    // Este timer refresca lo que se muestra y nada más. No reprecia inventario.
     timer = setInterval(() => {
-      if (snapshot.businessId) void load(snapshot.businessId, true)
+      if (snapshot.businessId) void load(snapshot.businessId, false)
     }, REFRESH_INTERVAL_MS)
   }
 
@@ -173,19 +194,31 @@ export function useDollarRate(): UseDollarRateReturn {
 // ─── Precios de inventario atados al dólar ────────────────────────────────────
 
 /**
- * Mantiene al día el precio en pesos de los productos atados al dólar.
+ * Reprecio heredado de los productos atados al dólar — acotado a Inicio.
  *
- * `refreshInventoryDollarPrices` es el ÚNICO mecanismo que recalcula
- * `sale_price` de los productos `linked_to_dolar` (precio en USD × cotización
- * de venta). Hasta BETA-UX-1F lo disparaba un efecto de Inicio: los precios se
- * actualizaban sólo si alguien abría esa pantalla, y cada 15 minutos sólo
- * mientras se quedaba en ella. Un taller que deja la aplicación abierta en
- * Órdenes o en el POS no los actualizaba nunca.
+ * `refreshInventoryDollarPrices` es el único mecanismo del frontend que
+ * recalcula `sale_price` de los productos `linked_to_dolar` (precio en USD ×
+ * cotización de venta), y lo hace con un UPDATE por producto desde el
+ * navegador. Antes de BETA-UX-1F lo disparaba un efecto de Inicio. Ese
+ * comportamiento se conserva y en el mismo lugar: este hook se monta SÓLO
+ * desde `Dashboard`.
  *
- * Ahora corre con el ciclo de vida del shell: una vez por cada lectura
- * terminada de la cotización —la inicial, la periódica y la manual—, sin
- * importar la pantalla. La fórmula y la fuente NO cambian: es la misma función
- * del servicio, con la misma cotización que se muestra arriba.
+ * No se monta en el shell, a propósito. Hacerlo convertiría navegar por
+ * cualquier pantalla —o dejar la aplicación abierta en Órdenes— en un
+ * disparador de escrituras de inventario: un cambio en el ciclo de vida de las
+ * escrituras de toda la aplicación, que este lote no introduce.
+ *
+ * Mientras Inicio está montado, cada lectura efectiva de la cotización —una
+ * lectura terminada que trae precio de venta— se aplica como máximo una vez:
+ *   · no pide la cotización por su cuenta: usa la lectura compartida;
+ *   · una lectura ya aplicada no se repite al volver a entrar a Inicio;
+ *   · una lectura hecha con Inicio desmontado no reprecia nada en ese momento;
+ *     si es la vigente cuando Inicio se monta, se aplica ahí, una sola vez.
+ *
+ * La fórmula y la fuente no cambian: es la misma función del servicio.
+ *
+ * Deuda DOLLAR-PRICE-SYNC-1: el reprecio debería ser del servidor, en lote y
+ * sólo cuando cambia la cotización efectiva. No se resuelve en BETA-UX-1F.
  */
 export function useInventoryDollarPriceSync(): void {
   const { businessId } = useAuth()

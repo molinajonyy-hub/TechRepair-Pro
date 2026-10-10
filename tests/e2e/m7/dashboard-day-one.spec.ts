@@ -165,6 +165,10 @@ async function abrir(page: Page, tema: Tema, vp: { width: number; height: number
   if (cotizacion) await conCotizacion(page)
   await page.goto('/dashboard')
   await expect(page.getByTestId('dashboard-today')).toBeVisible({ timeout: 30_000 })
+  // El bloque de Tareas comparte el gate de `/tasks` y se monta recién con el
+  // plan del negocio confirmado: se espera, no se asume. Los tres actores de
+  // este spec lo tienen (capacidad `orders` + feature `tasks`).
+  await expect(page.getByTestId('dashboard-tasks')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByTestId('dashboard-tasks-loading')).toHaveCount(0, { timeout: 15_000 })
   await page.waitForLoadState('networkidle')
   await asentar(page)
@@ -296,6 +300,22 @@ async function capturar(page: Page, nombre: string, fullPage = true) {
 
 const accion = (page: Page, nombre: string) =>
   page.getByTestId('dashboard-actions').getByRole('button', { name: nombre, exact: true })
+
+/**
+ * Mobile: las tres acciones secundarias comparten fila, ancho y ALTO, debajo de
+ * la principal. El alto importa: según la fuente y el ancho un rótulo entra en
+ * un renglón y su vecino en dos, y con la fila centrada el más bajo quedaba
+ * descolgado. CI lo encontró a 375; con otra fuente pasa a 390 y a 430.
+ */
+async function filaDeSecundarias(page: Page, principal: { y: number; height: number }) {
+  const secundarias = await Promise.all(['Nuevo Comprobante', 'Gestionar Caja', 'Registrar gasto'].map(n => caja(accion(page, n))))
+  expect(new Set(secundarias.map(s => Math.round(s.y))).size, 'las secundarias no están en una fila').toBe(1)
+  const altos = secundarias.map(s => Math.round(s.height))
+  expect(Math.max(...altos) - Math.min(...altos), `altos desparejos: ${altos.join(', ')}`).toBeLessThanOrEqual(TOL)
+  expect(secundarias[0].y).toBeGreaterThanOrEqual(principal.y + principal.height - TOL)
+  const anchos = secundarias.map(s => Math.round(s.width))
+  expect(Math.max(...anchos) - Math.min(...anchos), `anchos desparejos: ${anchos.join(', ')}`).toBeLessThanOrEqual(2)
+}
 
 // ─── Contrato de red ────────────────────────────────────────────────────────
 
@@ -544,6 +564,55 @@ test.describe('@beta-ux-1f A · dueño con datos · escritorio', () => {
     await expect(page).toHaveURL(/\/dashboard$/)
     sinFuentesRetiradas(pedidos, 'dueño, al actualizar')
   })
+
+  // El shell MUESTRA la cotización en todas las pantallas; el reprecio de los
+  // productos atados al dólar es un efecto heredado de Inicio y de nadie más.
+  // El reprecio se reconoce por su lectura: `inventory?…linked_to_dolar=eq.true`
+  // sólo la hace `refreshInventoryDollarPrices`.
+  test('el reprecio de inventario es de Inicio: en otra pantalla la cotización se lee y no se toca un producto', async ({ page }) => {
+    const inventario: { metodo: string; consulta: string }[] = []
+    page.on('request', (req: Request) => {
+      const url = new URL(req.url())
+      if (url.pathname === '/rest/v1/inventory') inventario.push({ metodo: req.method(), consulta: url.search })
+    })
+    const leeVinculados = () => inventario.filter(p => p.metodo === 'GET' && p.consulta.includes('linked_to_dolar=eq.true')).length
+    const escribe = () => inventario.filter(p => !['GET', 'HEAD', 'OPTIONS'].includes(p.metodo)).length
+    const chip = () => utilidades(page, false).getByTestId('shell-dollar-chip')
+    const menu = (ruta: string) => page.locator(`aside a[href="${ruta}"]:visible`).first()
+    const actualizarCotizacion = async () => {
+      const lectura = page.waitForResponse(r => /\/functions\/v1\/(fetch-dollar-rate|infodolar-cordoba)/.test(r.url()))
+      await chip().getByRole('button', { name: 'Actualizar cotización del dólar' }).click()
+      await lectura
+      await page.waitForLoadState('networkidle')
+    }
+
+    await applyTheme(page, 'light')
+    await page.setViewportSize(DESKTOP)
+    await conCotizacion(page)
+
+    // ── Órdenes: la barra muestra la cotización y nadie reprecia ──────────
+    await page.goto('/orders')
+    await expect(chip()).toContainText('$1.556', { timeout: 30_000 })
+    await page.waitForLoadState('networkidle')
+    await actualizarCotizacion()
+    expect(leeVinculados(), '/orders leyó los productos atados al dólar').toBe(0)
+    expect(escribe(), '/orders escribió inventario').toBe(0)
+
+    // ── Inicio: conserva el reprecio heredado, una vez ─────────────────────
+    await menu('/dashboard').click()
+    await expect(page.getByTestId('dashboard-today')).toBeVisible({ timeout: 30_000 })
+    await expect.poll(leeVinculados, { message: 'Inicio no aplicó la cotización al inventario' }).toBe(1)
+    await page.waitForLoadState('networkidle')
+    expect(leeVinculados(), 'Inicio repreció más de una vez por la misma lectura').toBe(1)
+    const escriturasDeInicio = escribe()
+
+    // ── Al salir de Inicio se detiene, aunque la cotización se actualice ───
+    await menu('/orders').click()
+    await expect(page).toHaveURL(/\/orders$/)
+    await actualizarCotizacion()
+    expect(leeVinculados(), 'se repreció fuera de Inicio').toBe(1)
+    expect(escribe(), 'se escribió inventario fuera de Inicio').toBe(escriturasDeInicio)
+  })
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -578,11 +647,7 @@ test.describe('@beta-ux-1f A · dueño con datos · mobile', () => {
       const principal = await caja(accion(page, 'Nueva Orden'))
       expect(Math.abs(principal.width - contenido.width), '«Nueva Orden» no ocupa el ancho').toBeLessThanOrEqual(TOL)
       expect(principal.height).toBeGreaterThanOrEqual(48 - TOUCH_EPSILON)
-      const secundarias = await Promise.all(['Nuevo Comprobante', 'Gestionar Caja', 'Registrar gasto'].map(n => caja(accion(page, n))))
-      expect(new Set(secundarias.map(s => Math.round(s.y))).size, 'las secundarias no están en una fila').toBe(1)
-      expect(secundarias[0].y).toBeGreaterThanOrEqual(principal.y + principal.height - TOL)
-      const anchos = secundarias.map(s => Math.round(s.width))
-      expect(Math.max(...anchos) - Math.min(...anchos), `anchos desparejos: ${anchos.join(', ')}`).toBeLessThanOrEqual(2)
+      await filaDeSecundarias(page, principal)
       // Ningún texto de botón se corta.
       for (const nombre of ['Nueva Orden', 'Nuevo Comprobante', 'Gestionar Caja', 'Registrar gasto']) {
         expect(await accion(page, nombre).evaluate(el => el.scrollWidth - el.clientWidth), `«${nombre}» se recorta`).toBeLessThanOrEqual(TOL)
@@ -651,6 +716,7 @@ test.describe('@beta-ux-1f A · dueño con datos · mobile', () => {
       await abrir(page, 'light', vp)
       await sinDesborde(page, `Inicio a ${vp.width}`)
       expect((await controlesChicos(page)).chicos, 'controles por debajo de 44 px').toEqual([])
+      await filaDeSecundarias(page, await caja(accion(page, 'Nueva Orden')))
       await expect(utilidades(page, true)).toBeVisible()
       await expect(page.getByTestId('dashboard-recent-orders-list')).toBeVisible()
     })

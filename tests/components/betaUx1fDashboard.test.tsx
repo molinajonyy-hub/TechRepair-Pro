@@ -21,7 +21,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -52,6 +52,12 @@ const h = vi.hoisted(() => ({
   tasks: [] as FakeTask[],
   cajaAbierta: true,
   firstSteps: null as Record<string, boolean> | null,
+  /**
+   * Plan del negocio. `confirmado: false` es «la lectura terminó sin datos»;
+   * `loading: true`, «todavía se está leyendo». En los dos casos el hook real
+   * resuelve como un trial optimista, y el simulado hace lo mismo.
+   */
+  plan: { id: 'pro' as 'basico' | 'pro' | 'full', loading: false, confirmado: true },
   /** Cada `from(tabla)` del test en curso. */
   tablas: [] as string[],
   rpcs: [] as string[],
@@ -192,6 +198,31 @@ vi.mock('../../src/services/dollarRateService', async (orig) => {
   }
 })
 
+// El plan es un dato del servidor: se simula el hook que lo lee, pero quién
+// tiene qué feature lo resuelve el código REAL (`resolveEntitlement` sobre la
+// tabla de planes), incluido el trial optimista cuando todavía no hay datos.
+vi.mock('../../src/hooks/useSubscription', async () => {
+  const { resolveEntitlement } = await import('../../src/lib/entitlements')
+  return {
+    useSubscription: () => {
+      const conDatos = !h.plan.loading && h.plan.confirmado
+      const resuelto = resolveEntitlement(conDatos
+        ? { subscription_status: 'active', subscription_plan: h.plan.id }
+        : {})
+      return {
+        loading: h.plan.loading,
+        subscription: conDatos ? { subscription_status: 'active', subscription_plan: h.plan.id } : null,
+        currentPlan: resuelto.currentPlan,
+        planFeatures: resuelto.planFeatures,
+        hasFeature: resuelto.hasFeature,
+      }
+    },
+  }
+})
+// Vecinos del guard de `/tasks`, que se monta de verdad para comparar.
+vi.mock('../../src/hooks/useSystemOwner', () => ({ useSystemOwner: () => ({ isSystemOwner: false, loading: false }) }))
+vi.mock('../../src/components/subscription/UpgradeRequired', () => ({ UpgradeRequired: () => null }))
+
 // Vecinos de `TopHeader` que no son parte del lote.
 vi.mock('../../src/contexts/SystemStatusContext', () => ({
   useSystemStatus: () => ({ status: 'online', triggerRefresh: vi.fn() }),
@@ -205,7 +236,15 @@ import { CajaProvider } from '../../src/contexts/CajaContext'
 import { DollarRateBadge } from '../../src/components/ui/DollarRateBadge'
 import { DashboardTasks } from '../../src/components/tasks/DashboardTasks'
 import { invalidateOperationalDashboardStats, RECENT_ORDERS_LIMIT } from '../../src/hooks/useOperationalDashboardStats'
-import { resetDollarRateStore, useInventoryDollarPriceSync } from '../../src/hooks/useDollarRate'
+import { resetDollarRateStore } from '../../src/hooks/useDollarRate'
+import { TASKS_ACCESS_GATE } from '../../src/hooks/useTasksAccess'
+import { isNavigationItemAuthorized, type NavigationAccess } from '../../src/hooks/useNavigationAccess'
+import { effectivePermissions } from '../../src/hooks/usePermissions'
+import { resolveEntitlement } from '../../src/lib/entitlements'
+import { ALL_PERMISSIONS } from '../../src/config/permissions'
+import { PLAN_FEATURES } from '../../src/config/planFeatures'
+import { ProtectedRouteByPermission } from '../../src/components/auth/ProtectedRouteByPermission'
+import { ProtectedRouteByFeature } from '../../src/components/auth/ProtectedRouteByFeature'
 import { taskService, isTaskDueToday } from '../../src/services/taskService'
 import { isDueTodayTask } from '../../src/components/tasks/taskGrouping'
 import { STATUS_CONFIG } from '../../src/types/orderStatus'
@@ -267,6 +306,7 @@ beforeEach(() => {
   h.tasks = [tarea(1, { title: 'Llamar a Juan' })]
   h.cajaAbierta = true
   h.firstSteps = PASOS_COMPLETOS
+  Object.assign(h.plan, { id: 'pro', loading: false, confirmado: true })
   h.tablas = []
   h.rpcs = []
   h.consultas = []
@@ -364,9 +404,12 @@ describe('BETA-UX-1F · Inicio no CONSULTA finanzas (red)', () => {
     expect([...new Set(h.rpcs)]).toEqual(['get_my_first_steps'])
     for (const tabla of TABLAS_FINANCIERAS) expect(h.tablas, `Inicio consultó ${tabla}`).not.toContain(tabla)
     for (const rpc of RPCS_FINANCIERAS) expect(h.rpcs, `Inicio llamó a ${rpc}`).not.toContain(rpc)
-    // Ni la cotización ni el reprecio del inventario salen de esta pantalla.
-    expect(h.dollar.refreshDollarRate).not.toHaveBeenCalled()
-    expect(h.dollar.refreshInventoryDollarPrices).not.toHaveBeenCalled()
+    // Lo único que Inicio conserva del dólar es el reprecio heredado, por el
+    // servicio y sobre la lectura compartida: una lectura (acá no hay barra que
+    // la haya hecho antes), sin forzar, y un reprecio. Ver el bloque del shell.
+    expect(h.dollar.refreshDollarRate).toHaveBeenCalledTimes(1)
+    expect(h.dollar.refreshDollarRate).toHaveBeenCalledWith(BIZ, false)
+    expect(h.dollar.refreshInventoryDollarPrices).toHaveBeenCalledTimes(1)
     expect(fetch).not.toHaveBeenCalled()
   })
 
@@ -410,7 +453,7 @@ describe('BETA-UX-1F · Inicio no CONSULTA finanzas (red)', () => {
     expect(leerCodigo('src/pages/Dashboard.tsx')).not.toMatch(/location\.reload|window\.location/)
   })
 
-  it('la fuente de Inicio no importa hooks financieros, ni Supabase, ni la cotización', () => {
+  it('la fuente de Inicio no importa hooks financieros, ni Supabase, ni el servicio de cotización', () => {
     const fuente = leerCodigo('src/pages/Dashboard.tsx')
     const modulos = [...fuente.matchAll(/from\s+'([^']+)'/g)].map(m => m[1])
     for (const prohibido of [
@@ -636,6 +679,174 @@ describe('BETA-UX-1F · Tareas es protagonista', () => {
     await montarListo()
     expect(screen.getByTestId('dashboard-tasks').textContent).not.toMatch(/CRM|lead|seguimiento|presupuesto/i)
     expect(leerCodigo('src/components/tasks/DashboardTasks.tsx')).not.toMatch(/crm|lead/i)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Microfix: el bloque de Tareas se ofrecía sin mirar el plan. Un negocio sin la
+// feature veía «Nueva tarea» y «Ver todas», y las dos terminaban en la pantalla
+// de «mejorá tu plan». Ahora el bloque existe sólo para quien entra a `/tasks`.
+// ═══════════════════════════════════════════════════════════════════════════
+describe('BETA-UX-1F · Tareas comparte el gate de `/tasks`', () => {
+  const TABLAS_DE_TAREAS = ['tasks', 'task_items', 'task_history']
+  const pidioTareas = () => h.tablas.filter(t => TABLAS_DE_TAREAS.includes(t))
+  const hayBloque = () => screen.queryByTestId('dashboard-tasks') !== null
+  const inicio = () => <MemoryRouter><CajaProvider><Dashboard /></CajaProvider></MemoryRouter>
+
+  /** La ruta `/tasks` con sus dos guards REALES, compuestos como en `App.tsx`. */
+  function rutaAbierta(): boolean {
+    const vista = render(
+      <MemoryRouter initialEntries={['/tasks']}>
+        <Routes>
+          <Route element={<ProtectedRouteByPermission permission="orders" />}>
+            <Route element={<ProtectedRouteByFeature feature="tasks" />}>
+              <Route path="/tasks" element={<div data-testid="ruta-tareas" />} />
+            </Route>
+          </Route>
+          <Route path="/dashboard" element={<div data-testid="rebote" />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    const abierta = vista.queryByTestId('ruta-tareas') !== null
+    vista.unmount()
+    return abierta
+  }
+
+  /** La decisión del menú (Sidebar, «Más», Ctrl+K) para el mismo actor y plan. */
+  function menuAutorizado(rol: string, overrides: unknown): boolean {
+    const permisos = effectivePermissions(rol, rol === 'owner', overrides)
+    const plan = resolveEntitlement({ subscription_status: 'active', subscription_plan: h.plan.id })
+    const acceso = {
+      can: (clave: keyof typeof permisos) => permisos[clave] ?? false,
+      hasFeature: plan.hasFeature,
+      isSystemOwner: false,
+      mayoristaEnabled: true,
+      portalClic: false,
+    } as unknown as NavigationAccess
+    return isNavigationItemAuthorized(TASKS_ACCESS_GATE, acceso)
+  }
+
+  const CASOS = [
+    // A · feature `tasks` + capacidad `orders`
+    ['tech', null, 'pro', true],
+    ['owner', null, 'full', true],
+    // B · feature sin la capacidad
+    ['tech', { orders: false }, 'pro', false],
+    // C · capacidad sin la feature
+    ['tech', null, 'basico', false],
+    ['owner', null, 'basico', false],
+    // D · ninguna de las dos
+    ['tech', { orders: false }, 'basico', false],
+  ] as const
+
+  it.each(CASOS)('%s %j en plan %s → bloque de Tareas: %s', async (rol, overrides, plan, esperado) => {
+    h.role = rol
+    h.permissions = overrides
+    h.plan.id = plan
+    await montarListo()
+    await act(async () => { await Promise.resolve() })
+
+    expect(hayBloque()).toBe(esperado)
+    // E · ausente = ni un pedido de tareas. Presente = las pide.
+    if (esperado) expect(pidioTareas()).not.toEqual([])
+    else expect(pidioTareas(), 'se pidieron tareas sin acceso al módulo').toEqual([])
+  })
+
+  it.each(CASOS)('%s %j en plan %s: la misma decisión que la ruta y que el menú', async (rol, overrides, plan, esperado) => {
+    h.role = rol
+    h.permissions = overrides
+    h.plan.id = plan
+    expect(rutaAbierta(), 'guards de /tasks').toBe(esperado)
+    expect(menuAutorizado(rol, overrides), 'isNavigationItemAuthorized').toBe(esperado)
+    await montarListo()
+    expect(hayBloque(), 'bloque de Inicio').toBe(esperado)
+  })
+
+  it('sin acceso no queda un hueco: después de «Hoy» vienen las órdenes recientes', async () => {
+    h.plan.id = 'basico'
+    await montarListo()
+    expect(hayBloque()).toBe(false)
+    // Ni el bloque ni un contenedor vacío en su lugar: encabezado, «Hoy», órdenes.
+    const hijos = [...pagina().children]
+    expect(hijos).toHaveLength(3)
+    expect(hijos[1]).toBe(screen.getByTestId('dashboard-today'))
+    expect(hijos[2]).toBe(screen.getByTestId('dashboard-recent-orders'))
+    // Y nada que lleve a una pantalla de «mejorá tu plan».
+    expect(boton('Nueva tarea')).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Ver todas las tareas' })).toBeNull()
+    expect(within(pagina()).queryByText('Mis tareas')).toBeNull()
+  })
+
+  it('«Actualizar» tampoco pide tareas cuando el bloque no existe', async () => {
+    h.plan.id = 'basico'
+    await montarListo()
+    const ordenesAntes = h.tablas.filter(t => t === 'orders').length
+    fireEvent.click(screen.getByRole('button', { name: 'Actualizar datos' }))
+    await waitFor(() => expect(h.tablas.filter(t => t === 'orders').length).toBe(ordenesAntes + 7))
+    await act(async () => { await Promise.resolve() })
+    expect(pidioTareas()).toEqual([])
+  })
+
+  it('mientras el plan se está leyendo no se abre a ciegas: ni bloque ni pedido', async () => {
+    h.plan.loading = true
+    const vista = montar()
+    await screen.findByTestId('dashboard-today')
+    await act(async () => { await Promise.resolve() })
+    // Sin datos el plan se resuelve como un trial (optimista): por eso el
+    // bloque no puede guiarse sólo por `hasFeature`.
+    expect(resolveEntitlement({}).hasFeature('tasks')).toBe(true)
+    expect(hayBloque()).toBe(false)
+    expect(pidioTareas()).toEqual([])
+
+    // Llega el plan y lo incluye: aparece, y recién ahí pide.
+    h.plan.loading = false
+    vista.rerender(inicio())
+    expect(await screen.findByTestId('dashboard-tasks')).toBeInTheDocument()
+    await waitFor(() => expect(pidioTareas()).not.toEqual([]))
+  })
+
+  it('llega el plan y NO incluye Tareas: nunca se pidió nada', async () => {
+    h.plan.loading = true
+    h.plan.id = 'basico'
+    const vista = montar()
+    await screen.findByTestId('dashboard-today')
+    h.plan.loading = false
+    vista.rerender(inicio())
+    await act(async () => { await Promise.resolve() })
+    expect(hayBloque()).toBe(false)
+    expect(pidioTareas()).toEqual([])
+  })
+
+  it('si la lectura del plan terminó sin datos, el bloque queda cerrado', async () => {
+    h.plan.confirmado = false
+    await montarListo()
+    expect(hayBloque()).toBe(false)
+    expect(pidioTareas()).toEqual([])
+  })
+
+  it('no hay capacidad nueva ni nombre de rol: capacidad `orders` + feature `tasks`', () => {
+    expect(TASKS_ACCESS_GATE).toEqual({ permission: 'orders', planFeature: 'tasks' })
+    expect(ALL_PERMISSIONS).toContain(TASKS_ACCESS_GATE.permission)
+    expect(ALL_PERMISSIONS).not.toContain('tasks')
+    expect(Object.keys(PLAN_FEATURES.pro)).toContain(TASKS_ACCESS_GATE.planFeature)
+
+    const hook = leerCodigo('src/hooks/useTasksAccess.ts')
+    expect(hook).not.toMatch(/role|isOwner|useAuth|supabase/)
+    expect(hook).toMatch(/can\(TASKS_ACCESS_GATE\.permission\)/)
+    expect(hook).toMatch(/hasFeature\(TASKS_ACCESS_GATE\.planFeature\)/)
+
+    const fuente = leerCodigo('src/pages/Dashboard.tsx')
+    expect(fuente).toMatch(/const \{ canAccessTasks \} = useTasksAccess\(\)/)
+    expect(fuente).toMatch(/\{canAccessTasks && <DashboardTasks refreshKey=\{tasksRefreshKey\} \/>\}/)
+    expect(fuente.match(/<DashboardTasks /g) ?? []).toHaveLength(1)
+  })
+
+  it('el contrato de `/tasks` sigue declarado igual en la ruta, el Sidebar y la navegación móvil', () => {
+    expect(leerCodigo('src/App.tsx')).toMatch(
+      /<Route element=\{<ProtectedRouteByPermission permission="orders" \/>\}>\s*<Route element=\{<ProtectedRouteByFeature feature="tasks" \/>\}>\s*<Route path="\/tasks" element=\{<Tasks \/>\} \/>/,
+    )
+    expect(leerCodigo('src/components/layout/Sidebar.tsx')).toMatch(/path: '\/tasks',[^\n]*planFeature: 'tasks', permission: 'orders'/)
+    expect(leerCodigo('src/config/mobileNavigation.ts')).toMatch(/available: can\('orders'\) && hasFeature\('tasks'\)/)
   })
 })
 
@@ -1003,57 +1214,211 @@ describe('BETA-UX-1F · una sola lectura de la cotización', () => {
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
-describe('BETA-UX-1F · los precios atados al dólar ya no dependen de visitar Inicio', () => {
-  function Shell() {
-    useInventoryDollarPriceSync()
-    return <DollarRateBadge />
+// Microfix: 1F había llevado el reprecio de inventario al shell, y con eso
+// navegar por cualquier pantalla (o dejar la aplicación abierta) disparaba
+// escrituras de inventario. Son DOS efectos distintos y no se acoplan:
+//
+//   · mostrar / refrescar la cotización  → el shell, en cualquier pantalla;
+//   · repreciar inventario               → sólo Inicio, como antes de 1F.
+// ═══════════════════════════════════════════════════════════════════════════
+describe('BETA-UX-1F · el shell muestra la cotización; el reprecio de inventario es sólo de Inicio', () => {
+  /** Lo que el shell monta en CUALQUIER pantalla: la barra con sus dos chips. */
+  const Shell = ({ conInicio = false }: { conInicio?: boolean }) => (
+    <MemoryRouter><CajaProvider><TopHeader />{conInicio && <Dashboard />}</CajaProvider></MemoryRouter>
+  )
+  const lecturas = () => h.dollar.refreshDollarRate
+  const reprecios = () => h.dollar.refreshInventoryDollarPrices
+  const asentar = () => act(async () => { for (let i = 0; i < 5; i += 1) await Promise.resolve() })
+  const actualizarChip = () => fireEvent.click(screen.getByRole('button', { name: 'Actualizar cotización del dólar' }))
+  const cotizar = (sellPrice: number) => h.dollar.refreshDollarRate.mockImplementation(async () => ({ ...COTIZACION(), sellPrice }))
+
+  /** El timer de 15 min del estado compartido, para dispararlo sin esperar. */
+  const QUINCE_MINUTOS = 15 * 60_000
+  function espiarTimer() {
+    const espia = vi.spyOn(globalThis, 'setInterval')
+    const registrados = () => espia.mock.calls.filter(([, ms]) => ms === QUINCE_MINUTOS)
+    return {
+      registrados,
+      tick: async () => {
+        const [alVencer] = registrados()[0] ?? []
+        if (typeof alVencer !== 'function') throw new Error('el estado compartido no registró su timer')
+        await act(async () => { (alVencer as () => void)(); await Promise.resolve() })
+      },
+    }
   }
 
-  it('el shell reprecia una vez por cada lectura terminada, con la misma función del servicio', async () => {
-    render(<MemoryRouter><Shell /></MemoryRouter>)
-    await screen.findByText('$1.556')
-    await waitFor(() => expect(h.dollar.refreshInventoryDollarPrices).toHaveBeenCalledTimes(1))
-    expect(h.dollar.refreshInventoryDollarPrices).toHaveBeenCalledWith(BIZ)
-
-    // Una lectura nueva (la manual o la periódica) vuelve a aplicarla.
-    fireEvent.click(screen.getByRole('button', { name: 'Actualizar cotización del dólar' }))
-    await waitFor(() => expect(h.dollar.refreshInventoryDollarPrices).toHaveBeenCalledTimes(2))
-  })
-
-  it('remontar el shell no repite el reprecio de una lectura ya aplicada', async () => {
-    const primera = render(<MemoryRouter><Shell /></MemoryRouter>)
-    await waitFor(() => expect(h.dollar.refreshInventoryDollarPrices).toHaveBeenCalledTimes(1))
-    primera.unmount()
-    render(<MemoryRouter><Shell /></MemoryRouter>)
-    await screen.findByText('$1.556')
-    await act(async () => { await Promise.resolve() })
-    expect(h.dollar.refreshInventoryDollarPrices).toHaveBeenCalledTimes(1)
-    expect(h.dollar.refreshDollarRate).toHaveBeenCalledTimes(1)
-  })
-
-  it('sin cotización no se toca ningún precio', async () => {
-    h.dollar.refreshDollarRate.mockImplementation(async () => null)
-    render(<MemoryRouter><Shell /></MemoryRouter>)
-    await waitFor(() => expect(h.dollar.refreshDollarRate).toHaveBeenCalled())
-    await act(async () => { await Promise.resolve() })
-    expect(h.dollar.refreshInventoryDollarPrices).not.toHaveBeenCalled()
-  })
-
-  it('vive en el shell: `MainLayout` lo monta y ninguna página lo dispara', () => {
-    expect(leerCodigo('src/layouts/MainLayout.tsx')).toMatch(/\n\s+useInventoryDollarPriceSync\(\)\n/)
-
-    // El único que llama a la función del servicio es el estado compartido.
-    const llamadores: string[] = []
+  /** Archivos de `src` cuyo CÓDIGO (sin comentarios) contiene el patrón. */
+  const archivosCon = (patron: RegExp) => {
+    const hallados: string[] = []
     const recorrer = (dir: string) => {
       for (const nombre of readdirSync(join(raiz, dir))) {
         const rel = `${dir}/${nombre}`
         if (statSync(join(raiz, rel)).isDirectory()) { recorrer(rel); continue }
-        if (!/\.tsx?$/.test(nombre)) continue
-        if (/refreshInventoryDollarPrices\(/.test(leerCodigo(rel))) llamadores.push(rel)
+        if (/\.tsx?$/.test(nombre) && patron.test(leerCodigo(rel))) hallados.push(rel)
       }
     }
     recorrer('src')
-    expect(llamadores.sort()).toEqual(['src/hooks/useDollarRate.ts', 'src/services/dollarRateService.ts'])
+    return hallados.sort()
+  }
+
+  it('`MainLayout` NO monta la sincronización de inventario: sólo Inicio la monta', () => {
+    const layout = leerCodigo('src/layouts/MainLayout.tsx')
+    expect(layout).not.toMatch(/useInventoryDollarPriceSync|refreshInventoryDollarPrices/)
+    // El hook se monta en un único lugar de toda la aplicación.
+    expect(archivosCon(/useInventoryDollarPriceSync\(\)/)).toEqual(['src/hooks/useDollarRate.ts', 'src/pages/Dashboard.tsx'])
+    expect(leerCodigo('src/pages/Dashboard.tsx')).toMatch(/\n {2}useInventoryDollarPriceSync\(\)\n/)
+    // Y el único que llama a la función del servicio es ese hook.
+    expect(archivosCon(/refreshInventoryDollarPrices\(/)).toEqual(['src/hooks/useDollarRate.ts', 'src/services/dollarRateService.ts'])
+    // Ni la barra ni sus chips saben de inventario.
+    for (const rel of ['src/components/layout/TopHeader.tsx', 'src/components/ui/DollarRateBadge.tsx', 'src/components/layout/CajaStatusChip.tsx']) {
+      expect(leerCodigo(rel), rel).not.toMatch(/useInventoryDollarPriceSync|refreshInventoryDollarPrices/)
+    }
+  })
+
+  it('una pantalla que no es Inicio lee la cotización y no reprecia nada', async () => {
+    render(<Shell />)
+    await screen.findByText('$1.556')
+    await asentar()
+    expect(lecturas()).toHaveBeenCalledTimes(1)
+    expect(reprecios()).not.toHaveBeenCalled()
+  })
+
+  it('actualizar la cotización fuera de Inicio no actualiza productos', async () => {
+    render(<Shell />)
+    await screen.findByText('$1.556')
+    cotizar(1600)
+    actualizarChip()
+    await screen.findByText('$1.600')
+    await asentar()
+    expect(lecturas()).toHaveBeenCalledTimes(2)
+    expect(reprecios()).not.toHaveBeenCalled()
+  })
+
+  it('la lectura periódica del shell no fuerza la fuente y no reprecia', async () => {
+    const timer = espiarTimer()
+    render(<Shell />)
+    await screen.findByText('$1.556')
+    await asentar()
+    expect(lecturas()).toHaveBeenCalledTimes(1)
+
+    // Pasan 15 y 30 minutos con la aplicación abierta en otra pantalla.
+    for (const ciclo of [2, 3]) {
+      await timer.tick()
+      await asentar()
+      expect(lecturas()).toHaveBeenCalledTimes(ciclo)
+      // Le pregunta al servicio respetando SU caché: no lo limpia ni lo fuerza.
+      expect(lecturas()).toHaveBeenLastCalledWith(BIZ, false)
+    }
+    expect(h.dollar.clearDollarCache).not.toHaveBeenCalled()
+    expect(reprecios()).not.toHaveBeenCalled()
+  })
+
+  it('Inicio conserva el reprecio heredado, sobre la lectura del shell y sin un segundo pedido', async () => {
+    render(<Shell conInicio />)
+    await screen.findByTestId('dashboard-today')
+    await screen.findByText('$1.556')
+    await waitFor(() => expect(reprecios()).toHaveBeenCalledTimes(1))
+    expect(reprecios()).toHaveBeenCalledWith(BIZ)
+    await asentar()
+    // La barra y Inicio están montados a la vez: UNA lectura, UN reprecio.
+    expect(lecturas()).toHaveBeenCalledTimes(1)
+    expect(lecturas()).toHaveBeenCalledWith(BIZ, false)
+    expect(reprecios()).toHaveBeenCalledTimes(1)
+  })
+
+  it('con Inicio montado cada lectura nueva se aplica una vez: la del chip, la de «Actualizar» y la periódica', async () => {
+    const timer = espiarTimer()
+    render(<Shell conInicio />)
+    await screen.findByTestId('dashboard-today')
+    await waitFor(() => expect(reprecios()).toHaveBeenCalledTimes(1))
+    // La barra e Inicio consumen la misma lectura: hay UN solo timer.
+    expect(timer.registrados()).toHaveLength(1)
+
+    actualizarChip()
+    await waitFor(() => expect(reprecios()).toHaveBeenCalledTimes(2))
+    fireEvent.click(screen.getByRole('button', { name: 'Actualizar datos' }))
+    await waitFor(() => expect(reprecios()).toHaveBeenCalledTimes(3))
+    await timer.tick()
+    await waitFor(() => expect(reprecios()).toHaveBeenCalledTimes(4))
+
+    await asentar()
+    // Una por lectura: ni más reprecios que lecturas, ni lecturas de más.
+    expect(lecturas()).toHaveBeenCalledTimes(4)
+    expect(reprecios()).toHaveBeenCalledTimes(4)
+  })
+
+  it('volver a Inicio no repite una lectura ya aplicada', async () => {
+    const primera = render(<Shell conInicio />)
+    await screen.findByTestId('dashboard-today')
+    await waitFor(() => expect(reprecios()).toHaveBeenCalledTimes(1))
+    primera.unmount()
+
+    render(<Shell conInicio />)
+    await screen.findByTestId('dashboard-today')
+    await screen.findByText('$1.556')
+    await asentar()
+    expect(reprecios()).toHaveBeenCalledTimes(1)
+    expect(lecturas()).toHaveBeenCalledTimes(1)
+  })
+
+  it('las lecturas hechas en otra pantalla no escriben nada; al entrar a Inicio la vigente se aplica una sola vez', async () => {
+    const otra = render(<Shell />)
+    await screen.findByText('$1.556')
+    cotizar(1600)
+    actualizarChip()
+    await screen.findByText('$1.600')
+    cotizar(1610)
+    actualizarChip()
+    await screen.findByText('$1.610')
+    await asentar()
+    expect(lecturas()).toHaveBeenCalledTimes(3)
+    expect(reprecios()).not.toHaveBeenCalled()
+    otra.unmount()
+
+    render(<Shell conInicio />)
+    await screen.findByTestId('dashboard-today')
+    await waitFor(() => expect(reprecios()).toHaveBeenCalledTimes(1))
+    await asentar()
+    // Tres lecturas afuera, un solo reprecio adentro, y sin volver a pedirla.
+    expect(reprecios()).toHaveBeenCalledTimes(1)
+    expect(lecturas()).toHaveBeenCalledTimes(3)
+  })
+
+  it('al salir de Inicio el reprecio se detiene aunque la cotización siga cambiando', async () => {
+    const vista = render(<Shell conInicio />)
+    await screen.findByTestId('dashboard-today')
+    await waitFor(() => expect(reprecios()).toHaveBeenCalledTimes(1))
+
+    // Misma sesión, otra pantalla: la barra sigue, Inicio no.
+    vista.rerender(<Shell />)
+    await waitFor(() => expect(screen.queryByTestId('dashboard-page')).toBeNull())
+    cotizar(1600)
+    actualizarChip()
+    await screen.findByText('$1.600')
+    await asentar()
+    expect(reprecios()).toHaveBeenCalledTimes(1)
+  })
+
+  it('sin cotización no se toca ningún precio, tampoco en Inicio', async () => {
+    h.dollar.refreshDollarRate.mockImplementation(async () => null)
+    render(<Shell conInicio />)
+    await screen.findByTestId('dashboard-today')
+    await waitFor(() => expect(lecturas()).toHaveBeenCalled())
+    await asentar()
+    expect(reprecios()).not.toHaveBeenCalled()
+  })
+
+  it('refrescar la cotización y repreciar inventario no están acoplados en el estado compartido', () => {
+    const fuente = leerCodigo('src/hooks/useDollarRate.ts')
+    const corte = fuente.indexOf('export function useInventoryDollarPriceSync')
+    expect(corte).toBeGreaterThan(0)
+    // Todo lo que lee y reparte la cotización —incluido el timer— no nombra al
+    // inventario: la única referencia está dentro del hook que monta Inicio.
+    expect(fuente.slice(0, corte)).not.toMatch(/refreshInventoryDollarPrices\(|inventorySync\s*=\s*\{/)
+    expect(fuente.slice(corte)).toMatch(/refreshInventoryDollarPrices\(businessId\)/)
+    // El timer sólo vuelve a leer, y sin forzar.
+    const timer = /setInterval\(\(\) => \{([\s\S]*?)\}, REFRESH_INTERVAL_MS\)/.exec(fuente)?.[1] ?? ''
+    expect(timer.trim()).toBe('if (snapshot.businessId) void load(snapshot.businessId, false)')
   })
 
   it('la fórmula del servicio no se tocó', () => {
@@ -1152,6 +1517,11 @@ describe('BETA-UX-1F · CSS: contrato responsive', () => {
     const movil = media(767)
     expect(movil).toMatch(/\.dash-action--primary \{ flex: 1 1 100%; min-height: 48px; \}/)
     expect(movil).toMatch(/\.dash-action \{ min-height: 44px; \}/)
+    // Las secundarias comparten alto: con `center` (la regla de escritorio) el
+    // rótulo que entra en una línea quedaba más bajo que el vecino en dos. Lo
+    // encontró el E2E en CI, con las fuentes de Linux.
+    expect(regla('.dash-actions')).toMatch(/align-items: center/)
+    expect(movil).toMatch(/\.dash-actions \{ justify-content: stretch; align-items: stretch; \}/)
     // «Hoy» sigue siendo una fila de tres: no se redefine la grilla a 4 ni a 1.
     expect(movil).not.toMatch(/\.dash-today \{[^}]*grid-template-columns/)
     expect(regla('.dash-today')).toMatch(/grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/)

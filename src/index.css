@@ -4235,10 +4235,12 @@ a.dash-today__item:hover { background: var(--bg-hover); }
   .dash-page.page-shell { padding: 0; }
 
   /* Acciones: la principal a todo el ancho, las secundarias repartidas en una
-     fila y «Actualizar» junto al título. */
+     fila y «Actualizar» junto al título. La fila se estira: según el ancho y
+     la fuente un rótulo entra en una línea y su vecino en dos (a 390 px, con
+     «Gestionar Caja»), y sin esto el más bajo quedaba descolgado. */
   .dash-page .page-top { position: relative; }
   .dash-actions-slot { width: 100%; }
-  .dash-actions { justify-content: stretch; }
+  .dash-actions { justify-content: stretch; align-items: stretch; }
   .dash-action { min-height: 44px; }
   .dash-action--primary { flex: 1 1 100%; min-height: 48px; }
   .dash-action--secondary {

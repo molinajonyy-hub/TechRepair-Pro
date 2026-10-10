@@ -69,7 +69,8 @@ vi.mock('../../src/hooks/useSubscription', () => ({ useSubscription: () => h.sub
 
 // ── Dependencias de datos del Dashboard (borde) ─────────────────────────────
 // BETA-UX-1F: Inicio lee sólo la operación. Ya no consume `useDashboardStats`,
-// `useFinancialDashboard`, `useComprobantes` ni la cotización del dólar.
+// `useFinancialDashboard`, `useComprobantes` ni el servicio de cotización; del
+// dólar le queda el reprecio heredado de inventario, que acá no se prueba.
 vi.mock('../../src/hooks/useOperationalDashboardStats', () => ({
   useOperationalDashboardStats: () => ({
     stats: { activeOrders: 0, readyForDelivery: 0, waitingApproval: 0, newOrdersToday: 0, recentOrders: [] },
@@ -78,6 +79,7 @@ vi.mock('../../src/hooks/useOperationalDashboardStats', () => ({
 }))
 vi.mock('../../src/hooks/useDollarRate', () => ({
   refreshSharedDollarRate: vi.fn(async () => undefined),
+  useInventoryDollarPriceSync: () => undefined,
 }))
 vi.mock('../../src/contexts/CajaContext', () => ({
   useCaja: () => ({

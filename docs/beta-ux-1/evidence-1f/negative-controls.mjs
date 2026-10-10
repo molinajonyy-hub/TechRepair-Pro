@@ -18,7 +18,10 @@ const hash = s => crypto.createHash('sha256').update(s).digest('hex')
 const diffAntes = hash(execFileSync('git', ['-C', root, 'diff'], { encoding: 'utf8', maxBuffer: 64e6 }))
 
 const DASH = 'src/pages/Dashboard.tsx'
+const DOLAR = 'src/hooks/useDollarRate.ts'
+const ACCESO_TAREAS = 'src/hooks/useTasksAccess.ts'
 const ANCLA_JSX = '      <FirstStepsChecklist />\n'
+const BLOQUE_TAREAS = '      {canAccessTasks && <DashboardTasks refreshKey={tasksRefreshKey} />}\n'
 const tras = (ancla, extra) => s => { if (!s.includes(ancla)) throw new Error('ancla ausente'); return s.replace(ancla, () => ancla + extra) }
 const cambiar = (a, b) => s => { if (!s.includes(a)) throw new Error(`texto ausente: ${a.slice(0, 70)}`); return s.replace(a, () => b) }
 
@@ -43,7 +46,7 @@ const CONTROLES = [
     cambiar("const puedeRegistrarGasto = can('finance')", 'const puedeRegistrarGasto = true'),
     'sales null ve'],
   ['06 quitar Tareas de Inicio', DASH,
-    cambiar('      <DashboardTasks refreshKey={tasksRefreshKey} />\n', ''),
+    cambiar(BLOQUE_TAREAS, ''),
     '«Mis tareas» está en Inicio'],
   ['07a romper dueToday (fecha UTC en vez de la argentina)', 'src/services/taskService.ts',
     cambiar('    const today = todayAR()\n', '    const today = new Date().toISOString().slice(0, 10)\n'),
@@ -83,12 +86,12 @@ const CONTROLES = [
   ['15 «nuevas hoy» cortado en la medianoche UTC', 'src/hooks/useOperationalDashboardStats.ts',
     cambiar('businessDayStartInstant(businessToday())', "new Date().toISOString().split('T')[0]"),
     'cuenta desde las 00:00 de Argentina'],
-  ['16 el reprecio de inventario vuelve a depender de Inicio', DASH,
-    s => cambiar("import { refreshSharedDollarRate } from '../hooks/useDollarRate'\n",
-      "import { refreshSharedDollarRate } from '../hooks/useDollarRate'\nimport { refreshInventoryDollarPrices } from '../services/dollarRateService'\n")(
+  ['16 una página llama al reprecio por su cuenta, sin pasar por el hook', DASH,
+    s => cambiar("import { useCaja } from '../contexts/CajaContext'\n",
+      "import { useCaja } from '../contexts/CajaContext'\nimport { refreshInventoryDollarPrices } from '../services/dollarRateService'\n")(
       cambiar('    void refreshSharedDollarRate()\n', "    void refreshSharedDollarRate()\n    void refreshInventoryDollarPrices('x')\n")(s)),
-    'ninguna página lo dispara'],
-  ['17 dos lecturas de la cotización (cada chip pide la suya)', 'src/hooks/useDollarRate.ts',
+    'sólo Inicio la monta'],
+  ['17 dos lecturas de la cotización (cada chip pide la suya)', DOLAR,
     s => cambiar('  if (inFlight && inFlight.businessId === businessId) return inFlight.promise\n', '')(
       cambiar('  if (snapshot.businessId !== businessId) {\n    // Otro negocio', '  if (snapshot.businessId !== businessId || consumers > 1) {\n    // Otro negocio')(s)),
     'comparten la misma lectura'],
@@ -96,12 +99,56 @@ const CONTROLES = [
     cambiar('                variant="danger"\n', '                variant="ghost"\n'),
     'usa la variante `danger`'],
   ['19 Tareas queda debajo de las órdenes recientes', DASH,
-    s => cambiar('      <DashboardTasks refreshKey={tasksRefreshKey} />\n', '')(s)
-      .replace(/(\{!error && <RecentOrders [^\n]*\n)/, (m) => m + '      <DashboardTasks refreshKey={tasksRefreshKey} />\n'),
+    s => cambiar(BLOQUE_TAREAS, '')(s)
+      .replace(/(\{!error && <RecentOrders [^\n]*\n)/, (m) => m + BLOQUE_TAREAS),
     'después de «Hoy» y antes de las órdenes recientes'],
   ['20 la bienvenida duplicada vuelve junto a Primeros pasos', DASH,
     tras(ANCLA_JSX, '      <div className="card"><p>¡Bienvenido a TechRepair Pro!</p><button>Crear primera orden</button></div>\n'),
     'sin la bienvenida duplicada'],
+  // ── Microfix · el shell muestra la cotización, sólo Inicio reprecia ───────
+  ['21 el shell vuelve a repreciar: `MainLayout` monta la sincronización', 'src/layouts/MainLayout.tsx',
+    s => cambiar("import { useNavigationAccess } from '../hooks/useNavigationAccess'\n",
+      "import { useNavigationAccess } from '../hooks/useNavigationAccess'\nimport { useInventoryDollarPriceSync } from '../hooks/useDollarRate'\n")(
+      cambiar("  useEffect(() => {\n    document.body.classList.add('mobile-shell-active')",
+        "  useInventoryDollarPriceSync()\n\n  useEffect(() => {\n    document.body.classList.add('mobile-shell-active')")(s)),
+    '`MainLayout` NO monta la sincronización de inventario'],
+  ['22 leer la cotización reprecia (los dos efectos acoplados en el estado compartido)', DOLAR,
+    cambiar("      publish({ businessId, rate, loading: false, loads: snapshot.loads + 1, loadedAt: Date.now() })\n",
+      "      publish({ businessId, rate, loading: false, loads: snapshot.loads + 1, loadedAt: Date.now() })\n      if (rate?.sellPrice) void refreshInventoryDollarPrices(businessId).catch(() => undefined)\n"),
+    'una pantalla que no es Inicio lee la cotización y no reprecia nada'],
+  ['23 Inicio pierde el reprecio heredado', DASH,
+    cambiar('  useInventoryDollarPriceSync()\n', ''),
+    'Inicio conserva el reprecio heredado'],
+  ['24 Inicio pide la cotización por su cuenta (segundo pedido)', DOLAR,
+    cambiar('    inventorySync = { businessId, loads }\n', '    inventorySync = { businessId, loads }\n    void refreshDollarRate(businessId, false)\n'),
+    'Inicio conserva el reprecio heredado'],
+  ['25 volver a Inicio repite el reprecio de una lectura ya aplicada', DOLAR,
+    cambiar('    if (inventorySync?.businessId === businessId && inventorySync.loads === loads) return\n', ''),
+    'volver a Inicio no repite una lectura ya aplicada'],
+  ['26 la lectura periódica vuelve a forzar la fuente', DOLAR,
+    cambiar('      if (snapshot.businessId) void load(snapshot.businessId, false)\n    }, REFRESH_INTERVAL_MS)',
+      '      if (snapshot.businessId) void load(snapshot.businessId, true)\n    }, REFRESH_INTERVAL_MS)'),
+    'la lectura periódica del shell no fuerza la fuente'],
+  // ── Microfix · Tareas comparte el gate de `/tasks` ────────────────────────
+  ['27 el bloque de Tareas vuelve a mostrarse sin mirar el acceso', DASH,
+    cambiar(BLOQUE_TAREAS, '      <DashboardTasks refreshKey={tasksRefreshKey} />\n'),
+    'en plan basico → bloque de Tareas: false'],
+  ['28 el gate de Tareas mira sólo el plan (sin la capacidad `orders`)', ACCESO_TAREAS,
+    cambiar('      && can(TASKS_ACCESS_GATE.permission)\n', ''),
+    'en plan pro → bloque de Tareas: false'],
+  ['29 el gate de Tareas mira sólo la capacidad (sin la feature `tasks`)', ACCESO_TAREAS,
+    cambiar('      && hasFeature(TASKS_ACCESS_GATE.planFeature),\n', ',\n'),
+    'en plan basico → bloque de Tareas: false'],
+  ['30 el bloque se abre mientras el plan se está leyendo', ACCESO_TAREAS,
+    cambiar('  const planConfirmed = !loading && subscription != null\n', '  const planConfirmed = subscription !== undefined\n'),
+    'mientras el plan se está leyendo no se abre a ciegas'],
+  ['31 el gate de Tareas cambia de contrato (otra capacidad)', ACCESO_TAREAS,
+    cambiar("  permission: 'orders',\n", "  permission: 'orders_create',\n"),
+    'la misma decisión que la ruta y que el menú'],
+  // ── Hallazgo del E2E de CI: fila de acciones despareja en mobile ──────────
+  ['32 la fila de acciones mobile vuelve a centrarse (alto desparejo)', 'src/index.css',
+    cambiar('  .dash-actions { justify-content: stretch; align-items: stretch; }', '  .dash-actions { justify-content: stretch; }'),
+    'mobile: la principal ocupa el ancho'],
 ]
 
 const vitest = () => spawnSync(process.execPath, ['node_modules/vitest/vitest.mjs', 'run', '--config', 'vitest.config.ts', SUITE],

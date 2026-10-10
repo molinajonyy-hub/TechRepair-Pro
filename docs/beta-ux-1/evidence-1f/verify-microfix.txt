@@ -1,0 +1,99 @@
+[A] Mobile · las tres acciones secundarias comparten fila y alto
+  OK    320px · renglones 2/2/2 · altos 66/66/66 · y 309/309/309
+  OK    344px · renglones 2/2/2 · altos 66/66/66 · y 309/309/309
+  OK    360px · renglones 2/2/2 · altos 66/66/66 · y 313/313/313
+  OK    375px · renglones 2/2/2 · altos 66/66/66 · y 269/269/269
+  OK    390px · renglones 2/1/1 · altos 66/66/66 · y 269/269/269   ← sin el fix: altos 66/51/51 · y 269/277/277 (DESPAREJO)
+  OK    390px · el control sin el fix reproduce la fila despareja
+  OK    412px · renglones 2/1/1 · altos 66/66/66 · y 269/269/269   ← sin el fix: altos 66/51/51 · y 269/277/277 (DESPAREJO)
+  OK    412px · el control sin el fix reproduce la fila despareja
+  OK    430px · renglones 2/1/1 · altos 66/66/66 · y 269/269/269   ← sin el fix: altos 66/51/51 · y 269/277/277 (DESPAREJO)
+  OK    430px · el control sin el fix reproduce la fila despareja
+  OK    480px · renglones 2/1/1 · altos 66/66/66 · y 269/269/269   ← sin el fix: altos 66/51/51 · y 269/277/277 (DESPAREJO)
+  OK    480px · el control sin el fix reproduce la fila despareja
+  OK    540px · renglones 1/1/1 · altos 51/51/51 · y 269/269/269
+  OK    600px · renglones 1/1/1 · altos 51/51/51 · y 269/269/269
+  OK    767px · renglones 1/1/1 · altos 51/51/51 · y 269/269/269
+  OK    el barrido incluyó 4 ancho(s) con rótulos en distinta cantidad de renglones (el caso de CI)
+  OK    sin errores de página
+
+[B] Bloque de Tareas · el mismo contrato que la ruta /tasks y el menú
+  ── A · feature + orders (tech, pro)
+  OK    bloque de Tareas presente (esperado: presente)
+  OK    el menú ofrece «Tareas»: la misma decisión
+  OK    pidió tareas (6 requests, incluido «Actualizar»)
+  OK    el bloque va después de «Hoy»
+  OK    la ruta /tasks abre el módulo
+  OK    sin errores de página
+  ── A · dueño, plan full (owner, full)
+  OK    bloque de Tareas presente (esperado: presente)
+  OK    el menú ofrece «Tareas»: la misma decisión
+  OK    pidió tareas (6 requests, incluido «Actualizar»)
+  OK    el bloque va después de «Hoy»
+  OK    la ruta /tasks abre el módulo
+  OK    sin errores de página
+  ── B · feature sin orders (tech, pro, orders:false)
+  OK    bloque de Tareas ausente (esperado: ausente)
+  OK    el menú no ofrece «Tareas»: la misma decisión
+  OK    cero requests a tasks / task_items / task_history (también tras «Actualizar»): 0
+  OK    sin hueco: a «Hoy» le siguen las órdenes recientes, a 24px (el margen de «Hoy» es 24px)
+  OK    no hay «Nueva tarea» que lleve a «mejorá tu plan»
+  OK    la ruta /tasks rebota a /dashboard
+  OK    sin errores de página
+  ── C · orders sin feature (tech, basico)
+  OK    bloque de Tareas ausente (esperado: ausente)
+  OK    el menú no ofrece «Tareas»: la misma decisión
+  OK    cero requests a tasks / task_items / task_history (también tras «Actualizar»): 0
+  OK    sin hueco: a «Hoy» le siguen las órdenes recientes, a 24px (el margen de «Hoy» es 24px)
+  OK    no hay «Nueva tarea» que lleve a «mejorá tu plan»
+  OK    la ruta /tasks muestra «mejorá tu plan»
+  OK    sin errores de página
+  ── C · dueño, plan básico (owner, basico)
+  OK    bloque de Tareas ausente (esperado: ausente)
+  OK    el menú no ofrece «Tareas»: la misma decisión
+  OK    cero requests a tasks / task_items / task_history (también tras «Actualizar»): 0
+  OK    sin hueco: a «Hoy» le siguen las órdenes recientes, a 24px (el margen de «Hoy» es 24px)
+  OK    no hay «Nueva tarea» que lleve a «mejorá tu plan»
+  OK    la ruta /tasks muestra «mejorá tu plan»
+  OK    sin errores de página
+  ── D · sin ninguna (tech, basico, orders:false)
+  OK    bloque de Tareas ausente (esperado: ausente)
+  OK    el menú no ofrece «Tareas»: la misma decisión
+  OK    cero requests a tasks / task_items / task_history (también tras «Actualizar»): 0
+  OK    sin hueco: a «Hoy» le siguen las órdenes recientes, a 24px (el margen de «Hoy» es 24px)
+  OK    no hay «Nueva tarea» que lleve a «mejorá tu plan»
+  OK    la ruta /tasks rebota a /dashboard
+  OK    sin errores de página
+
+[C] Dólar · el shell lee y muestra; sólo Inicio reprecia inventario
+  · carga en /orders (pantalla que no es Inicio)
+      fuente consultada 1 · lee productos en USD 0 · UPDATE inventory 0 · escrituras de la cotización 3
+  OK    la cotización se leyó una vez
+  OK    /orders no leyó productos en USD ni escribió inventario
+  · «Actualizar cotización» desde /orders
+      fuente consultada 2 · lee productos en USD 0 · UPDATE inventory 0 · escrituras de la cotización 6
+  OK    la fuente se consultó de nuevo (lectura forzada por el usuario)
+  OK    un refresh de dólar fuera de Inicio no actualizó productos
+  · navegar a /customers
+      fuente consultada 2 · lee productos en USD 0 · UPDATE inventory 0 · escrituras de la cotización 6
+  OK    navegar entre pantallas no pide la cotización ni toca inventario
+  · entrar a Inicio
+      fuente consultada 2 · lee productos en USD 1 · UPDATE inventory 2 · escrituras de la cotización 6
+  OK    Inicio NO hizo un segundo pedido de cotización: usó la lectura del shell
+  OK    Inicio aplicó la cotización vigente UNA vez (2 productos)
+  · «Actualizar cotización» estando en Inicio
+      fuente consultada 3 · lee productos en USD 2 · UPDATE inventory 4 · escrituras de la cotización 9
+  OK    una lectura nueva con Inicio montado se aplica una vez
+  · salir a /orders y actualizar la cotización otra vez
+      fuente consultada 4 · lee productos en USD 2 · UPDATE inventory 4 · escrituras de la cotización 12
+  OK    al salir de Inicio el reprecio se detiene aunque la cotización cambie
+  · volver a Inicio, salir y volver a entrar sin una lectura nueva
+      fuente consultada 4 · lee productos en USD 3 · UPDATE inventory 6 · escrituras de la cotización 12
+  OK    ninguna de las tres entradas a Inicio pidió la cotización
+  OK    la lectura pendiente se aplicó una sola vez; reentrar no la repite
+  OK    sin errores de página
+  · carga directa en /dashboard
+      fuente consultada 1 · lee productos en USD 1 · UPDATE inventory 2 · escrituras de la cotización 3
+  OK    la barra e Inicio comparten UNA lectura y hay UN reprecio
+
+VERIFICACIÓN DEL MICROFIX: todo en verde

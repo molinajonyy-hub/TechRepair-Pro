@@ -290,11 +290,24 @@ jobs:
       # completarla. Barra superior: el chip de caja muestra el estado a quien
       # puede conocerlo (`canSeeCajaStatus`: opera caja o cobra), ofrece `/caja`
       # sólo con `canUseCaja`, no afirma «cerrada» antes de leer y nunca trae un
-      # monto; la cotización se lee UNA vez aunque la muestren dos chips; el
-      # reprecio de los productos atados al dólar corre en el shell, una vez por
-      # lectura, y ninguna página lo dispara. CSS: contrato responsive del
+      # monto; la cotización se lee UNA vez aunque la muestren dos chips.
+      # MICROFIX (mismo PR): (1) el bloque de Tareas comparte el gate de `/tasks`
+      # —capacidad `orders` + feature de plan `tasks`, la misma decisión que los
+      # guards reales de la ruta y que `isNavigationItemAuthorized`—; sin acceso
+      # no se monta, no pide `tasks` (tampoco con «Actualizar»), no deja hueco y
+      # no se abre a ciegas mientras el plan se está leyendo. (2) El shell
+      # MUESTRA la cotización y NO reprecia inventario: `MainLayout` no monta
+      # `useInventoryDollarPriceSync`, una pantalla que no es Inicio lee la
+      # cotización sin tocar un producto, un refresh de dólar fuera de Inicio no
+      # actualiza productos y el timer de 15 min no fuerza la fuente ni
+      # reprecia; Inicio conserva el reprecio heredado sobre la lectura
+      # compartida (sin un segundo pedido), como máximo una vez por lectura, sin
+      # repetirlo al reentrar y deteniéndose al salir. Refrescar la cotización y
+      # repreciar inventario son dos efectos distintos (deuda
+      # DOLLAR-PRICE-SYNC-1). CSS: contrato responsive del
       # bloque (sólo `max-width`, sólo tokens, tabla desde 768 px y tarjetas por
-      # debajo, fila de utilidades sólo en el shell mobile) y aritmética WCAG de
+      # debajo, fila de utilidades sólo en el shell mobile, acciones secundarias
+      # de mobile del mismo alto) y aritmética WCAG de
       # los pares elegidos —incluido por qué `.btn-danger` a secas no alcanza en
       # tema claro—. Corre con las suites vecinas que montan estas pantallas, ya
       # con el contrato nuevo (`cajaCapabilityGate`, `rbacCapabilities`,

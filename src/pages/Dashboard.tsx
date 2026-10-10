@@ -16,13 +16,19 @@
  * El estado de la caja y la cotización del dólar viven en la barra superior
  * (`TopHeader`; en mobile, la fila de utilidades del shell). Los accesos rápidos
  * ya no existen: duplicaban la navegación. Las acciones están en el encabezado.
+ *
+ * Lo único que Inicio conserva del dólar es un efecto heredado: mientras esta
+ * pantalla está montada, los precios de inventario atados al dólar siguen a la
+ * cotización (`useInventoryDollarPriceSync`). No la muestra ni la pide por su
+ * cuenta: usa la lectura que comparte la barra superior.
  */
 import { useState, type MouseEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useOperationalDashboardStats, type RecentOrder } from '../hooks/useOperationalDashboardStats'
-import { refreshSharedDollarRate } from '../hooks/useDollarRate'
+import { refreshSharedDollarRate, useInventoryDollarPriceSync } from '../hooks/useDollarRate'
 import { useCaja } from '../contexts/CajaContext'
 import { usePermissions } from '../hooks/usePermissions'
+import { useTasksAccess } from '../hooks/useTasksAccess'
 import { DashboardTasks } from '../components/tasks/DashboardTasks'
 import { FirstStepsChecklist } from '../components/onboarding/FirstStepsChecklist'
 import { STATUS_CONFIG, type OrderStatus } from '../types/orderStatus'
@@ -219,6 +225,18 @@ export function Dashboard() {
   const [tasksRefreshKey, setTasksRefreshKey] = useState(0)
 
   /**
+   * El bloque de Tareas existe sólo para quien puede entrar a `/tasks`: el mismo
+   * contrato que su ruta, el Sidebar y la navegación móvil (capacidad + plan).
+   * Sin eso no se monta —y entonces tampoco pide `tasks`—: «Nueva tarea» y «Ver
+   * todas» no pueden terminar en una pantalla de «mejorá tu plan».
+   */
+  const { canAccessTasks } = useTasksAccess()
+
+  // Reprecio heredado, acotado a Inicio: el shell muestra la cotización pero no
+  // escribe inventario. Ver `useInventoryDollarPriceSync`.
+  useInventoryDollarPriceSync()
+
+  /**
    * El encabezado no ofrece lo que el actor no puede hacer (PRE-BETA-3A-0). Cada
    * acción usa la capacidad CANÓNICA de su destino, nunca el nombre del rol:
    *
@@ -237,7 +255,8 @@ export function Dashboard() {
   /**
    * «Actualizar» refresca lo que Inicio muestra y nada más: órdenes, tareas, el
    * estado de la caja y la cotización de la barra superior. Ninguna de esas
-   * lecturas es financiera, y no hay recarga del navegador.
+   * lecturas es financiera, y no hay recarga del navegador. La cotización que
+   * vuelve es una lectura nueva: el reprecio heredado la aplica una vez.
    */
   const handleRefresh = () => {
     refreshStats()
@@ -347,8 +366,9 @@ export function Dashboard() {
           ? <TodayStrip indicators={indicators} />
           : <TodaySkeleton />}
 
-      {/* ── 4. Mis tareas: protagonista, a todo el ancho ─────────────────────── */}
-      <DashboardTasks refreshKey={tasksRefreshKey} />
+      {/* ── 4. Mis tareas: protagonista, a todo el ancho ─────────────────────────
+          Sin acceso al módulo no se dibuja y no deja hueco: lo que sigue sube. */}
+      {canAccessTasks && <DashboardTasks refreshKey={tasksRefreshKey} />}
 
       {/* ── 5. Órdenes recientes ─────────────────────────────────────────────── */}
       {!error && <RecentOrders orders={stats?.recentOrders ?? []} loading={!stats} />}

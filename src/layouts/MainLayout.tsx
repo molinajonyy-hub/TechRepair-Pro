@@ -9,7 +9,6 @@ import { CommandPalette } from '../components/ui/CommandPalette'
 import { useAuth } from '../contexts/AuthContext'
 import { useSidebar } from '../hooks/useSidebar'
 import { useNavigationAccess } from '../hooks/useNavigationAccess'
-import { useInventoryDollarPriceSync } from '../hooks/useDollarRate'
 import { mobilePrimaryPaths, resolveMobilePrimaryNavigation } from '../config/mobileNavigation'
 import { zIndex } from '../lib/tokens'
 import { SubscriptionGuard } from '../components/subscription/SubscriptionGuard'
@@ -108,6 +107,9 @@ function MobileTopBar() {
  *
  * El CSS decide cuándo se ve (`.mobile-utility-bar`); en escritorio no ocupa
  * lugar. La cotización es la misma lectura compartida que usa `TopHeader`.
+ *
+ * El shell MUESTRA la cotización y nada más: no reprecia inventario. Ese efecto
+ * vive en Inicio (`useInventoryDollarPriceSync`), no acá.
  */
 function MobileUtilityBar() {
   return (
@@ -133,11 +135,6 @@ export function MainLayout() {
   useEffect(() => {
     if (businessId) backgroundPrefetch(businessId)
   }, [businessId])
-
-  // BETA-UX-1F: los precios de inventario atados al dólar siguen a la
-  // cotización mientras la aplicación está abierta, en cualquier pantalla.
-  // Antes dependía de que alguien visitara Inicio.
-  useInventoryDollarPriceSync()
 
   useEffect(() => {
     document.body.classList.add('mobile-shell-active')

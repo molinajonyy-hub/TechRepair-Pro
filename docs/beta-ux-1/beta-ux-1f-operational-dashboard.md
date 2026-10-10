@@ -8,6 +8,12 @@ Rama: `claude/beta-ux-1f-operational-dashboard`.
 No cambia ninguna autoridad financiera, ninguna policy de RLS, ni Mercado Pago, ni ARCA. No se
 rediseñó Finanzas. No se implementó CRM ni ORDERS-HISTORY-1.
 
+> **Microfix sobre `a528eee` (mismo PR #175).** Tres correcciones después de la revisión del owner y
+> de la primera corrida del E2E en GitHub: el bloque de Tareas comparte el gate de `/tasks`; el
+> shell muestra la cotización pero **no reprecia inventario** (ese efecto volvió a ser sólo de
+> Inicio); y la fila de acciones de mobile quedaba despareja. El detalle está en §17; las secciones
+> de abajo ya describen el estado corregido.
+
 ---
 
 ## 1. Decisión de producto
@@ -146,17 +152,50 @@ título del chip; un valor que no es de ahora se marca con un ícono con nombre 
 
 **Una sola lectura.** Antes cada badge pedía la cotización al montarse y, además, Inicio la pedía en
 un efecto propio: dos lecturas en carrera por visita. Ahora el estado vive en `useDollarRate`
-(`useSyncExternalStore`): se lee una vez por negocio, lo comparten todos los que lo muestran y se
-renueva cada 15 minutos mientras alguien lo mire.
+(`useSyncExternalStore`): se lee una vez por negocio y lo comparten todos los que lo muestran.
 
-**El reprecio del inventario.** Se movió a `useInventoryDollarPriceSync`, montado en `MainLayout`.
-Corre una vez por cada lectura terminada de la cotización —la inicial, la periódica y la manual—,
-en cualquier pantalla. **La fórmula y la fuente no cambiaron**: es la misma función del servicio
-(`refreshInventoryDollarPrices`), que no se tocó.
+**Dos efectos distintos, que no se acoplan.**
 
-Efecto observable: los precios atados al dólar ya no dependen de que alguien abra Inicio, y también
-siguen a la cotización cuando el usuario la actualiza a mano desde el chip (antes ese botón
-actualizaba el número y no los precios).
+| Efecto | Dónde vive | Cuándo corre |
+|---|---|---|
+| Leer, mostrar y refrescar la cotización | el **shell** (`useDollarRate`, `TopHeader`, fila de mobile) | al cargar la aplicación, con el botón del chip y cada 15 minutos |
+| Repreciar el inventario atado al dólar | **sólo Inicio** (`useInventoryDollarPriceSync`, montado en `Dashboard`) | una vez por lectura efectiva, mientras Inicio está montado |
+
+Que la cotización cambie no reprecia nada por sí solo. `MainLayout`, `TopHeader`, `DollarRateBadge`
+y `CajaStatusChip` no conocen el inventario: navegar por la aplicación, dejarla abierta en Órdenes o
+tocar «Actualizar cotización» fuera de Inicio **no escribe un solo producto**.
+
+**El reprecio heredado, acotado a Inicio.** Antes de 1F, Inicio leía la cotización al montarse y cada
+15 minutos, y después de cada lectura con precio de venta llamaba a `refreshInventoryDollarPrices`.
+Ese comportamiento se conserva en el mismo lugar, con estas reglas:
+
+- **no hay un segundo pedido de cotización**: Inicio usa la lectura que ya hizo el shell;
+- **como máximo un reprecio por lectura efectiva** (una lectura terminada que trae precio de venta):
+  la inicial, la periódica y la manual, mientras Inicio está montado;
+- una lectura ya aplicada **no se repite al volver a entrar** a Inicio. Es la única diferencia con
+  el comportamiento viejo, que repreciaba en cada montaje: sin una lectura nueva no hay nada nuevo
+  que aplicar;
+- una lectura hecha con Inicio desmontado no reprecia en ese momento; si es la vigente cuando Inicio
+  se monta, se aplica ahí, una sola vez.
+
+La fórmula y la fuente no cambiaron: es la misma función del servicio, que no se tocó.
+
+**El timer de 15 minutos.** Es del shell y sólo refresca lo que se muestra. No fuerza la fuente: le
+pregunta al servicio (`refreshDollarRate(businessId, false)`) y es el caché del servicio —15
+minutos— el que decide si se consulta la fuente, igual que la lectura periódica que tenía Inicio.
+Como el caché se llena cuando la lectura termina, al dispararse el intervalo suele seguir fresco y la
+fuente se consultaría uno de cada dos ciclos (leído del código; no se midió con un reloj real).
+Forzar queda para una acción explícita del usuario (el botón del chip, «Actualizar» en Inicio). El
+timer no reprecia inventario.
+
+**Lo que el servicio escribe al leer (auditado, no modificado).** Cuando `dollarRateService` consulta
+la fuente —auto-update activo y caché vencido, o lectura forzada— guarda el valor obtenido: un
+`upsert` en `exchange_rates`, un `insert` en `dollar_rate_history` y un `update` de
+`business_settings.last_dollar_*`. Es persistencia de la **cotización**, no de inventario, y es
+anterior a 1F. Lo que 1F cambió es desde dónde ocurre: al mostrarse en el shell, la primera lectura
+de cada carga de la aplicación sale de cualquier pantalla (antes, sólo de Inicio). Medido en el
+navegador: tres escrituras de cotización por cada consulta a la fuente, cero de inventario fuera de
+Inicio (`evidence-1f/verify-microfix.txt`).
 
 ### Mobile
 
@@ -185,7 +224,8 @@ Cada acción usa la capacidad canónica de su destino, nunca el nombre del rol:
 | Viewer | — | no existe | ninguno |
 
 «Actualizar» refresca órdenes, tareas, el estado de la caja y la cotización. No recarga el
-navegador y no vuelve a introducir lecturas financieras.
+navegador y no vuelve a introducir lecturas financieras. La cotización que vuelve es una lectura
+nueva: como Inicio está montado, el reprecio heredado la aplica una vez (§5).
 
 ## 7. Tareas como pilar
 
@@ -198,6 +238,22 @@ navegador y no vuelve a introducir lecturas financieras.
 - **hasta 5 tareas** activas: título, vencimiento, prioridad. Una vencida se reconoce sin leer
   (filete, ícono y la palabra «Vencida»);
 - sin tareas dice «Todo al día» y **conserva su lugar**: no se achica a una tira.
+
+**El bloque comparte el gate de `/tasks`.** Se dibuja sólo para quien puede entrar al módulo: la
+capacidad `orders` **y** la feature de plan `tasks`, el mismo contrato que la ruta (`App.tsx`), el
+Sidebar y la navegación móvil. Tareas no tiene una capacidad propia y no se inventó una; tampoco se
+mira el nombre del rol. La decisión vive en `useTasksAccess`, que no consulta nada propio
+(`usePermissions` + `useSubscription`, con su caché).
+
+Cuando Tareas no está disponible el bloque **no se monta**: no pide `tasks`, `task_items` ni
+`task_history` —tampoco al tocar «Actualizar»—, no deja un hueco y las órdenes recientes suben a su
+lugar. No queda ningún «Nueva tarea» ni «Ver todas» que termine en la pantalla de «mejorá tu plan».
+
+Una diferencia deliberada con el guard de la ruta: mientras el plan se está leyendo, la ruta deja
+pasar (`useSubscription` resuelve sin datos como un trial optimista) y el bloque espera. Como pide
+`tasks` apenas se monta, abrirlo a ciegas sería pedirle tareas al servidor para un negocio cuyo plan
+no las incluye. Con el plan confirmado, la decisión es la de la ruta; si la lectura del plan termina
+sin datos, el bloque queda cerrado.
 
 Lo que **no** cambió: `taskService` sigue siendo la única autoridad; completar es un tap, valida el
 checklist en el servicio y un fallo se muestra en la fila; un error de lectura se dice (con
@@ -267,6 +323,10 @@ Detalle en `evidence-1f/capture-report.txt`.
 Sin desborde horizontal a 320, 375, 390, 430, 768, 1024, 1280 y 1440 px. Todo lo interactivo mide
 44 px por debajo de 1024.
 
+Las tres secundarias comparten **fila y alto** (`align-items: stretch`). Según la fuente y el ancho,
+«Nuevo Comprobante» ocupa dos renglones y «Gestionar Caja» uno; con la fila centrada el botón más
+bajo quedaba descolgado. Ver §17.
+
 ## 11. Fuera de alcance, para que no se pierda
 
 ### ORDERS-HISTORY-1 · Histórico + búsqueda + paginación server-side
@@ -292,20 +352,48 @@ Sigue expuesto. No está en Inicio ni en `TopHeader`, así que **no se tocó**:
 
 Queda para un micro-lote propio decidir si sale de la UI de beta.
 
+### DOLLAR-PRICE-SYNC-1 · reprecio de inventario con autoridad del servidor
+
+Deuda técnica registrada. **No se resuelve en BETA-UX-1F**: este lote sólo devolvió el reprecio al
+lugar donde estaba (Inicio) y lo separó de la lectura de la cotización.
+
+Estado actual de `refreshInventoryDollarPrices` (`src/services/dollarRateService.ts`):
+
+- corre **en el navegador**, con la sesión de quien tenga Inicio abierto;
+- lee todos los productos `linked_to_dolar` del negocio y hace **un `UPDATE` por producto**
+  (`sale_price`, `exchange_rate_used`, `updated_at`);
+- no compara antes: vuelve a escribir aunque la cotización efectiva sea la misma;
+- es un bucle de escrituras sueltas, sin transacción: un corte a mitad dejaría productos con
+  cotizaciones distintas, y dos pestañas en Inicio lo correrían en paralelo (leído del código, no
+  reproducido);
+- no se encontró nada del lado del servidor que lo haga (ni Edge Function, ni cron, ni trigger).
+
+Recomendación a futuro, sin compromiso de diseño: reprecio con autoridad del servidor, en lote, y
+sólo cuando cambia la cotización efectiva. Explícitamente **fuera** de 1F: convertirlo en RPC,
+`UPDATE` en lote server-side, triggers, un scheduler en Edge, mover la autoridad al backend,
+rediseñar `exchange_rates` o eliminar el `UPDATE` por producto.
+
+Relacionado, mismo discovery abierto (contrato de cotización del dólar): la persistencia de la
+cotización también la hace el navegador (§5).
+
 ## 12. Hallazgos que quedan a decisión del owner
 
 1. **`useFinancialDashboard` se quedó sin consumidores.** Inicio era el único. El hook y
    `financialDashboardLoaders` siguen en el repo con sus tests; hoy son código sin uso.
 2. **Reportes monta `useDashboardStats` entero** (las 13+ lecturas financieras) para leer un solo
    campo, `popularDeviceTypes`, que el hook devuelve siempre vacío.
-3. **El bloque de Tareas no mira el plan.** `/tasks` exige la feature `tasks`; el bloque de Inicio se
-   muestra igual (ya era así y se conservó). En un plan sin Tareas, «Nueva tarea» y «Ver todas»
-   llevan a la pantalla de upgrade.
+3. ~~El bloque de Tareas no mira el plan.~~ **Corregido en el microfix** (§7, §17): comparte el gate
+   de `/tasks`.
 4. **El reprecio de inventario es del navegador.** `refreshInventoryDollarPrices` hace un `UPDATE`
-   por producto, desde el cliente, con cualquier actor que tenga la aplicación abierta. Este lote
-   sólo le cambió el ciclo de vida. El contrato de cotización sigue siendo discovery abierto.
+   por producto, desde el cliente. El microfix lo devolvió a Inicio —como estaba antes de 1F— y no
+   le cambia nada más. Queda registrado como deuda **DOLLAR-PRICE-SYNC-1** (§11). El contrato de
+   cotización sigue siendo discovery abierto.
 5. **La cotización se pide en cada carga de la aplicación**, no sólo en Inicio: es consecuencia de
-   que el chip sea global. El stack local de E2E no tiene esa Edge Function; ver §13.
+   que el chip sea global. Con eso, la **persistencia de la cotización** que hace el servicio en cada
+   consulta a la fuente (`exchange_rates`, `dollar_rate_history`, `business_settings`) también sale
+   de cualquier pantalla. No es inventario y el servicio no se tocó, pero es un cambio de dónde
+   ocurre esa escritura respecto de antes de 1F: a decisión del owner si es aceptable hasta
+   DOLLAR-PRICE-SYNC-1. El stack local de E2E no tiene esa Edge Function; ver §13.
 6. **«Vencida» en Inicio usa el reloj del navegador** (`isOverdue`, dos copias: `taskService` y el
    bloque de Inicio); «para hoy» usa la fecha argentina. La página de Tareas ya usa la fecha
    argentina para las dos cosas (`taskGrouping`, TASKS-V2-1). En un navegador con hora de Argentina
@@ -318,6 +406,14 @@ Queda para un micro-lote propio decidir si sale de la UI de beta.
    fila entera (48 px) es la que se toca.
 9. **La fila de utilidades de mobile es sólo de Inicio.** Hacerla global es un cambio de una línea en
    `MainLayout`, a costa de ~50 px en cada pantalla.
+10. **`AppTabs` quedó con un solo consumidor**: el detalle de una tarea (`TaskDetailDialog`), que es
+    un diálogo y no una ruta. El E2E `tab-contrast` medía ese componente en Inicio; hoy mide las
+    clases `.tab` en Ofertas y Configuración (§17). No hay un E2E de contraste sobre `AppTabs` en
+    una superficie viva.
+11. **El caso «plan sin Tareas» no tiene E2E contra la base.** El negocio E2E es estado compartido
+    por toda la suite y cambiarle el plan dentro de un test afectaría a los demás. Lo cubren los
+    tests de componentes (con los guards reales de la ruta) y la verificación en navegador con
+    backend simulado.
 
 ## 13. E2E y la cotización
 
@@ -331,40 +427,65 @@ de las dos funciones: un 5xx de cualquier otra sigue viéndose. Se registra en e
 con una línea, en los cuatro specs que no lo usan (`search-pos-visual`, `pos-mobile-layout`,
 `charts-l1-visual`, `finance-caja-visual`).
 
+### Primera corrida del E2E en GitHub (`a528eee`)
+
+El spec se había escrito sin poder ejecutarlo. La corrida de `E2E Smoke Tests` sobre `a528eee`
+(run 38002955740) dio **351 verdes y 10 rojos**, en dos grupos:
+
+| Tests | Error | Causa | Qué se hizo |
+|---|---|---|---|
+| `dashboard-day-one.spec.ts:552` · «375×812 · light / dark · misma jerarquía, composición adaptada» (2) | `las secundarias no están en una fila` — esperado 1, recibido 2 | **Defecto real del producto.** «Nuevo Comprobante» y «Registrar gasto» ocupaban dos renglones y «Gestionar Caja» uno; la fila centraba y el botón más bajo quedaba descolgado (8 px, medido después en local) | Se corrigió el **CSS** (`align-items: stretch`). El spec no se aflojó: se reforzó (exige además el mismo alto, y lo mide también a 390 y 430) |
+| `tab-contrast.spec.ts:78` · «Dashboard · AppTabs · {320, 390, 430, 1440}px · {light, dark}» (8) | `expect(locator('.tab-active:visible')).toBeVisible()` — `element(s) not found` | **Contrato que cambió, no un defecto.** El spec medía las pestañas de Inicio, que este lote quitó por decisión de producto (§1.7). No se había detectado porque `m7-local` no se pudo correr en local | Se sacó `/dashboard` de las superficies de ese spec. Siguen Ofertas y Configuración (16 tests) |
+
+Los otros 20 tests de `@beta-ux-1f` pasaron en esa corrida, incluidos los de los actores reales
+(técnico y vendedor) y el contrato de red.
+
+Sobre el primer grupo, lo que mostró la verificación posterior: no era un efecto de las fuentes de
+Linux. Con las de Windows, a 375 px los tres rótulos caen en dos renglones y la fila queda pareja
+—por eso el lote original no lo vio—, pero a **390, 412, 430 y 480 px** ya quedaba despareja
+(altos 66 / 51 / 51). El lote original había medido esa fila sólo a 375.
+
 ## 14. Gates
 
-**Disco local.** `C:` tenía 13,9 GB libres al empezar (bajó a 5,4 GB durante la sesión por un stack
-de Docker que esta sesión no levantó, y cerró en ~10 GB). Por debajo de 15 GB: **no se levantó
-Docker, no se corrió `m7-local` y no se corrió ningún E2E.** La verificación en navegador se hizo con
-backend simulado (§15).
+Los números de esta sección son los del **microfix** (head posterior a `a528eee`).
+
+**Disco local.** En el lote original `C:` estuvo siempre por debajo de 15 GB (13,9 → 5,4 → ~10) y no
+se levantó Docker. En el microfix arrancó en 17,8 GB con Docker Desktop encendido y **dos stacks de
+otras sesiones** corriendo; durante el trabajo bajó a 14,4 GB sin que esta sesión levantara nada. No
+se sumó un tercer stack: **no se corrió ningún E2E en local.** La verificación en navegador volvió a
+hacerse con backend simulado (§15) y el E2E queda a cargo de GitHub (§13).
 
 | Gate | Resultado |
 |---|---|
 | `tsc --noEmit` | 0 errores |
 | `eslint src --quiet` | 0 errores (sin warnings en los archivos tocados) |
-| `test:beta-ux-1f` | 13 archivos · 392 tests |
-| Suite completa de componentes | 136 archivos · 3.030 / 3.030 en la última corrida. Ver la nota de abajo |
+| `test:beta-ux-1f` | 13 archivos · 418 tests (392 del lote + 26 del microfix) |
+| Suite completa de componentes | 136 archivos · 3.055 / 3.056. El único rojo es el intermitente de abajo |
 | `test:unit` | 1.215 / 1.215 |
 | `vite build` (con el entorno de CI) | OK |
-| Guards estáticos | 19 en verde (ui-governance, no-real-data, credenciales, finance-writes, ci-e2e, first-steps, dollar-functions, order-payment-status, prebeta-p1, charts-l1, stock ×2, mobile-session, pwa, onboarding, customer-core, edge-cors, support-contact, tenant-isolation) |
-| Controles negativos | 23 / 23 detectados; árbol idéntico al terminar |
-| Verificación en navegador (backend simulado) | 19 escenarios · 281 medidas de contraste · 0 desbordes |
-| **E2E `@beta-ux-1f`** (22 tests) | **pendiente por disco local** — lo valida CI |
-| **`m7-local` vecinos** | **pendiente por disco local** — los valida CI |
+| Guards estáticos | 21 en verde: los 19 del lote (ui-governance, no-real-data, credenciales, finance-writes, ci-e2e, first-steps, dollar-functions, order-payment-status, prebeta-p1, charts-l1, stock ×2, mobile-session, pwa, onboarding, customer-core, edge-cors, support-contact, tenant-isolation) más product-search y visual-evidence. `guard:realtime-notifications`, que se probó de más, ya falla en la base por un conteo de `.single()` que este lote no cambia, y no corre en CI |
+| Controles negativos | 35 / 35 detectados (23 del lote + 12 del microfix); árbol idéntico al terminar |
+| Verificación en navegador (backend simulado) | lote: 19 escenarios · 281 medidas de contraste · 0 desbordes — microfix: 70 comprobaciones en verde (fila de acciones en 11 anchos, 6 combinaciones de actor y plan, recorrido del dólar) |
+| **E2E `@beta-ux-1f`** (23 tests) | corrió en GitHub sobre `a528eee`: 20 / 22, con 2 rojos reales (§13). Sobre el microfix: **lo valida CI** |
+| **`m7-local` vecinos** | corrió en GitHub sobre `a528eee`: 351 pasaron, 8 rojos en `tab-contrast` (§13). Sobre el microfix: **lo valida CI** |
 
 **Un test intermitente, ajeno al lote.** `orderIntakeMobile › scanner cross-browser ›
 enumerateDevices vacío pero getUserMedia OK` falló en 3 de las 4 corridas completas de la suite en
-esta máquina y pasó en la cuarta; aislado pasa siempre (8/8), y en la base (`e7298f7`) la corrida
-completa dio 2.918 / 2.918. Monta sólo `BarcodeScannerDialog`: no toca nada de este lote. Depende
-del tiempo de carga de la máquina, y la suite nueva suma carga a la corrida completa. CI lo corre
-dentro de `test:mobile2a`, con cuatro archivos.
+el lote original y otra vez en la corrida completa del microfix; aislado pasa siempre (8/8), y en la
+base (`e7298f7`) la corrida completa dio 2.918 / 2.918. Monta sólo `BarcodeScannerDialog`: no toca
+nada de este lote. Depende del tiempo de carga de la máquina, y la suite nueva suma carga a la
+corrida completa. CI lo corre dentro de `test:mobile2a`, con cuatro archivos, y ahí pasó.
 
 ### Controles negativos
 
 `evidence-1f/negative-controls.mjs` rompe a propósito cada invariante, corre la suite, exige que
 falle **en el test que corresponde**, restaura el archivo y compara el árbol byte a byte. Los diez
-que pedía el lote y trece más (autoridad de caja, red, estados canónicos, fecha argentina, doble
-lectura de la cotización). Salida en `evidence-1f/negative-controls.txt`.
+que pedía el lote, trece más (autoridad de caja, red, estados canónicos, fecha argentina, doble
+lectura de la cotización) y los del microfix: el shell vuelve a repreciar, la lectura de la
+cotización acoplada al reprecio, Inicio sin el reprecio heredado, un segundo pedido de cotización,
+el reprecio repetido al reentrar, el timer forzando la fuente, el bloque de Tareas sin gate, con
+sólo el plan, con sólo la capacidad, abierto durante la carga, con otra capacidad, y la fila de
+mobile centrada. Salida en `evidence-1f/negative-controls.txt`.
 
 Escribirlos encontró tres agujeros en la primera versión de la suite, ya corregidos:
 
@@ -391,12 +512,18 @@ base**; el CSS, el layout y el código son los reales.
 
 El spec de E2E puede regrabarlas contra la base real con `BETA_UX_1F_EVIDENCE=1`.
 
+El microfix no cambia la identidad visual y no regrabó capturas: a 375 px con estas fuentes la fila
+de acciones ya salía pareja en `dashboard-owner-mobile.png`. Lo que agrega es una verificación
+medida, con el mismo arnés: `evidence-1f/verify-microfix.mjs`, salida en
+`evidence-1f/verify-microfix.txt` (§17).
+
 ## 16. Archivos
 
 **Nuevos**
 
 - `src/hooks/useOperationalDashboardStats.ts` — lo que Inicio lee de la operación.
-- `src/hooks/useDollarRate.ts` — cotización compartida + reprecio en el shell.
+- `src/hooks/useDollarRate.ts` — cotización compartida (shell) + reprecio heredado (lo monta Inicio).
+- `src/hooks/useTasksAccess.ts` — el gate de `/tasks` para superficies fuera de la navegación.
 - `src/components/layout/CajaStatusChip.tsx`
 - `tests/components/betaUx1fDashboard.test.tsx`
 - `tests/e2e/m7/dashboard-day-one.spec.ts` · `tests/e2e/setup/seedDashboardFixture.ts` ·
@@ -415,5 +542,77 @@ El spec de E2E puede regrabarlas contra la base real con `BETA_UX_1F_EVIDENCE=1`
 - Tests que fijaban el Inicio viejo, llevados al contrato nuevo: `cajaCapabilityGate`,
   `rbacCapabilities`, `prebeta3a0Guardrails`, `tasksHonestStates`,
   `tests/unit/financialDashboardResilience`, `scripts/p0p6-negative-gates.mjs`.
-- E2E: `m7/fixtures.ts` y cuatro specs (§13).
+- E2E: `m7/fixtures.ts` y cuatro specs (§13); `m7/tab-contrast.spec.ts` (sin la superficie de Inicio).
 - `package.json` (`test:beta-ux-1f`) · `.github/workflows/ci.yml`.
+
+## 17. Microfix sobre `a528eee`
+
+Mismo PR (#175), misma rama. Sin migraciones, sin Edge Functions, sin `db push`, sin deploy.
+
+### 17.1 Tareas comparte el gate de `/tasks`
+
+**Hallazgo.** `/tasks` exige `permission="orders"` y `feature="tasks"`; el Sidebar y la navegación
+móvil usan el mismo contrato. El bloque de Inicio se dibujaba sin mirar el plan: Inicio → «Nueva
+tarea» / «Ver todas» → `/tasks` → pantalla de «mejorá tu plan».
+
+**Corrección.** `Dashboard` monta `DashboardTasks` sólo si `useTasksAccess().canAccessTasks`:
+capacidad `orders` + feature `tasks`, con el plan confirmado. Detalle en §7.
+
+| Caso | Bloque | Requests a `tasks` |
+|---|---|---|
+| A · feature `tasks` + `orders` | visible | sí |
+| B · feature `tasks` sin `orders` | ausente | 0 |
+| C · `orders` sin feature `tasks` | ausente | 0 |
+| D · sin ninguna | ausente | 0 |
+| Plan todavía leyéndose | ausente | 0 (aparece al confirmarse, si corresponde) |
+| Lectura del plan sin datos | ausente | 0 |
+
+En los cuatro casos A–D la decisión del bloque coincide con la de los **guards reales de la ruta**
+(montados en el test, compuestos como en `App.tsx`) y con `isNavigationItemAuthorized`, la función
+que arma el menú.
+
+### 17.2 El shell muestra el dólar; sólo Inicio reprecia
+
+**Hallazgo.** 1F había movido bien la presentación de la cotización al shell, pero además montaba
+`useInventoryDollarPriceSync()` en `MainLayout`: cada lectura terminada —la inicial en cualquier
+pantalla, la del timer global de 15 minutos, la manual— disparaba `refreshInventoryDollarPrices`,
+un `UPDATE` por producto. Navegar por la aplicación o dejarla abierta en Clientes se había vuelto un
+disparador de escrituras de inventario.
+
+**Corrección.** Se quitó de `MainLayout` y se monta desde `Dashboard`. Contrato completo en §5; la
+deuda de fondo queda registrada como DOLLAR-PRICE-SYNC-1 (§11).
+
+Medido en Chromium, con el código y el CSS reales y el backend simulado (dos productos en USD):
+
+| Paso | Consultas a la fuente | Lecturas de productos en USD | `UPDATE inventory` |
+|---|---|---|---|
+| Cargar la aplicación en `/orders` | 1 | 0 | 0 |
+| «Actualizar cotización» desde `/orders` | 2 | 0 | 0 |
+| Navegar a `/customers` | 2 | 0 | 0 |
+| Entrar a Inicio | 2 (sin pedido nuevo) | 1 | 2 |
+| «Actualizar cotización» en Inicio | 3 | 2 | 4 |
+| Salir a `/orders` y actualizar otra vez | 4 | 2 | 4 |
+| Volver a Inicio, salir y volver a entrar | 4 | 3 | 6 |
+| Carga directa en `/dashboard` (sesión nueva) | 1 | 1 | 2 |
+
+### 17.3 La fila de acciones de mobile
+
+Hallazgo del E2E de GitHub, no del owner (§13). Con `align-items: stretch` las tres secundarias
+miden lo mismo en todo el barrido (320 → 767 px). El control en vivo —reponer la regla anterior—
+reproduce la fila despareja en 390, 412, 430 y 480 px con las fuentes de esta máquina.
+
+### 17.4 Tests
+
+- `tests/components/betaUx1fDashboard.test.tsx`: 103 → 129. Nuevos: el gate de Tareas (A–D, cero
+  requests, sin hueco, plan en carga, plan sin datos, equivalencia con la ruta y con el menú) y el
+  bloque del dólar (el shell no monta la sincronización; una pantalla que no es Inicio no reprecia;
+  un refresh fuera de Inicio no actualiza productos; el timer no fuerza ni reprecia; Inicio conserva
+  el reprecio con una sola lectura; una vez por lectura; no se repite al reentrar; se detiene al
+  salir).
+- Tests que fijaban lo contrario y se dieron vuelta: «vive en el shell: `MainLayout` lo monta» y «ni
+  la cotización ni el reprecio salen de esta pantalla».
+- E2E `dashboard-day-one`: 22 → 23. La fila de secundarias exige el mismo alto y se mide a 375, 390
+  y 430; `abrir` espera el bloque de Tareas (ahora se monta con el plan confirmado); un test nuevo
+  recorre `/orders` → Inicio → `/orders` y cuenta las lecturas de `inventory?…linked_to_dolar=eq.true`
+  y las escrituras de inventario. **No se pudo ejecutar en local**: lo valida GitHub.
+- E2E `tab-contrast`: 26 → 18 (sin las ocho de Inicio).
