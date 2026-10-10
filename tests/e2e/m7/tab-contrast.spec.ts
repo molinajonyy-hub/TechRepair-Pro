@@ -6,8 +6,12 @@ import { AA_SMALL_TEXT, applyTheme, contrastOf } from '../helpers/contrast'
 const FOCUS_INDICATOR_MINIMUM = 3
 const VIEWPORT_WIDTHS = [320, 390, 430, 1440]
 
+// BETA-UX-1F: Inicio dejó de ser una superficie de pestañas. Las suyas
+// (Comprobantes / Movimientos de Caja) se fueron con las finanzas, así que
+// `/dashboard` salió de esta lista. `AppTabs` hoy sólo vive en el detalle de una
+// tarea, que es un diálogo y no una ruta; las clases `.tab` / `.tab-active` que
+// mide este spec las siguen cubriendo las dos superficies que quedan.
 const LIVE_SURFACES = [
-  { name: 'Dashboard · AppTabs', path: '/dashboard' },
   { name: 'Ofertas · tabs de filtro', path: '/offers' },
   { name: 'Configuración · tabs de navegación', path: '/settings' },
 ] as const

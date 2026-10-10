@@ -84,10 +84,11 @@ const perfil = (role: string, permissions: unknown = null) => ({
 
 /** Expone el contrato del contexto para poder aseverarlo. */
 function Sonda() {
-  const { canUseCaja, cajaId, isOpen } = useCaja()
+  const { canUseCaja, canSeeCajaStatus, cajaId, isOpen } = useCaja()
   return (
     <div>
       <span data-testid="can">{String(canUseCaja)}</span>
+      <span data-testid="see">{String(canSeeCajaStatus)}</span>
       <span data-testid="cajaId">{cajaId ?? 'null'}</span>
       <span data-testid="isOpen">{String(isOpen)}</span>
     </div>
@@ -165,28 +166,62 @@ describe('regresiones del contrato', () => {
     await waitFor(() => expect(screen.getByTestId('can').textContent).toBe('false'))
     expect(fetchesDeCaja()).toBe(0)
   })
+
+  // BETA-UX-1F: «conocer el estado» se expone como `canSeeCajaStatus` para que
+  // la barra superior no reescriba la condición. Es la MISMA que decide si la
+  // lectura se hace: nunca puede ser true para quien no consulta `cajas`.
+  it.each([
+    ['owner', null, 'true', 'true'],
+    ['cashier', null, 'true', 'true'],
+    ['sales', null, 'true', 'false'],
+    ['tech', null, 'false', 'false'],
+    ['viewer', null, 'false', 'false'],
+    ['tech', { comprobantes: true }, 'true', 'false'],
+    ['sales', { comprobantes: false }, 'false', 'false'],
+  ] as const)('%s %j: conoce el estado = %s, puede gestionar = %s', async (rol, overrides, conoce, gestiona) => {
+    estado.perfil = perfil(rol, overrides)
+    montar()
+    await waitFor(() => expect(screen.getByTestId('see').textContent).toBe(conoce))
+    expect(screen.getByTestId('can').textContent).toBe(gestiona)
+    // Conocer el estado y consultar `cajas` van juntos, en las dos direcciones.
+    if (conoce === 'true') await waitFor(() => expect(fetchesDeCaja()).toBeGreaterThan(0))
+    else expect(fetchesDeCaja()).toBe(0)
+  })
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe('estructura', () => {
   const dash = leerCodigo('src/pages/Dashboard.tsx')
   const ctx = leerCodigo('src/contexts/CajaContext.tsx')
+  const chip = leerCodigo('src/components/layout/CajaStatusChip.tsx')
 
   it('la capacidad sale del contexto, NO de un rol hardcodeado', () => {
     expect(ctx).toMatch(/canUseCaja = can\('finance'\)/)
     // El contrato prohíbe explícitamente ramificar por rol acá.
     expect(ctx).not.toMatch(/role\s*===\s*['"]/)
     expect(dash).not.toMatch(/role\s*===\s*['"]tech['"]/)
+    expect(chip).not.toMatch(/role|usePermissions/)
   })
 
-  it('el estado de caja del dashboard está gateado', () => {
+  // BETA-UX-1F: la franja «Caja abierta / Gestionar →» salió del cuerpo de
+  // Inicio. El estado vive en un chip de la barra superior; «Gestionar Caja»
+  // sigue en el encabezado de Inicio, detrás de la misma capacidad.
+  it('Inicio ya no dibuja el estado de caja; su acción de caja sigue gateada', () => {
+    expect(dash).not.toContain('dash-estado-caja')
     expect(dash).toMatch(/\{canUseCaja && \(/)
-    expect(dash).toContain('data-testid="dash-estado-caja"')
   })
 
-  it('la pestaña Movimientos Caja está gateada', () => {
-    expect(dash).toMatch(/canUseCaja[\s\S]{0,120}Movimientos Caja/)
-    expect(dash).toMatch(/activeTab === 'movimientos' && canUseCaja/)
+  it('el chip muestra el estado sólo a quien puede conocerlo y ofrece /caja sólo a quien puede gestionarla', () => {
+    expect(ctx).toMatch(/canSeeCajaStatus: necesitaConocerCaja/)
+    expect(chip).toMatch(/if \(!canSeeCajaStatus \|\| loading\) return null/)
+    // El enlace a /caja está DENTRO de la rama de `canUseCaja`.
+    const rama = chip.slice(chip.indexOf('if (canUseCaja)'), chip.lastIndexOf('return ('))
+    expect(rama).toContain('to="/caja"')
+    expect(chip.slice(chip.lastIndexOf('return ('))).not.toContain('/caja')
+  })
+
+  it('Inicio no tiene pestaña de Movimientos de Caja ni lee movimientos', () => {
+    expect(dash).not.toMatch(/Movimientos|activeTab|financial_movements/)
   })
 
   it('el fetch de caja está condicionado', () => {

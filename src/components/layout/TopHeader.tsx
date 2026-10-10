@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { GlobalSearchTrigger } from './GlobalSearchTrigger'
 import { NotificationsDropdown } from './NotificationsDropdown'
+import { CajaStatusChip } from './CajaStatusChip'
+import { DollarRateBadge } from '../ui/DollarRateBadge'
 import { ThemeToggle } from '../ui/ThemeToggle'
 import { useSystemStatus } from '../../contexts/SystemStatusContext'
 import type { AppStatus } from '../../hooks/useAppWakeUp'
@@ -82,6 +84,15 @@ export function TopHeader() {
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', width: '100%' }}>
         {/* Único buscador global — reemplaza el botón ⌘K + el GlobalSearch inline */}
         <GlobalSearchTrigger />
+
+        {/* BETA-UX-1F — Caja y dólar: utilidades globales, a la derecha del
+            buscador. Salieron del cuerpo de Inicio (la franja de caja y la
+            tarjeta del dólar) y esta barra es su única presentación en
+            escritorio. Ninguna muestra un importe del negocio. */}
+        <div className="top-header__utilities" data-testid="top-header-utilities">
+          <CajaStatusChip />
+          <DollarRateBadge variant="compact" />
+        </div>
 
         {/* Controles derecha */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>

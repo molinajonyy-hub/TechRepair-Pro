@@ -369,11 +369,14 @@ test('T6d las respuestas obsoletas se descartan con contador de request', () => 
   assert.ok(/req !== cajaReq\.current/.test(s), 'la carga de caja descarta respuestas viejas')
 })
 
-test('T6e el Dashboard muestra "No disponible" en vez de $0 cuando la caja falla', () => {
+// BETA-UX-1F: Inicio dejó de mostrar importes de caja («Cobrado en caja», «Caja
+// neta»). El contrato de este test —nunca un $0 falso cuando la caja falla— se
+// cumple de la forma más fuerte posible: ya no hay un importe que pueda salir
+// en cero. Lo que se fija ahora es que esas tarjetas no vuelvan por otra puerta.
+test('T6e Inicio no muestra importes de caja: no hay cero falso posible', () => {
   const s = read('src/pages/Dashboard.tsx')
-  assert.ok(/finCajaError/.test(s), 'el Dashboard debe consumir el error de caja')
-  assert.ok(/No disponible/.test(s), 'debe existir el estado visible de dato no disponible')
-  // No debe quedar el fallback ciego a cero en las tarjetas de caja.
-  assert.ok(!/finData\.caja\.income - finData\.caja\.expense/.test(s),
-    'el cálculo inline con fallback a 0 se reemplazó por caja.net y el guard de error')
+  assert.ok(!/useFinancialDashboard/.test(s), 'Inicio no debe volver a consumir el snapshot financiero')
+  assert.ok(!/finData|ventasHoy|caja\.net/.test(s), 'Inicio no debe volver a leer importes de caja')
+  // Y sigue sin existir el fallback ciego a cero.
+  assert.ok(!/finData\.caja\.income - finData\.caja\.expense/.test(s))
 })

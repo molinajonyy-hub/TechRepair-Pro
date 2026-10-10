@@ -1,15 +1,16 @@
 /**
  * DollarRateBadge — muestra la cotización del dólar blue con fuente y hora.
- * Usa dollarRateService para obtener el valor con fallback automático.
+ *
+ * BETA-UX-1F: el componente ya no pide la cotización por su cuenta. La lee de
+ * `useDollarRate`, que la comparte entre todos los que la muestran: la variante
+ * compacta vive en la barra superior (escritorio) y en la fila de utilidades
+ * (mobile), las dos montadas a la vez, y entre las dos hacen UNA lectura.
  */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { RefreshCw, AlertTriangle, Clock, MapPin, Globe, Wrench } from 'lucide-react'
-import { useAuth } from '../../contexts/AuthContext'
+import { useDollarRate } from '../../hooks/useDollarRate'
 import {
-  refreshDollarRate,
-  clearDollarCache,
   getDisplayExchangeRate,
-  type DollarRateResult,
   type DollarSource,
 } from '../../services/dollarRateService'
 
@@ -34,39 +35,19 @@ function timeAgo(date: Date): string {
 // ─── Componente ───────────────────────────────────────────────────────────────
 
 interface DollarRateBadgeProps {
-  /** 'compact' solo muestra el número y fuente en una línea */
+  /** 'compact': chip «USD $1.556» para barras. 'full': tarjeta con fuente y hora. */
   variant?: 'compact' | 'full'
-  /** Si true, auto-refresca al montar */
-  autoRefresh?: boolean
   className?: string
 }
 
-export function DollarRateBadge({ variant = 'compact', autoRefresh = false, className = '' }: DollarRateBadgeProps) {
-  const { businessId } = useAuth()
-  const [rate, setRate]       = useState<DollarRateResult | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [, setTick]           = useState(0) // fuerza re-render para el timeAgo
-
-  const load = useCallback(async (_force = false) => {
-    if (!businessId) return
-    setLoading(true)
-    try {
-      // Siempre limpiar caché al cargar para evitar mostrar valores incorrectos guardados
-      clearDollarCache(businessId)
-      // force=true: ignora TTL, fuerza refetch del edge function
-      // force=false: misma lógica pero con limpieza de caché preventiva
-      const result = await refreshDollarRate(businessId, true)
-      setRate(result)
-    } finally {
-      setLoading(false)
-    }
-  }, [businessId])
+export function DollarRateBadge({ variant = 'compact', className = '' }: DollarRateBadgeProps) {
+  const { rate, loading, refresh } = useDollarRate()
+  const [, setTick] = useState(0) // fuerza re-render para el timeAgo
 
   useEffect(() => {
-    if (autoRefresh) { load(true) } else { load(false) }
     const t = setInterval(() => setTick(n => n + 1), 60_000)
     return () => clearInterval(t)
-  }, [load, autoRefresh])
+  }, [])
 
   if (!rate && !loading) return null
 
@@ -77,30 +58,35 @@ export function DollarRateBadge({ variant = 'compact', autoRefresh = false, clas
   const fmtMain   = display ? `$${display.mainValue.toLocaleString('es-AR', { maximumFractionDigits: 0 })}` : '...'
 
   // ── Compact ──────────────────────────────────────────────────────────────────
+  // Sólo tokens de tema: el chip se lee igual en claro y en oscuro. La fuente y
+  // la antigüedad no ocupan lugar en la barra: van en el título del chip, y un
+  // valor que no es de ahora se marca con un ícono, no sólo con un color.
   if (variant === 'compact') {
+    const aviso = rate?.warning ?? (rate?.isStale ? 'Usando el último valor guardado' : null)
+    const detalle = ['Dólar blue, venta', display?.sourceLabel, rate ? timeAgo(rate.fetchedAt) : null]
+      .filter(Boolean).join(' · ')
     return (
-      <div className={`dollar-rate-badge ${className}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem' }}>
-        {rate?.warning && (
-          <AlertTriangle size={13} style={{ color: '#f59e0b', flexShrink: 0 }} aria-label={rate.warning} />
+      <div
+        className={`shell-chip shell-chip--dollar dollar-rate-badge ${className}`.trim()}
+        data-testid="shell-dollar-chip"
+        role="group"
+        aria-label={display ? `Dólar blue, venta: ${fmtMain}` : 'Dólar blue, venta'}
+        title={aviso ? `${detalle}. ${aviso}` : detalle}
+      >
+        {aviso && (
+          <AlertTriangle size={13} className="shell-chip__warn" role="img" aria-label={aviso} />
         )}
-        {rate?.isStale && !rate.warning && (
-          <AlertTriangle size={13} style={{ color: '#f59e0b', flexShrink: 0 }} aria-label="Usando último valor guardado" />
-        )}
-        <span style={{ fontSize: '0.78rem', fontWeight: 700, color: srcInfo?.color ?? 'var(--text-secondary)' }}>
-          USD {fmtMain}
-        </span>
-        {srcInfo && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.68rem', color: 'var(--text-subtle)' }}>
-            {srcInfo.icon} {rate?.source === 'INFODOLAR_CORDOBA' ? 'Cba.' : srcInfo.label}
-          </span>
-        )}
+        <span className="shell-chip__meta shell-chip__unit">USD</span>
+        <span className="shell-chip__label shell-chip__value">{fmtMain}</span>
         <button
-          onClick={() => load(true)}
+          type="button"
+          className="shell-chip__refresh"
+          onClick={() => { void refresh() }}
           disabled={loading}
+          aria-label="Actualizar cotización del dólar"
           title="Actualizar cotización"
-          style={{ background: 'none', border: 'none', cursor: loading ? 'default' : 'pointer', padding: '0.1rem', color: 'var(--text-subtle)', display: 'inline-flex', alignItems: 'center' }}
         >
-          <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
+          <RefreshCw size={12} className={loading ? 'animate-spin' : ''} aria-hidden="true" />
         </button>
       </div>
     )
@@ -127,7 +113,7 @@ export function DollarRateBadge({ variant = 'compact', autoRefresh = false, clas
           </span>
         </div>
         <button
-          onClick={() => load(true)}
+          onClick={() => { void refresh() }}
           disabled={loading}
           style={{ background: 'none', border: 'none', cursor: loading ? 'default' : 'pointer', color: 'var(--text-subtle)', padding: '0.2rem', display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.72rem' }}
         >

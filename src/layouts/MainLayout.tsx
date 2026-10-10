@@ -2,6 +2,8 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Sidebar } from '../components/layout/Sidebar'
 import { MobileBottomNav } from '../components/layout/MobileBottomNav'
 import { TopHeader } from '../components/layout/TopHeader'
+import { CajaStatusChip } from '../components/layout/CajaStatusChip'
+import { DollarRateBadge } from '../components/ui/DollarRateBadge'
 import { ThemeToggle } from '../components/ui/ThemeToggle'
 import { CommandPalette } from '../components/ui/CommandPalette'
 import { useAuth } from '../contexts/AuthContext'
@@ -95,9 +97,35 @@ function MobileTopBar() {
   )
 }
 
+/**
+ * BETA-UX-1F — Caja y dólar en el shell mobile.
+ *
+ * Por debajo de 1024px `TopHeader` no se ve: el shell usa `MobileTopBar`, que
+ * tiene tres controles y no admite más en una línea. Los dos chips van en una
+ * fila propia debajo de la barra, y sólo en Inicio —que es donde vivían—: en
+ * las pantallas de trabajo (recepción, POS, listas) el alto es del contenido.
+ *
+ * El CSS decide cuándo se ve (`.mobile-utility-bar`); en escritorio no ocupa
+ * lugar. La cotización es la misma lectura compartida que usa `TopHeader`.
+ *
+ * El shell MUESTRA la cotización y nada más: no reprecia inventario. Ese efecto
+ * vive en Inicio (`useInventoryDollarPriceSync`), no acá.
+ */
+function MobileUtilityBar() {
+  return (
+    <div className="mobile-utility-bar" data-testid="mobile-utility-bar">
+      <CajaStatusChip />
+      <DollarRateBadge variant="compact" />
+    </div>
+  )
+}
+
+const isHomePath = (pathname: string) => pathname === '/' || pathname === '/dashboard'
+
 export function MainLayout() {
   const { businessId, profileError, user } = useAuth()
   const { isCollapsed } = useSidebar()
+  const { pathname } = useLocation()
   const navigationAccess = useNavigationAccess()
   const primaryDestinations = resolveMobilePrimaryNavigation(navigationAccess)
   const primaryPaths = mobilePrimaryPaths(primaryDestinations)
@@ -147,6 +175,8 @@ export function MainLayout() {
           <div className="desktop-topheader-wrapper">
             <TopHeader />
           </div>
+
+          {businessId && isHomePath(pathname) && <MobileUtilityBar />}
 
           {!businessId ? (
             <div

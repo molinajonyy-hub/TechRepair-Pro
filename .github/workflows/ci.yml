@@ -259,6 +259,65 @@ jobs:
       - name: BETA-UX-1E — readable accent CTAs in light mode
         run: npm run test:beta-ux-1e
 
+      # BETA-UX-1F: Inicio como centro operativo del taller. DASHBOARD =
+      # operación, FINANZAS = dinero. Inicio mezclaba las dos cosas —Ganancia
+      # Real, Cobrado en caja, Caja neta, una franja de caja, la tarjeta del
+      # dólar, seis accesos rápidos y tres pestañas— y además PEDÍA las fuentes
+      # financieras para todos los actores, también para quien no podía verlas.
+      # La suite monta el Dashboard REAL con sus hooks reales
+      # (`usePermissions`, `useOperationalDashboardStats`, `CajaProvider`,
+      # `taskService`, `useFirstSteps`) sobre un Supabase simulado que REGISTRA
+      # cada tabla y cada RPC, y fija: que ningún actor —tampoco el dueño— ve un
+      # importe ni un símbolo de moneda en Inicio; que la pantalla lee `orders`,
+      # las tareas del usuario y `get_my_first_steps`, y nada de
+      # business_finance_entries, v_finance_*, comprobante_items,
+      # comprobante_payments, comprobantes, financial_movements, accounts ni
+      # las RPC de importes (medido por test y, al final, sobre TODOS los
+      # montajes del archivo: un hook con caché de módulo consulta sólo la
+      # primera vez); que «Actualizar» vuelve a leer eso mismo sin recargar; que
+      # los tres indicadores de «Hoy» salen de conteos exactos por estado
+      # CANÓNICO (`ready_delivery`, `waiting_approval`) y «nuevas hoy» corta a
+      # las 00:00 de Argentina; que las cuatro acciones del encabezado dependen
+      # de la capacidad efectiva de su destino (defaults del rol + overrides,
+      # nunca el nombre del rol) y «Registrar gasto» usa la variante `danger`;
+      # que «Mis tareas» está entre «Hoy» y las órdenes recientes, que «Nueva
+      # tarea» abre el formulario real del módulo (`openCreate`), que el resumen
+      # es Vencidas / Para hoy / Pendientes y que «para hoy» usa la fecha de
+      # negocio argentina (a las 23:30 AR el día UTC ya es mañana); que las
+      # órdenes recientes son cinco, sin importes ni acción por fila, con la
+      # fila y la tarjeta mobile abriendo el detalle y el estado con su etiqueta
+      # canónica; que hay UNA guía de primeros pasos y no queda hueco al
+      # completarla. Barra superior: el chip de caja muestra el estado a quien
+      # puede conocerlo (`canSeeCajaStatus`: opera caja o cobra), ofrece `/caja`
+      # sólo con `canUseCaja`, no afirma «cerrada» antes de leer y nunca trae un
+      # monto; la cotización se lee UNA vez aunque la muestren dos chips.
+      # MICROFIX (mismo PR): (1) el bloque de Tareas comparte el gate de `/tasks`
+      # —capacidad `orders` + feature de plan `tasks`, la misma decisión que los
+      # guards reales de la ruta y que `isNavigationItemAuthorized`—; sin acceso
+      # no se monta, no pide `tasks` (tampoco con «Actualizar»), no deja hueco y
+      # no se abre a ciegas mientras el plan se está leyendo. (2) El shell
+      # MUESTRA la cotización y NO reprecia inventario: `MainLayout` no monta
+      # `useInventoryDollarPriceSync`, una pantalla que no es Inicio lee la
+      # cotización sin tocar un producto, un refresh de dólar fuera de Inicio no
+      # actualiza productos y el timer de 15 min no fuerza la fuente ni
+      # reprecia; Inicio conserva el reprecio heredado sobre la lectura
+      # compartida (sin un segundo pedido), como máximo una vez por lectura, sin
+      # repetirlo al reentrar y deteniéndose al salir. Refrescar la cotización y
+      # repreciar inventario son dos efectos distintos (deuda
+      # DOLLAR-PRICE-SYNC-1). CSS: contrato responsive del
+      # bloque (sólo `max-width`, sólo tokens, tabla desde 768 px y tarjetas por
+      # debajo, fila de utilidades sólo en el shell mobile, acciones secundarias
+      # de mobile del mismo alto) y aritmética WCAG de
+      # los pares elegidos —incluido por qué `.btn-danger` a secas no alcanza en
+      # tema claro—. Corre con las suites vecinas que montan estas pantallas, ya
+      # con el contrato nuevo (`cajaCapabilityGate`, `rbacCapabilities`,
+      # `prebeta3a0Guardrails`, Tareas, primeros pasos). La geometría a 375 /
+      # 390 / 430 px, los 44 px, el contraste pintado en claro y en oscuro, el
+      # contrato de red contra el servidor y los actores REALES (técnico,
+      # vendedor) viven en `m7/dashboard-day-one.spec.ts` (job `e2e-local`).
+      - name: BETA-UX-1F — operational day-one home
+        run: npm run test:beta-ux-1f
+
       # BETA-MP: Billing SaaS por Mercado Pago. El frontend propone, Mercado Pago
       # confirma, el backend decide. Corre el código REAL de las Edge Functions
       # (`supabase/functions/_shared/billing`) contra un PostgREST en memoria que

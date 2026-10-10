@@ -29,6 +29,11 @@ import { test, expect, type Page } from '@playwright/test'
 import { ejecutarSQL } from '../setup/sqlLocal.ts'
 import { sqlDeFixtureBusqueda, SEARCH_FIXTURE } from '../setup/seedSearchFixture.ts'
 import { sqlDeFixturePosMobile, POS_MOBILE_FIXTURE } from '../setup/seedPosMobileFixture.ts'
+import { sinFuenteDeCotizacion } from '../helpers/dollarRate.ts'
+
+// BETA-UX-1F: el shell pide la cotización del dólar en cada carga y el stack
+// local no tiene la Edge Function que la sirve. Ver helpers/dollarRate.ts.
+test.beforeEach(async ({ page }) => { await sinFuenteDeCotizacion(page) })
 
 const VIEWPORTS = [
   { nombre: 'desktop-1440', width: 1440, height: 900, movil: false },

@@ -20,6 +20,11 @@
 // Las capturas quedan en tests/e2e/evidencia/charts-l1/.
 // ============================================================================
 import { test, expect, type Page, type ConsoleMessage } from '@playwright/test'
+import { sinFuenteDeCotizacion } from '../helpers/dollarRate.ts'
+
+// BETA-UX-1F: el shell pide la cotización del dólar en cada carga y el stack
+// local no tiene la Edge Function que la sirve. Ver helpers/dollarRate.ts.
+test.beforeEach(async ({ page }) => { await sinFuenteDeCotizacion(page) })
 
 const CARDS = [
   { id: 'card-result',            titulo: 'Resultado del negocio' },

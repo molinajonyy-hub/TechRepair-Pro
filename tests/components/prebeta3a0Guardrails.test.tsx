@@ -68,29 +68,25 @@ vi.mock('react-router-dom', async (orig) => {
 vi.mock('../../src/hooks/useSubscription', () => ({ useSubscription: () => h.sub }))
 
 // ── Dependencias de datos del Dashboard (borde) ─────────────────────────────
-vi.mock('../../src/hooks/useDashboardStats', () => ({
-  useDashboardStats: () => ({
-    stats: {
-      totalOrders: 0, totalCustomers: 0, ordersByStatus: {}, newOrdersToday: 0,
-      newCustomersThisMonth: 0, realProfitToday: null, averageMarginPct: null, recentOrders: [],
-    },
+// BETA-UX-1F: Inicio lee sólo la operación. Ya no consume `useDashboardStats`,
+// `useFinancialDashboard`, `useComprobantes` ni el servicio de cotización; del
+// dólar le queda el reprecio heredado de inventario, que acá no se prueba.
+vi.mock('../../src/hooks/useOperationalDashboardStats', () => ({
+  useOperationalDashboardStats: () => ({
+    stats: { activeOrders: 0, readyForDelivery: 0, waitingApproval: 0, newOrdersToday: 0, recentOrders: [] },
     loading: false, error: null, refresh: vi.fn(),
   }),
 }))
-vi.mock('../../src/hooks/useFinancialDashboard', () => ({
-  useFinancialDashboard: () => ({ data: null, loading: false, cajaError: null }),
-}))
-vi.mock('../../src/hooks/useComprobantes', () => ({
-  useComprobantes: () => ({ comprobantes: [], listarComprobantes: vi.fn() }),
-}))
-vi.mock('../../src/services/dollarRateService', () => ({
-  refreshDollarRate: vi.fn(async () => null),
-  refreshInventoryDollarPrices: vi.fn(async () => undefined),
+vi.mock('../../src/hooks/useDollarRate', () => ({
+  refreshSharedDollarRate: vi.fn(async () => undefined),
+  useInventoryDollarPriceSync: () => undefined,
 }))
 vi.mock('../../src/contexts/CajaContext', () => ({
-  useCaja: () => ({ isOpen: false, cajaId: null, loading: false, activeCaja: null, canUseCaja: false }),
+  useCaja: () => ({
+    isOpen: false, cajaId: null, loading: false, activeCaja: null,
+    canUseCaja: false, canSeeCajaStatus: false, refresh: vi.fn(async () => null),
+  }),
 }))
-vi.mock('../../src/components/ui/DollarRateBadge', () => ({ DollarRateBadge: () => null }))
 vi.mock('../../src/components/tasks/DashboardTasks', () => ({ DashboardTasks: () => null }))
 vi.mock('../../src/components/onboarding/FirstStepsChecklist', () => ({ FirstStepsChecklist: () => null }))
 

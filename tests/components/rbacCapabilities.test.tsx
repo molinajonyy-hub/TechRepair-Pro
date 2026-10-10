@@ -285,25 +285,35 @@ describe('C · estructura del sidebar', () => {
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
+// BETA-UX-1F cambió el contrato de esta pantalla. Antes las tarjetas financieras
+// se escondían por capacidad; ahora NO EXISTEN, para ningún actor: Inicio es
+// operación, el dinero vive en Finanzas y en Caja. El gate que queda es el de
+// las acciones del encabezado.
 describe('D · dashboard', () => {
   const src = leerCodigo('src/pages/Dashboard.tsx')
 
-  it('las tarjetas financieras están detrás de la capacidad', () => {
-    expect(src).toMatch(/puedeVerFinanzas\s*=\s*can\('finance'\)/)
-    expect(src).toMatch(/\{puedeVerFinanzas && \(/)
+  it('«Registrar gasto» está detrás de la capacidad `finance`', () => {
+    expect(src).toMatch(/puedeRegistrarGasto\s*=\s*can\('finance'\)/)
+    expect(src).toMatch(/\{puedeRegistrarGasto && \(/)
   })
 
-  it('NO consulta los datos financieros cuando no puede mostrarlos', () => {
-    // §6 del contrato: `permission false → no ejecutar la query`, en vez de
-    // traer el dato y esconder la tarjeta. Esconderla dejaría la ganancia en la
-    // respuesta HTTP, visible en la pestaña Network.
-    expect(src).toMatch(/useFinancialDashboard\(puedeVerFinanzas \? businessId : null/)
-    expect(src).toMatch(/!puedeVerFinanzas\) \{ setMovimientosCaja\(\[\]\); return \}/)
+  it('NO consulta datos financieros: ni con capacidad, ni sin ella', () => {
+    // §6 del contrato original: `permission false → no ejecutar la query`. Sin
+    // tarjetas financieras la regla vale para todos: la consulta no existe.
+    expect(src).not.toMatch(/useFinancialDashboard|useDashboardStats\b|useComprobantes/)
+    expect(src).not.toMatch(/financial_movements|business_finance_entries/)
+    expect(src).not.toMatch(/supabase/)
   })
 
-  it('los accesos rápidos declaran la capacidad que necesitan', () => {
-    expect(src).toMatch(/\.filter\(action => can\(action\.need\)\)/)
-    expect(src).toMatch(/'Registrar Gasto'[\s\S]{0,220}need: 'finance'/)
+  it('no quedan tarjetas de dinero ni accesos rápidos', () => {
+    expect(src).not.toMatch(/Ganancia Real|Cobrado en caja|Caja neta/i)
+    expect(src).not.toContain('dashboard-quick-actions')
+  })
+
+  it('las acciones del encabezado declaran la capacidad canónica de su destino', () => {
+    expect(src).toMatch(/puedeCrearOrden\s*=\s*can\('orders_create'\)/)
+    expect(src).toMatch(/puedeEmitirComprobante\s*=\s*can\('comprobantes'\)/)
+    expect(src).toMatch(/\{canUseCaja && \(/)
   })
 })
 

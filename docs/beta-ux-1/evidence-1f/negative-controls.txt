@@ -1,0 +1,38 @@
+OK    01 reintroducir «Ganancia Real Hoy» → rojo (3 tests), incluido «no existen las tarjetas financieras»
+OK    02 reintroducir useFinancialDashboard en Inicio → rojo (2 tests), incluido «ningún montaje de Inicio ni de la barra superior pidió una fuente financiera»
+OK    03 volver a mostrar los accesos rápidos → rojo (3 tests), incluido «no existen los accesos rápidos»
+OK    04 volver a mostrar «Movimientos Caja» → rojo (3 tests), incluido «no existen las pestañas»
+OK    05 mostrar «Registrar gasto» sin finance → rojo (7 tests), incluido «sales null ve»
+OK    06 quitar Tareas de Inicio → rojo (20 tests), incluido ««Mis tareas» está en Inicio»
+OK    07a romper dueToday (fecha UTC en vez de la argentina) → rojo (1 tests), incluido «con la fecha de negocio argentina»
+OK    07b romper dueToday (contar también las completadas) → rojo (4 tests), incluido «compara el día de calendario»
+OK    08a devolver la caja a una franja en el cuerpo de Inicio → rojo (3 tests), incluido «no existe la franja de caja»
+OK    08b convertir el chip de caja en una franja de ancho completo → rojo (1 tests), incluido «la caja en la barra es un chip»
+OK    09a las filas de órdenes recientes dejan de ser clickeables → rojo (1 tests), incluido «la fila entera abre la orden»
+OK    09b las tarjetas mobile dejan de abrir la orden → rojo (1 tests), incluido «tocar la tarjeta abre el detalle»
+OK    10 reintroducir un importe financiero en Inicio → rojo (9 tests), incluido «ningún importe, ningún símbolo de moneda»
+OK    11 el vendedor puede gestionar la caja desde el chip → rojo (1 tests), incluido «conoce el estado y NO puede gestionar»
+OK    12 el chip de caja se muestra a quien no necesita conocerla → rojo (2 tests), incluido «no ve el chip de caja»
+OK    13 el hook operacional vuelve a leer finanzas → rojo (5 tests), incluido «sólo órdenes, tareas, primeros pasos y el estado de la caja»
+OK    14 «Listas para entregar» con el alias legacy `ready` → rojo (1 tests), incluido «activas = total − completadas − canceladas»
+OK    15 «nuevas hoy» cortado en la medianoche UTC → rojo (1 tests), incluido «cuenta desde las 00:00 de Argentina»
+OK    16 una página llama al reprecio por su cuenta, sin pasar por el hook → rojo (3 tests), incluido «sólo Inicio la monta»
+OK    17 dos lecturas de la cotización (cada chip pide la suya) → rojo (6 tests), incluido «comparten la misma lectura»
+OK    18 «Registrar gasto» pierde la variante danger → rojo (1 tests), incluido «usa la variante `danger`»
+OK    19 Tareas queda debajo de las órdenes recientes → rojo (1 tests), incluido «después de «Hoy» y antes de las órdenes recientes»
+OK    20 la bienvenida duplicada vuelve junto a Primeros pasos → rojo (4 tests), incluido «sin la bienvenida duplicada»
+OK    21 el shell vuelve a repreciar: `MainLayout` monta la sincronización → rojo (1 tests), incluido «`MainLayout` NO monta la sincronización de inventario»
+OK    22 leer la cotización reprecia (los dos efectos acoplados en el estado compartido) → rojo (10 tests), incluido «una pantalla que no es Inicio lee la cotización y no reprecia nada»
+OK    23 Inicio pierde el reprecio heredado → rojo (7 tests), incluido «Inicio conserva el reprecio heredado»
+OK    24 Inicio pide la cotización por su cuenta (segundo pedido) → rojo (5 tests), incluido «Inicio conserva el reprecio heredado»
+OK    25 volver a Inicio repite el reprecio de una lectura ya aplicada → rojo (1 tests), incluido «volver a Inicio no repite una lectura ya aplicada»
+OK    26 la lectura periódica vuelve a forzar la fuente → rojo (2 tests), incluido «la lectura periódica del shell no fuerza la fuente»
+OK    27 el bloque de Tareas vuelve a mostrarse sin mirar el acceso → rojo (14 tests), incluido «en plan basico → bloque de Tareas: false»
+OK    28 el gate de Tareas mira sólo el plan (sin la capacidad `orders`) → rojo (3 tests), incluido «en plan pro → bloque de Tareas: false»
+OK    29 el gate de Tareas mira sólo la capacidad (sin la feature `tasks`) → rojo (8 tests), incluido «en plan basico → bloque de Tareas: false»
+OK    30 el bloque se abre mientras el plan se está leyendo → rojo (3 tests), incluido «mientras el plan se está leyendo no se abre a ciegas»
+OK    31 el gate de Tareas cambia de contrato (otra capacidad) → rojo (3 tests), incluido «la misma decisión que la ruta y que el menú»
+OK    32 la fila de acciones mobile vuelve a centrarse (alto desparejo) → rojo (1 tests), incluido «mobile: la principal ocupa el ancho»
+
+árbol idéntico al de antes de mutar: sí
+CONTROLES NEGATIVOS: 35/35 detectados

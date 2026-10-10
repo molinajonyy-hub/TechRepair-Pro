@@ -20,6 +20,7 @@
 // ============================================================================
 import { test as base, expect } from '@playwright/test'
 import { motivoDestinoProhibido } from '../setup/destinosProhibidos'
+import { sinFuenteDeCotizacion } from '../helpers/dollarRate'
 
 export const test = base.extend<Record<string, never>>({
   page: async ({ page }, use) => {
@@ -37,6 +38,11 @@ export const test = base.extend<Record<string, never>>({
       }
       return route.fallback()
     })
+
+    // ─── Cotización del dólar ───────────────────────────────────────────────
+    // BETA-UX-1F: el shell la pide en cada carga y el stack local no tiene la
+    // Edge Function que la sirve. Ver helpers/dollarRate.ts.
+    await sinFuenteDeCotizacion(page)
 
     // ─── WebSocket ──────────────────────────────────────────────────────────
     // Supabase Realtime abre wss://<ref>.supabase.co/realtime/v1/websocket.

@@ -3760,6 +3760,552 @@ tbody tr:hover td {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
+   BETA-UX-1F — Inicio como centro operativo + utilidades de la barra superior
+
+   Tres piezas:
+     1. `.shell-chip` — Caja y dólar, compactos, en `TopHeader` (escritorio) y
+        en `.mobile-utility-bar` (mobile, sólo en Inicio).
+     2. `.dash-*` — el cuerpo de Inicio: acciones, «Hoy», Mis tareas y Órdenes
+        recientes.
+     3. `.btn-indigo-aa` / `.btn-danger-aa` — variantes LOCALES de dos botones
+        cuyo texto no llega a 4,5:1 en alguno de los temas. Las reglas globales
+        `.btn-fill-indigo` y `.btn-danger` NO se tocan.
+
+   Responsive por CSS: no se mide el viewport en el render. Sólo tokens de tema.
+   El texto usa `--text-primary` / `--text-secondary`: `--text-tertiary` y
+   `--text-subtle` quedan por debajo de 4,5:1 en tema claro sobre el fondo de la
+   página y sobre cualquier hover.
+
+   Va ANTES de los bloques BETA-UX-1E / 1D / 1C: sus contratos recortan el CSS
+   por título y este bloque no puede quedar dentro de ninguno.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Primer plano de color que llega a AA en los dos temas. No son un rojo ni un
+   índigo nuevos: son valores de paleta que ya existen, elegidos por tema.
+     acento  oscuro #818cf8 (5,8:1 sobre la tarjeta) · claro #4f46e5 (6,3:1)
+     peligro oscuro #f87171 · claro #b91c1c — el mismo par que usan los badges
+             de cobro de las órdenes, calibrado sobre `--error-subtle`. */
+.dash-page,
+.dash-tasks {
+  --dash-accent-fg: var(--indigo-400);
+  --dash-danger-fg: var(--order-badge-pending-fg);
+}
+[data-theme="light"] .dash-page,
+[data-theme="light"] .dash-tasks { --dash-accent-fg: var(--indigo-600); }
+
+/* Bootstrap (CDN) le da a `.card` su propio color de texto (#212529), que en
+   tema oscuro no se lee. Las tarjetas de Inicio fijan el del tema. */
+.dash-today,
+.card.dash-tasks,
+.card.dash-orders { color: var(--text-primary); }
+
+/* ── Variantes AA de botón ────────────────────────────────────────────────────
+   Doble clase: ganan por especificidad, no por orden de carga. El hover repite
+   el color porque Bootstrap (CDN) define `.btn:hover { color: … }` con más
+   especificidad que la regla base de cada variante.
+
+   `.btn-indigo-aa` — secundario fuerte. `.btn-fill-indigo` arranca en #6366f1,
+   donde el blanco mide 4,47:1; sobre #4f46e5 mide 6,29 y sobre #4338ca, 7,90.
+   Plano y sin resplandor a propósito: es el segundo botón de la fila, no el
+   primero.
+
+   `.btn-danger-aa` — `.btn-danger` pinta `--error` sobre `--error-subtle`: en
+   claro (#dc2626) queda en ~4,1:1. Con el par de `--order-badge-pending-fg`
+   mide 5,5 en claro y 6,4 en oscuro; 5,0 y 5,9 en hover. */
+.btn-fill-indigo.btn-indigo-aa {
+  color: var(--text-on-accent);
+  background: var(--indigo-600);
+  box-shadow: none;
+}
+.btn-fill-indigo.btn-indigo-aa:hover:not(:disabled) {
+  color: var(--text-on-accent);
+  background: var(--indigo-700);
+  box-shadow: none;
+}
+.btn-danger.btn-danger-aa { color: var(--order-badge-pending-fg); }
+.btn-danger.btn-danger-aa:hover:not(:disabled) { color: var(--order-badge-pending-fg); }
+
+/* ── Barra superior · Caja y dólar ─────────────────────────────────────────── */
+.top-header__utilities {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.shell-chip {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 32px;
+  padding: 0 0.625rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-full);
+  background: var(--nav-hover-bg);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.shell-chip__label { color: var(--text-primary); font-weight: 700; }
+.shell-chip__value { font-variant-numeric: tabular-nums; }
+.shell-chip__meta { color: var(--text-secondary); }
+/* Cerrada: aro vacío. Abierta: punto lleno. El estado no depende del color. */
+.shell-chip__dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border: 1.5px solid var(--text-secondary);
+  border-radius: 50%;
+}
+.shell-chip--caja[data-state="open"] .shell-chip__dot {
+  border-color: var(--success);
+  background: var(--success);
+}
+.shell-chip.is-interactive { cursor: pointer; }
+.shell-chip.is-interactive:hover {
+  border-color: var(--accent-primary);
+  background: var(--bg-hover);
+}
+.shell-chip__warn { flex-shrink: 0; color: var(--warning-soft); }
+.shell-chip--dollar { padding-right: 0.25rem; }
+.shell-chip__refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.shell-chip__refresh:hover:not(:disabled) { background: var(--bg-hover); color: var(--text-primary); }
+.shell-chip__refresh:disabled { cursor: default; }
+
+/* Entre 1024 y 1279 la barra pierde primero el texto secundario («desde 09:20»)
+   y recién después le saca ancho al buscador. */
+@media (max-width: 1279px) {
+  .top-header .shell-chip__meta:not(.shell-chip__unit) { display: none; }
+}
+
+/* Mobile: `TopHeader` no se ve por debajo de 1024. Los chips van en una fila
+   propia debajo de `MobileTopBar`. El área táctil es de 44px; la píldora que se
+   ve sigue midiendo 32. */
+.mobile-utility-bar { display: none; }
+
+@media (max-width: 1023px) {
+  .mobile-utility-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+  .mobile-utility-bar:empty { display: none; }
+  .mobile-utility-bar .shell-chip {
+    min-height: 44px;
+    border-color: transparent;
+    background: transparent;
+  }
+  .mobile-utility-bar .shell-chip::before {
+    content: '';
+    position: absolute;
+    inset: 6px 0;
+    z-index: -1;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-full);
+    background: var(--nav-hover-bg);
+  }
+  .mobile-utility-bar .shell-chip.is-interactive:hover::before {
+    border-color: var(--accent-primary);
+    background: var(--bg-hover);
+  }
+  .mobile-utility-bar .shell-chip--dollar { padding-right: 0; }
+  .mobile-utility-bar .shell-chip__refresh { width: 44px; height: 44px; }
+}
+
+/* ── Inicio · encabezado y acciones ───────────────────────────────────────────
+   Jerarquía de la fila: (1) Nueva Orden, gradiente AA y 44px · (2) Nuevo
+   Comprobante, índigo plano · (3) Gestionar Caja, contorno · (4) Registrar
+   gasto, rojo semántico · (5) Actualizar, sólo ícono. */
+.dash-page .page-subtitle { color: var(--text-secondary); }
+
+.dash-actions-slot { min-width: 0; max-width: 100%; }
+.dash-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+.dash-action { min-height: 40px; }
+.dash-action--primary {
+  min-height: 44px;
+  padding-inline: 1.125rem;
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+.dash-action--refresh { width: 40px; }
+
+/* ── Inicio · Hoy ─────────────────────────────────────────────────────────────
+   Una sola superficie con tres indicadores, no tres tarjetas sueltas. */
+.dash-today {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 1.5rem;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card-solid);
+  box-shadow: var(--shadow-card);
+}
+.dash-today__item {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  min-width: 0;
+  min-height: 44px;
+  padding: 1rem 1.25rem;
+  border-left: 1px solid var(--border-subtle);
+  color: inherit;
+  text-decoration: none;
+}
+.dash-today__item:first-child { border-left: 0; }
+a.dash-today__item:hover { background: var(--bg-hover); }
+.dash-today__icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+}
+.dash-today__icon--active  { background: var(--accent-primary-subtle); color: var(--dash-accent-fg); }
+.dash-today__icon--ready   { background: var(--success-subtle); color: var(--success); }
+.dash-today__icon--waiting { background: var(--warning-subtle); color: var(--warning-soft); }
+.dash-today__copy { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.dash-today__value {
+  color: var(--text-primary);
+  font-size: 1.75rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.dash-today__label { color: var(--text-secondary); font-size: 0.8125rem; font-weight: 600; line-height: 1.25; }
+.dash-today__hint { color: var(--text-secondary); font-size: 0.75rem; line-height: 1.25; }
+
+/* ── Inicio · Mis tareas ──────────────────────────────────────────────────── */
+.dash-tasks { margin-bottom: 1.5rem; }
+.dash-tasks__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  padding: 1.125rem 1.25rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.dash-tasks__heading { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
+.dash-tasks__icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border: 1px solid var(--accent-primary-light);
+  border-radius: var(--radius-lg);
+  background: var(--accent-primary-subtle);
+  color: var(--dash-accent-fg);
+}
+.dash-tasks__title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 1.125rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+.dash-tasks__subtitle { margin: 0.125rem 0 0; color: var(--text-secondary); font-size: 0.8125rem; }
+.dash-tasks__actions { display: flex; align-items: center; gap: 0.5rem; }
+.dash-tasks__action,
+.dash-link { min-height: 40px; }
+.dash-link { text-decoration: none; }
+
+.dash-tasks__summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-bottom: 1px solid var(--border-subtle);
+}
+.dash-tasks__stat {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0.875rem 1.25rem;
+  border-left: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+.dash-tasks__stat:first-child { border-left: 0; }
+.dash-tasks__stat:hover { background: var(--bg-hover); }
+.dash-tasks__stat-value {
+  color: var(--text-primary);
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.dash-tasks__stat-label { font-size: 0.8125rem; font-weight: 600; }
+/* Vencidas en rojo sólo si hay alguna; «Para hoy» con el acento. */
+.dash-tasks__stat[data-tone="danger"] .dash-tasks__stat-value,
+.dash-tasks__stat[data-tone="danger"] .dash-tasks__stat-label { color: var(--dash-danger-fg); }
+.dash-tasks__stat[data-tone="accent"] .dash-tasks__stat-value { color: var(--dash-accent-fg); }
+
+.dash-tasks__list { margin: 0; padding: 0; list-style: none; }
+.dash-task { position: relative; border-bottom: 1px solid var(--border-subtle); }
+.dash-task:last-child { border-bottom: 0; }
+/* Una vencida se reconoce sin leer: filete rojo, ícono y la palabra «Vencida». */
+.dash-task[data-overdue="true"]::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--dash-danger-fg);
+}
+.dash-task__row { display: flex; align-items: stretch; }
+.dash-task__toggle {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  min-height: 52px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.dash-task__toggle:hover:not(:disabled) { color: var(--success); }
+.dash-task__toggle:disabled { cursor: default; }
+.dash-task__open {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0.625rem 1rem 0.625rem 0;
+  color: inherit;
+  text-decoration: none;
+}
+.dash-task__open:hover { background: var(--bg-hover); }
+.dash-task__body { display: block; flex: 1; min-width: 0; }
+.dash-task__title {
+  display: block;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dash-task__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.125rem 0.75rem;
+  margin-top: 0.2rem;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+.dash-task__due { display: inline-flex; align-items: center; gap: 0.25rem; }
+.dash-task__due[data-state="overdue"] { color: var(--dash-danger-fg); font-weight: 700; }
+.dash-task__due[data-state="today"] { color: var(--dash-accent-fg); font-weight: 700; }
+.dash-task__priority { display: inline-flex; align-items: center; gap: 0.3rem; }
+.dash-task__priority-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--warning-soft); }
+.dash-task__priority[data-priority="urgent"] .dash-task__priority-dot,
+.dash-task__priority[data-priority="high"] .dash-task__priority-dot { background: var(--error); }
+.dash-task__priority[data-priority="low"] .dash-task__priority-dot { background: var(--success); }
+.dash-task__chevron { flex-shrink: 0; color: var(--text-secondary); }
+.dash-task__error {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0 1.25rem 0.75rem 52px;
+  color: var(--dash-danger-fg);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.dash-tasks__loading { display: flex; flex-direction: column; gap: 0.875rem; padding: 1.25rem; }
+.dash-tasks__loading-row { display: flex; align-items: center; gap: 0.75rem; }
+.dash-tasks__error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding: 1.25rem;
+  color: var(--dash-danger-fg);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.dash-tasks__retry { min-height: 40px; margin-left: auto; }
+
+/* ── Inicio · estados vacíos ──────────────────────────────────────────────────
+   Sin tareas el bloque conserva su lugar: Tareas no se achica a una tira. */
+.dash-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 2rem 1.25rem;
+  text-align: center;
+}
+.dash-empty__icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 0.375rem;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+.dash-empty--done .dash-empty__icon { background: var(--success-subtle); color: var(--success); }
+.dash-empty__title { margin: 0; color: var(--text-primary); font-size: 1rem; font-weight: 700; }
+.dash-empty__copy { margin: 0; color: var(--text-secondary); font-size: 0.875rem; }
+
+/* ── Inicio · Órdenes recientes ───────────────────────────────────────────────
+   Tabla en escritorio, tarjetas en mobile: dos presentaciones del mismo dato,
+   las dos en el DOM. */
+.dash-orders .card-title { font-size: 1rem; }
+.dash-orders .table th { color: var(--text-secondary); }
+.dash-orders .table td.dash-orders__customer { color: var(--text-primary); font-weight: 500; }
+.dash-orders__id { color: var(--dash-accent-fg); font-size: 0.875rem; font-weight: 700; text-decoration: none; }
+.dash-orders__id:hover { text-decoration: underline; }
+.dash-orders__loading { display: flex; flex-direction: column; gap: 0.75rem; padding: 1.25rem; }
+.dash-orders__mobile { display: none; }
+.dash-order-card__id { color: var(--dash-accent-fg); font-size: 0.9375rem; font-weight: 800; }
+.dash-order-card__meta { display: flex; flex-direction: column; gap: 0.125rem; }
+
+/* Estado de la orden: el texto lleva el estado, el punto sólo acompaña. */
+.dash-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.2rem 0.625rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-full);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.dash-status__dot { width: 7px; height: 7px; flex-shrink: 0; border-radius: 50%; background: var(--text-secondary); }
+
+/* Las tarjetas recortan (`overflow: hidden`): el foco va por dentro. */
+.dash-today :focus-visible,
+.dash-tasks :focus-visible,
+.dash-orders :focus-visible { outline-offset: -2px; }
+
+/* Shell mobile (<1024, también una tablet): todo lo que se toca mide 44px. */
+@media (max-width: 1023px) {
+  .dash-action,
+  .dash-tasks__action,
+  .dash-tasks__retry,
+  .dash-link { min-height: 44px; }
+  .dash-action--refresh { width: 44px; }
+}
+
+@media (max-width: 767px) {
+  /* `main-layout-inner` ya pone el margen de página: sin esto Inicio quedaba
+     con 32px por lado a 375. */
+  .dash-page.page-shell { padding: 0; }
+
+  /* Acciones: la principal a todo el ancho, las secundarias repartidas en una
+     fila y «Actualizar» junto al título. La fila se estira: según el ancho y
+     la fuente un rótulo entra en una línea y su vecino en dos (a 390 px, con
+     «Gestionar Caja»), y sin esto el más bajo quedaba descolgado. */
+  .dash-page .page-top { position: relative; }
+  .dash-actions-slot { width: 100%; }
+  .dash-actions { justify-content: stretch; align-items: stretch; }
+  .dash-action { min-height: 44px; }
+  .dash-action--primary { flex: 1 1 100%; min-height: 48px; }
+  .dash-action--secondary {
+    flex: 1 1 0;
+    min-width: 0;
+    padding-inline: 0.5rem;
+    line-height: 1.2;
+    text-align: center;
+    white-space: normal;
+  }
+  /* Con las tres, cada una tiene un tercio: el ícono va arriba del texto. */
+  .dash-actions[data-secondary="3"] .dash-action--secondary {
+    flex-direction: column;
+    gap: 0.25rem;
+    padding-block: 0.5rem;
+  }
+  .dash-action--refresh { position: absolute; top: 0; right: 0; width: 44px; }
+
+  /* Hoy: sigue siendo una fila de tres, con el número arriba y sin ícono. */
+  .dash-today { margin-bottom: 1.25rem; }
+  .dash-today__item { align-items: flex-start; padding: 0.75rem 0.625rem; }
+  .dash-today__icon { display: none; }
+  .dash-today__value { font-size: 1.5rem; }
+  .dash-today__label { font-size: 0.75rem; overflow-wrap: anywhere; }
+
+  /* Mis tareas */
+  .dash-tasks { margin-bottom: 1.25rem; }
+  .dash-tasks__header { padding: 1rem; }
+  .dash-tasks__actions { width: 100%; }
+  .dash-tasks__action { flex: 1; min-height: 44px; }
+  .dash-tasks__stat { flex-direction: column; align-items: flex-start; gap: 0.25rem; padding: 0.75rem 0.625rem; }
+  .dash-tasks__stat-label { font-size: 0.75rem; }
+  .dash-task__open { padding-right: 0.75rem; }
+  .dash-tasks__retry { min-height: 44px; }
+
+  /* Órdenes recientes: tarjetas. Filas dentro de la tarjeta, sin marco propio. */
+  .dash-orders .dash-link { min-height: 44px; }
+  .dash-orders__desktop { display: none; }
+  .dash-orders__mobile { display: block; }
+  .dash-orders__mobile .compact-list { gap: 0; }
+  .dash-orders__mobile .compact-list__item {
+    border: 0;
+    border-bottom: 1px solid var(--border-subtle);
+    border-radius: 0;
+    background: transparent;
+  }
+  .dash-orders__mobile .compact-list__item:last-child { border-bottom: 0; }
+  /* #orden + estado · cliente · dispositivo y fecha. */
+  .dash-orders__mobile .compact-list__content {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.25rem 0.75rem;
+  }
+  .dash-orders__mobile .compact-list__copy { display: contents; }
+  .dash-orders__mobile .compact-list__primary { grid-column: 1; grid-row: 1; min-width: 0; }
+  .dash-orders__mobile .compact-list__summary { grid-column: 2; grid-row: 1; }
+  .dash-orders__mobile .compact-list__secondary,
+  .dash-orders__mobile .compact-list__metadata { grid-column: 1 / -1; min-width: 0; overflow-wrap: anywhere; }
+  .dash-orders__mobile .compact-list__secondary { color: var(--text-primary); font-weight: 600; }
+  .dash-orders__mobile .compact-list__metadata { color: var(--text-secondary); }
+  .dash-orders__mobile .compact-list__content:focus-visible { outline: 2px solid var(--accent-primary); }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
    BETA-UX-1E — etiqueta «Cifrado · interno» de «Acceso del equipo»
 
    Era un `.badge` a secas: Bootstrap le da `color: #fff` y ningún fondo, así
