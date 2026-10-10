@@ -26,6 +26,7 @@ export interface FakeOp {
 export interface FakeRpc { fn: string; args: Record<string, any> }
 
 export interface FakeState {
+  rows: Map<string, Map<string, Record<string, unknown>>>
   ops:    FakeOp[]
   rpcs:   FakeRpc[]
   /** Stock "real" del servidor por inventory_id. */
@@ -42,11 +43,12 @@ export interface FakeState {
 }
 
 export function newFakeState(): FakeState {
-  return { ops: [], rpcs: [], stock: new Map(), a1: new Map(), movements: [], seq: 0 }
+  return { rows: new Map(), ops: [], rpcs: [], stock: new Map(), a1: new Map(), movements: [], seq: 0 }
 }
 
 export function resetFakeState(h: FakeState) {
   h.ops.length = 0
+  h.rows.clear()
   h.rpcs.length = 0
   h.stock.clear()
   h.a1.clear()
@@ -122,6 +124,8 @@ export function makeSupabaseFake(h: FakeState) {
       ilike(c: string, v: unknown) { op.filters.push(['ilike', c, v]); return b },
       or(v: unknown) { op.filters.push(['or', '', v]); return b },
       is(c: string, v: unknown) { op.filters.push(['is', c, v]); return b },
+      not(c: string, kind: string, v: unknown) { op.filters.push(['not', c, [kind, v]]); return b },
+      abortSignal() { return b },
       gt() { return b }, gte() { return b }, lt() { return b }, lte() { return b },
       order() { return b }, limit() { return b }, range() { return b },
       single() { op.single = true; return b },
@@ -142,14 +146,41 @@ export function makeSupabaseFake(h: FakeState) {
       const row = Array.isArray(op.payload) ? op.payload[0] : op.payload
       const id = uuid(h)
       h.stock.set(id, 0) // default de la columna: nace en 0
-      return { data: op.single || op.maybe ? { ...(row as object), id, stock: 0, stock_quantity: 0 } : null, error: null }
+      const saved = { ...(row as object), id, stock: 0, stock_quantity: 0 }
+      if (!h.rows.has(op.table)) h.rows.set(op.table, new Map())
+      h.rows.get(op.table)!.set(id, saved)
+      return { data: op.single || op.maybe ? saved : null, error: null }
     }
     if (op.kind === 'select') {
       const custom = h.selectData?.(op)
       if (custom !== undefined) return { data: custom, error: null }
-      return { data: op.single || op.maybe ? null : [], error: null }
+      const rows = matchingRows(op)
+      return { data: op.single || op.maybe ? rows[0] ?? null : rows, error: null }
+    }
+    for (const row of matchingRows(op)) {
+      if (op.kind === 'delete') h.rows.get(op.table)?.delete(String(row.id))
+      if (op.kind === 'update') Object.assign(h.rows.get(op.table)!.get(String(row.id))!, op.payload)
     }
     return { data: null, error: null }
+  }
+
+  function matchingRows(op: FakeOp) {
+    return [...(h.rows.get(op.table)?.values() ?? [])].map(row => op.table === 'inventory'
+      ? { ...row, stock_quantity: h.stock.get(String(row.id)) ?? 0 } : row).filter(row => op.filters.every(([kind, col, value]) => {
+      if (kind === 'eq' || kind === 'is') return row[col] === value
+      if (kind === 'neq') return row[col] !== value
+      if (kind === 'in') return (value as unknown[]).includes(row[col])
+      if (kind === 'not') return row[col] !== (value as unknown[])[1]
+      if (kind === 'ilike') return String(row[col] ?? '').toLowerCase() === String(value).toLowerCase()
+      if (kind === 'or') return String(value).split(',').some(condition => {
+        const [field, operator, ...parts] = condition.split('.')
+        const expected = parts.join('.')
+        if (operator === 'eq') return String(row[field]) === expected
+        if (operator === 'not' && expected === 'is.null') return row[field] != null
+        return false
+      })
+      return true
+    }))
   }
 
   return {

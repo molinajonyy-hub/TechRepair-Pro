@@ -5,13 +5,15 @@
  */
 import { supabase } from '../lib/supabase'
 import type { InventoryItem } from '../hooks/useInventory'
-import { INVENTORY_OPERATIONAL_COLUMNS } from './inventoryCostAccess'
+import { getVariantParentId } from '../lib/productSellability'
+import { INVENTORY_OPERATIONAL_COLUMNS, attachInventoryCosts } from './inventoryCostAccess'
 import {
   applyInventoryStockAdjustments,
   assertNoStockFields,
   initialStockKey,
   inventoryStockAdjustmentService,
   isStockInt,
+  type StockAdjustmentDeltaItem,
 } from './inventoryStockAdjustmentService'
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
@@ -44,6 +46,7 @@ export interface CreateProductInput {
   min_stock?:      number
   location?:       string
   is_active?:      boolean
+  variant_name?:   string
 }
 
 /**
@@ -57,6 +60,7 @@ export interface CreateProductInput {
 export interface ProductCreationContext {
   initialStock?:       number
   initialStockReason?: string
+  groupingParent?: boolean
 }
 
 /**
@@ -74,6 +78,63 @@ export class InitialStockPendingError extends Error {
     this.product = product
     this.quantity = quantity
     this.cause = cause
+  }
+}
+
+export interface VariantFamilyRecovery {
+  product: InventoryItem
+  variants: ProductVariant[]
+  businessId: string
+  items: StockAdjustmentDeltaItem[]
+  idempotencyKey: string
+  reason: string
+}
+
+export class VariantInitialStockPendingError extends InitialStockPendingError {
+  constructor(readonly recovery: VariantFamilyRecovery, cause: unknown) {
+    super(recovery.product, recovery.items.reduce((sum, item) => sum + item.delta, 0), cause)
+    this.name = 'VariantInitialStockPendingError'
+    this.message = 'El producto y sus variantes se crearon, pero no pudimos confirmar el stock inicial. Reintentar no duplica el producto.'
+  }
+}
+
+export const MAX_PRODUCT_VARIANTS = 100
+
+async function cleanupUnstockedDefinition(inventoryId: string, businessId: string): Promise<void> {
+  // Existing delete policies may prohibit hard cleanup for an inventory actor.
+  // Deactivate any retained rows in that exact attempt instead. Never bypass
+  // can_manage, history guards or RLS, and never run this after the stock batch.
+  await supabase.from('product_variants').delete().eq('inventory_item_id', inventoryId).eq('business_id', businessId)
+  const { error: metadataError } = await supabase.from('product_variants').update({ active: false })
+    .eq('inventory_item_id', inventoryId).eq('business_id', businessId)
+  if (metadataError) throw new Error(`No pudimos completar la limpieza de metadata: ${metadataError.message}`)
+  await supabase.from('inventory').delete().eq('id', inventoryId).eq('business_id', businessId)
+  const { error } = await supabase.from('inventory').update({ is_active: false }).eq('id', inventoryId).eq('business_id', businessId)
+  if (error) throw new Error(`No pudimos completar la baja del alta fallida: ${error.message}`)
+}
+
+export function validateVariantInputs(variants: CreateVariantInput[]): void {
+  if (!variants.length || variants.length > MAX_PRODUCT_VARIANTS) throw new Error(`Agregá entre 1 y ${MAX_PRODUCT_VARIANTS} variantes.`)
+  const names = new Set<string>()
+  const skus = new Set<string>()
+  const barcodes = new Set<string>()
+  if (variants.filter(v => v.is_default).length > 1) throw new Error('Sólo una variante puede ser default.')
+  for (const v of variants) {
+    const name = v.name?.trim()
+    if (!name) throw new Error('El nombre de cada variante es obligatorio.')
+    if (names.has(name)) throw new Error('Hay variantes con el mismo nombre.')
+    names.add(name)
+    for (const [value, seen, label] of [[v.sku, skus, 'SKU'], [v.barcode, barcodes, 'barcode']] as const) {
+      const clean = value?.trim()
+      if (clean && (seen.has(clean) || /[\u0000-\u001f]/.test(clean))) throw new Error(`${label} repetido o inválido.`)
+      if (clean) seen.add(clean)
+    }
+    if (!isStockInt(v.stock ?? 0) || (v.stock ?? 0) < 0) throw new Error('El stock inicial de cada variante tiene que ser un número entero no negativo.')
+    if (!isStockInt(v.min_stock ?? 0) || (v.min_stock ?? 0) < 0) throw new Error('El stock mínimo tiene que ser un entero no negativo.')
+    for (const price of [v.cost_price_ars, v.cost_price_usd, v.sale_price_ars, v.sale_price_usd, v.wholesale_price_ars, v.wholesale_price_usd]) {
+      if (price != null && (!Number.isFinite(price) || price < 0)) throw new Error('Los precios de variantes deben ser números no negativos.')
+    }
+    if (v.cost_currency === 'USD' && (!Number.isFinite(v.exchange_rate_used) || (v.exchange_rate_used ?? 0) <= 0)) throw new Error('La cotización USD es inválida.')
   }
 }
 
@@ -187,6 +248,7 @@ export const productService = {
     input:   CreateProductInput,
     context: ProductCreationContext = {}
   ): Promise<InventoryItem> {
+    assertNoStockFields(input, 'createProduct')
     const validationError = productService.validate(input)
     if (validationError) throw new Error(validationError)
 
@@ -222,11 +284,14 @@ export const productService = {
       cost_price_usd:      input.cost_price_usd != null ? sanitizeNum(input.cost_price_usd) : null,
       sale_price:          salePrice,
       wholesale_price_ars: input.wholesale_price_ars != null ? sanitizeNum(input.wholesale_price_ars) : null,
+      precio_mayorista:    input.wholesale_price_ars != null ? sanitizeNum(input.wholesale_price_ars) : null,
       exchange_rate_used:  input.exchange_rate_used != null ? sanitizeNum(input.exchange_rate_used) : null,
       auto_update_price:   input.auto_update_price ?? false,
       min_stock:           minStock,
       location:            input.location?.trim() || null,
       is_active:           input.is_active ?? true,
+      has_variants:        context.groupingParent ?? false,
+      parent_id:           null,
     }
 
     // Insertar con retry automático ante colisión de código autogenerado
@@ -246,7 +311,7 @@ export const productService = {
         break
       }
 
-      if ((error as any).code === '23505') {
+      if (error.code === '23505') {
         if (codeProvided) throw new Error('Ya existe un producto con ese código o nombre.')
         attempts++
         continue
@@ -289,11 +354,40 @@ export const productService = {
     assertNoStockFields(updates, 'updateProduct')
     const { error } = await supabase
       .from('inventory')
-      .update({ ...updates, updated_at: new Date().toISOString() })
+      .update({ ...updates, ...(updates.wholesale_price_ars !== undefined ? { precio_mayorista: updates.wholesale_price_ars } : {}), updated_at: new Date().toISOString() })
       .eq('id', id)
       .eq('business_id', businessId)
 
     if (error) throw new Error(error.message)
+    const { data: family, error: familyError } = updates.name !== undefined
+      ? await supabase.from('inventory').select('has_variants').eq('id', id).eq('business_id', businessId).maybeSingle()
+      : { data: null, error: null }
+    if (familyError) throw new Error(`Los datos se guardaron, pero no pudimos confirmar la familia: ${familyError.message}`)
+    if (family?.has_variants && updates.name !== undefined) {
+      const { error: childrenError } = await supabase.from('inventory').update({ name: updates.name })
+        .eq('parent_id', id).eq('business_id', businessId)
+      if (childrenError) throw new Error(`El nombre se guardó, pero falta confirmar el nombre de la familia en sus variantes: ${childrenError.message}`)
+    }
+
+    // Compatibility metadata follows the sellable inventory row. Never stock.
+    const variantUpdates = {
+      name: updates.variant_name,
+      sku: updates.code,
+      barcode: updates.barcode,
+      cost_price_ars: updates.cost_price,
+      cost_price_usd: updates.cost_price_usd,
+      cost_currency: updates.base_currency,
+      sale_price_ars: updates.sale_price,
+      wholesale_price_ars: updates.wholesale_price_ars,
+      exchange_rate_used: updates.exchange_rate_used,
+      min_stock: updates.min_stock,
+      location: updates.location,
+      active: updates.is_active,
+      updated_at: new Date().toISOString(),
+    }
+    const { error: variantError } = await supabase.from('product_variants').update(variantUpdates)
+      .eq('inventory_item_id', id).eq('business_id', businessId)
+    if (variantError) throw new Error(`Los datos de inventario se guardaron, pero falta confirmar la metadata de variante: ${variantError.message}`)
   },
 
   // ── Crear variante de un producto existente ────────────────────────────────
@@ -308,10 +402,15 @@ export const productService = {
     if (!cleanName)             throw new Error('El nombre de la variante es obligatorio.')
     if (!input.business_id?.trim()) throw new Error('business_id requerido en variante.')
     if (!parentId?.trim())      throw new Error('parentId requerido para crear variante.')
+    validateVariantInputs([input])
+    const { data: parent, error: parentError } = await supabase.from('inventory')
+      .select('id,has_variants,parent_id,stock_quantity,is_active').eq('id', parentId).eq('business_id', input.business_id).single()
+    if (parentError || !parent || !parent.has_variants || parent.parent_id || parent.stock_quantity !== 0 || !parent.is_active) {
+      throw new Error('La familia debe ser un padre agrupador activo con stock cero.')
+    }
 
     const costArs  = sanitizeNum(input.cost_price_ars)
     const saleArs  = sanitizeNum(input.sale_price_ars)
-    const stock    = sanitizeNum(input.stock)
     const skuProvided = input.sku?.trim() ?? ''
 
     const baseInvRow = {
@@ -325,13 +424,16 @@ export const productService = {
       tipo:                'product' as const,
       base_currency:       input.cost_currency ?? 'ARS',
       base_price:          input.cost_currency === 'USD'
-                             ? sanitizeNum(input.cost_price_usd)
-                             : costArs,
+                             ? (input.sale_price_usd ?? convertToUSD(saleArs, input.exchange_rate_used ?? 0))
+                             : saleArs,
       cost_price:          costArs,
       cost_price_usd:      input.cost_price_usd != null ? sanitizeNum(input.cost_price_usd) : null,
       sale_price:          saleArs,
       wholesale_price_ars: input.wholesale_price_ars != null ? sanitizeNum(input.wholesale_price_ars) : null,
       exchange_rate_used:  input.exchange_rate_used != null ? sanitizeNum(input.exchange_rate_used) : null,
+      auto_update_price:   input.auto_update_price ?? false,
+      linked_to_dolar:     input.cost_currency === 'USD' && (input.auto_update_price ?? false),
+      precio_mayorista:    input.wholesale_price_ars ?? null,
       min_stock:           sanitizeNum(input.min_stock),
       location:            input.location?.trim() || null,
       has_variants:        false,
@@ -340,7 +442,7 @@ export const productService = {
     }
 
     // Insertar fila de inventario con retry por colisión de código
-    let invData: any = null
+    let invData: InventoryItem | null = null
     let attempts = 0
 
     while (attempts < 3) {
@@ -353,7 +455,7 @@ export const productService = {
 
       if (!error) { invData = data; break }
 
-      if ((error as any).code === '23505') {
+      if (error.code === '23505') {
         if (skuProvided) throw new Error('Ya existe un producto con ese SKU.')
         attempts++
         continue
@@ -374,7 +476,7 @@ export const productService = {
         product_id:          parentId,
         inventory_item_id:   invData.id,
         name:                cleanName,
-        sku:                 skuProvided || null,
+        sku:                 invData.code,
         barcode:             input.barcode?.trim() || null,
         attributes:          input.attributes ?? {},
         cost_price_ars:      costArs,
@@ -386,26 +488,33 @@ export const productService = {
         wholesale_price_usd: input.wholesale_price_usd != null ? sanitizeNum(input.wholesale_price_usd) : null,
         margin_percent:      input.margin_percent != null ? sanitizeNum(input.margin_percent, true) : null,
         exchange_rate_used:  input.exchange_rate_used != null ? sanitizeNum(input.exchange_rate_used) : null,
-        stock:               stock,
         min_stock:           sanitizeNum(input.min_stock),
         location:            input.location?.trim() || null,
         active:              input.active ?? true,
+        is_default:          input.is_default ?? false,
         sort_order:          sanitizeNum(input.sort_order),
       })
-      .select()
+      .select('id,business_id,product_id,inventory_item_id,name,sku,barcode,attributes,active,is_default,sort_order,image_url,created_at,updated_at')
       .single()
 
     if (varErr) {
-      // Rollback: eliminar la fila de inventario para evitar registros huérfanos
-      await supabase.from('inventory').delete().eq('id', invData.id)
+      // The INSERT response can be lost after metadata committed. Clean that
+      // link first; rollback is allowed only before the stock batch is attempted.
+      await cleanupUnstockedDefinition(invData.id, input.business_id)
       throw new Error(`Error al crear variante: ${varErr.message}`)
     }
 
-    return varData as ProductVariant
+    return { ...varData, stock: 0, cost_price_ars: costArs,
+      cost_price_usd: input.cost_price_usd ?? null, cost_currency: input.cost_currency ?? 'ARS',
+      sale_price_ars: saleArs, sale_price_usd: input.sale_price_usd ?? null,
+      wholesale_price_ars: input.wholesale_price_ars ?? null, wholesale_price_usd: input.wholesale_price_usd ?? null,
+      margin_percent: input.margin_percent ?? null, exchange_rate_used: input.exchange_rate_used ?? null,
+      min_stock: input.min_stock ?? 0, location: input.location ?? null,
+    } as ProductVariant
   },
 
   // ── Crear producto padre + variantes ───────────────────────────────────────
-  // (Variants v2 — oculto en beta: ProductFormModal no lo ofrece.)
+  // Variants V2: independent sellable inventory children.
   // Fase 1: metadata (padre + variantes en 0). Si falla, rollback de filas que
   // TODAVÍA no tienen stock ni movimientos. Fase 2: UN lote initial_stock
   // (clave initial-stock:<padre>) — desde acá no hay rollback destructivo.
@@ -413,21 +522,15 @@ export const productService = {
     baseInput: Omit<CreateProductInput, 'tipo'>,
     variants:  CreateVariantInput[],
   ): Promise<{ product: InventoryItem; variants: ProductVariant[] }> {
-    if (!variants.length) throw new Error('Debés agregar al menos una variante.')
-    for (const v of variants) {
-      const stock = sanitizeNum(v.stock)
-      if (stock !== 0 && !isStockInt(stock)) throw new Error('El stock inicial de cada variante tiene que ser un número entero.')
-    }
+    validateVariantInputs(variants)
+    const codes = [baseInput.code, ...variants.map(v => v.sku)].map(code => code?.trim()).filter(Boolean)
+    if (new Set(codes).size !== codes.length) throw new Error('SKU repetido en la familia.')
 
     const product = await productService.createProduct({
       ...baseInput,
       tipo: 'product',
-    })
-
-    await supabase
-      .from('inventory')
-      .update({ has_variants: true })
-      .eq('id', product.id)
+      auto_update_price: false,
+    }, { groupingParent: true })
 
     const createdVariants: ProductVariant[] = []
 
@@ -447,11 +550,10 @@ export const productService = {
       // Rollback de metadata: ninguna de estas filas tiene stock ni movimientos.
       for (const v of createdVariants) {
         if (v.inventory_item_id) {
-          await supabase.from('inventory').delete().eq('id', v.inventory_item_id)
+          await cleanupUnstockedDefinition(v.inventory_item_id, baseInput.business_id)
         }
-        await supabase.from('product_variants').delete().eq('id', v.id)
       }
-      await supabase.from('inventory').delete().eq('id', product.id)
+      await cleanupUnstockedDefinition(product.id, baseInput.business_id)
       throw err
     }
 
@@ -468,32 +570,84 @@ export const productService = {
           reason:         'Alta de variantes',
         })
       } catch (err) {
-        throw new InitialStockPendingError(product, items.reduce((a, it) => a + it.delta, 0), err)
+        throw new VariantInitialStockPendingError({ product, variants: createdVariants, businessId: baseInput.business_id, items, idempotencyKey: initialStockKey(product.id), reason: 'Alta de variantes' }, err)
       }
     }
 
     return { product, variants: createdVariants }
   },
 
+  async retryVariantInitialStock(recovery: VariantFamilyRecovery): Promise<{ product: InventoryItem; variants: ProductVariant[] }> {
+    await applyInventoryStockAdjustments({ businessId: recovery.businessId, source: 'initial_stock', items: recovery.items, idempotencyKey: recovery.idempotencyKey, reason: recovery.reason })
+    return { product: recovery.product, variants: recovery.variants }
+  },
+
+  async addVariantWithInitialStock(parent: InventoryItem, input: CreateVariantInput): Promise<ProductVariant> {
+    const variant = await productService.createVariant(parent.id, input)
+    if (input.stock) {
+      const recovery: VariantFamilyRecovery = { product: parent, variants: [variant], businessId: input.business_id,
+        items: [{ inventory_id: variant.inventory_item_id!, delta: input.stock }],
+        idempotencyKey: initialStockKey(variant.inventory_item_id!), reason: 'Alta de variantes' }
+      try { await productService.retryVariantInitialStock(recovery) }
+      catch (error) { throw new VariantInitialStockPendingError(recovery, error) }
+    }
+    return variant
+  },
+
   // ── Obtener variantes de un producto ───────────────────────────────────────
   async getVariants(productId: string, businessId: string): Promise<ProductVariant[]> {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('product_variants')
-      .select('*')
+      .select('id,business_id,product_id,inventory_item_id,name,sku,barcode,attributes,active,is_default,sort_order,image_url,created_at,updated_at')
       .eq('product_id', productId)
       .eq('business_id', businessId)
       .eq('active', true)
       .order('sort_order')
-    return (data || []) as ProductVariant[]
+    if (error) throw new Error(error.message)
+    if (!data?.length) return []
+    const ids = data.map(v => v.inventory_item_id).filter((id): id is string => !!id)
+    if (!ids.length) return []
+    const { data: rows, error: inventoryError } = await supabase.from('inventory')
+      .select(INVENTORY_OPERATIONAL_COLUMNS).eq('business_id', businessId).eq('is_active', true).in('id', ids)
+    if (inventoryError) throw new Error(inventoryError.message)
+    const inventory = await attachInventoryCosts(rows ?? [])
+    return data.flatMap(meta => {
+      const item = inventory.find(row => row.id === meta.inventory_item_id && row.has_variants !== true && getVariantParentId(row) === productId)
+      if (!item) return [] // Orphaned / inactive links are never selectable.
+      return [{ ...meta, stock: 0, stock_quantity: item.stock_quantity, inventory: item,
+        name: item.variant_name || meta.name, sku: item.code, barcode: item.barcode,
+        cost_price_ars: item.cost_price, cost_price_usd: item.cost_price_usd,
+        cost_currency: item.base_currency, sale_price_ars: item.sale_price,
+        wholesale_price_ars: item.wholesale_price_ars, min_stock: item.min_stock,
+        location: item.location, exchange_rate_used: item.exchange_rate_used,
+        sale_price_usd: item.base_currency === 'USD' ? item.base_price : null,
+        wholesale_price_usd: item.wholesale_price_usd, margin_percent: null,
+      } as ProductVariant]
+    })
   },
 
   // ── Desactivar variante ────────────────────────────────────────────────────
   async deactivateVariant(variantId: string, businessId: string): Promise<void> {
-    await supabase
+    const { data, error } = await supabase.from('product_variants').select('inventory_item_id')
+      .eq('id', variantId).eq('business_id', businessId).single()
+    if (error || !data?.inventory_item_id) throw new Error(error?.message || 'Variante sin inventario vinculado.')
+    await productService.updateProduct(data.inventory_item_id, { is_active: false }, businessId)
+  },
+
+  async setVariantActive(inventoryId: string, active: boolean, businessId: string): Promise<void> {
+    await productService.updateProduct(inventoryId, { is_active: active }, businessId)
+  },
+
+  async deactivateFamily(productId: string, businessId: string): Promise<void> {
+    const { error: inventoryError } = await supabase.from('inventory').update({ is_active: false })
+      .eq('business_id', businessId).or(`id.eq.${productId},parent_id.eq.${productId}`)
+    if (inventoryError) throw new Error(inventoryError.message)
+    const { error } = await supabase
       .from('product_variants')
       .update({ active: false, updated_at: new Date().toISOString() })
-      .eq('id', variantId)
+      .eq('product_id', productId)
       .eq('business_id', businessId)
+    if (error) throw new Error(error.message)
   },
 
   // ── Aplicar valores base a todas las variantes ─────────────────────────────
@@ -535,6 +689,7 @@ export interface CreateVariantInput {
   wholesale_price_usd?: number
   margin_percent?:      number
   exchange_rate_used?:  number
+  auto_update_price?:   boolean
   stock?:               number
   min_stock?:           number
   location?:            string
@@ -561,7 +716,10 @@ export interface ProductVariant {
   wholesale_price_usd:  number | null
   margin_percent:       number | null
   exchange_rate_used:   number | null
+  /** Deprecated metadata. Never use as a balance. */
   stock:                number
+  stock_quantity?:      number
+  inventory?:           InventoryItem
   min_stock:            number
   location:             string | null
   active:               boolean

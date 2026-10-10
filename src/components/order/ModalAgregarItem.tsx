@@ -6,11 +6,15 @@ import { useAuth } from '../../contexts/AuthContext'
 import { currencyService } from '../../services/currencyService'
 import { ProductFormModalSafe as ProductFormModal } from '../products/ProductFormModal'
 import { productService } from '../../services/productService'
-import { searchSellableProducts } from '../../services/productSearchService'
+import { searchSellableProducts, productDisplayName, isSellableProduct } from '../../services/productSearchService'
 import type { InventoryItem } from '../../hooks/useInventory'
 import { accentCta } from '../../lib/tokens'
 
 interface InventoryProduct {
+  is_active?: boolean
+  has_variants?: boolean
+  parent_id?: string | null
+  variant_name?: string | null
   id: string
   name: string
   code?: string
@@ -170,10 +174,11 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
   }, [searchQuery, businessId, selectedProduct, tipo])
 
   function selectProduct(product: InventoryProduct) {
+    if (!isSellableProduct(product)) return
     setSelectedProduct(product)
-    setSearchQuery(product.name)
+    setSearchQuery(productDisplayName(product))
     setShowDropdown(false)
-    setDescripcion(product.name)
+    setDescripcion(productDisplayName(product))
     setPrecioUnitario(product.sale_price?.toString() || '')
     setCostoUnitario(product.cost_price?.toString() || '')
     setBaseCurrency('ARS') // inventory prices are always in ARS
@@ -476,6 +481,7 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
                     {searchResults.map((product) => (
                       <button
                         key={product.id}
+                        data-testid="order-product-option" data-inventory-id={product.id}
                         type="button"
                         onClick={() => selectProduct(product)}
                         style={{
@@ -493,7 +499,7 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
                         onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
                       >
                         <div>
-                          <p style={{ margin: 0, fontWeight: 600, fontSize: '0.875rem' }}>{product.name}</p>
+                          <p style={{ margin: 0, fontWeight: 600, fontSize: '0.875rem' }}>{productDisplayName(product)}</p>
                           <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>
                             {product.code && `${product.code} · `}
                             {product.category}
