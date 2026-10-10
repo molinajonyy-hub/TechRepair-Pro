@@ -2,7 +2,7 @@
 // G2-C.3A2 — página Inventario sobre la autoridad canónica de stock.
 //
 //   T7  duplicar (stock 15, y padre con variante legacy) → copias en 0, sin RPC.
-//   T13 el menú «Nuevo producto» no ofrece «Producto con variantes».
+//   T13 el menú «Nuevo producto» ofrece «Producto con variantes».
 //   T14 el «Agregar variante» legacy sigue vivo: crea el hijo sin stock.
 //   T20 stock negativo existente se muestra con su valor y como «Agotado».
 //   Export → «Stock actual» + snapshot «Stock esperado».
@@ -155,8 +155,8 @@ describe('Inventario · variantes', () => {
     fireEvent.click(screen.getByTestId('inventory-new-product-chevron'))
     const menu = await screen.findByTestId('inventory-new-product-dropdown')
     expect(within(menu).getByText('Producto simple')).toBeInTheDocument()
-    expect(within(menu).queryByText('Producto con variantes')).toBeNull()
-    expect(screen.queryByTestId('inventory-new-product-variants')).toBeNull()
+    expect(within(menu).getByText('Producto con variantes')).toBeInTheDocument()
+    expect(screen.getByTestId('inventory-new-product-variants')).toBeInTheDocument()
   })
 
   it('T14 · «Agregar variante» legacy sigue vivo: crea el hijo sin stock y sin RPC', async () => {

@@ -32,6 +32,8 @@ import { accentCta } from '../lib/tokens'
 import { ProductMovementsModal } from '../components/inventory/ProductMovementsModal'
 import { ProductFormModalSafe as ProductFormModal, VARIANTS_V2_ENABLED } from '../components/products/ProductFormModal'
 import { fetchInventoryCosts } from '../services/inventoryCostAccess'
+import { productService, VariantInitialStockPendingError, type VariantFamilyRecovery } from '../services/productService'
+import { getVariantParentId, isGroupingParent } from '../lib/productSellability'
 import {
   inventoryStockAdjustmentService,
   manualStockKey,
@@ -69,16 +71,6 @@ const VARIANT_PARENT_PREFIX = 'variant_parent:'
 
 const buildVariantParentReference = (parentId: string) => `${VARIANT_PARENT_PREFIX}${parentId}`
 
-const getVariantParentId = (item: any) => {
-  const supplierCode = item?.supplier_code || ''
-
-  if (typeof supplierCode === 'string' && supplierCode.startsWith(VARIANT_PARENT_PREFIX)) {
-    return supplierCode.slice(VARIANT_PARENT_PREFIX.length)
-  }
-
-  return null
-}
-
 const isVariantItem = (item: any) => Boolean(getVariantParentId(item))
 
 // Round ARS price upward to nearest 500
@@ -94,7 +86,7 @@ export function Inventory() {
     updateItem,
     deleteItem
   } = useInventory()
-  const { businessId } = useAuth()
+  const { businessId, user } = useAuth()
   const { showLoading, hideLoading } = useLoading()
 
   const [searchTerm, setSearchTerm] = useState('')
@@ -113,6 +105,8 @@ export function Inventory() {
   const [editingItem, setEditingItem] = useState<any>(null)
   const [variantParentItem, setVariantParentItem] = useState<any>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const legacySubmittingRef = useRef(false)
+  const [pendingAddedVariant, setPendingAddedVariant] = useState<VariantFamilyRecovery | null>(null)
   const [formError, setFormError] = useState('')
   const [currencySettings, setCurrencySettings] = useState<any>(null)
   const [exchangeRates, setExchangeRates] = useState<Record<string, number>>({})
@@ -318,7 +312,7 @@ export function Inventory() {
   }, [searchTerm, searchedItems, selectedCategory, stockStatusFilter])
 
   const variantItems = useMemo(() => items.filter(isVariantItem), [items])
-  const rootItems = useMemo(() => items.filter(item => !isVariantItem(item)), [items])
+  const rootItems = useMemo(() => items.filter(item => !isVariantItem(item) && item.is_active !== false), [items])
   const variantsByParent = useMemo(() => {
     const result = variantItems.reduce<Record<string, any[]>>((acc, item) => {
       const parentId = getVariantParentId(item)
@@ -347,8 +341,8 @@ export function Inventory() {
     if (variants.length === 0) {
       return { stock_quantity: item.stock_quantity || 0, min_stock: item.min_stock || 0 }
     }
-    const stock_quantity = variants.reduce((sum, v) => sum + (v.stock_quantity || 0), 0)
-    const min_stock = variants.reduce((sum, v) => sum + (v.min_stock || 0), 0)
+    const stock_quantity = variants.filter(v => v.is_active !== false).reduce((sum, v) => sum + (v.stock_quantity || 0), 0)
+    const min_stock = variants.filter(v => v.is_active !== false).reduce((sum, v) => sum + (v.min_stock || 0), 0)
     return { stock_quantity, min_stock }
   }
 
@@ -357,7 +351,7 @@ export function Inventory() {
     // Precio/costo ARS vigente: dolariza productos USD-auto con la cotización actual (motor central).
     // Sin cotización cargada (rate 0) el motor cae al precio guardado, no a base × 1.
     const rate = exchangeRates['USD-ARS'] || 0
-    const variants = isVariantItem(item) ? [] : (variantsByParent[item.id] || [])
+    const variants = isVariantItem(item) ? [] : (variantsByParent[item.id] || []).filter(v => v.is_active !== false)
     if (variants.length === 0) {
       const e = resolveProductPricing(item, rate)
       return { costPrice: e.costArs, salePrice: e.saleArs, isRange: false, minCost: e.costArs, maxCost: e.costArs, minSale: e.saleArs, maxSale: e.saleArs }
@@ -387,6 +381,7 @@ export function Inventory() {
   //  - Incluye productos base sin variantes cuyo stock está agotado/bajo.
   //  - EXCLUYE productos base con variantes cuando el total de variantes > 0.
   const effectiveOutOfStockItems = useMemo(() => items.filter(item => {
+    if (item.is_active === false || isGroupingParent(item)) return false
     if (isVariantItem(item)) return (item.stock_quantity || 0) <= 0
     const variants = variantsByParent[item.id] || []
     if (variants.length === 0) return (item.stock_quantity || 0) <= 0
@@ -394,6 +389,7 @@ export function Inventory() {
   }), [items, variantsByParent])
 
   const effectiveLowStockItems = useMemo(() => items.filter(item => {
+    if (item.is_active === false || isGroupingParent(item)) return false
     if (isVariantItem(item)) {
       return (item.stock_quantity || 0) > 0 && (item.stock_quantity || 0) <= (item.min_stock || 0)
     }
@@ -407,6 +403,7 @@ export function Inventory() {
   }), [items, variantsByParent])
 
   const getVariantName = (item: any, parentItem?: any) => {
+    if (item?.variant_name) return item.variant_name
     if (item?.subcategory) {
       return item.subcategory
     }
@@ -475,6 +472,17 @@ export function Inventory() {
       tipo
     })
     setFormError('')
+    setPendingAddedVariant(null)
+    if (parentItem?.has_variants && businessId) {
+      try {
+        const saved = sessionStorage.getItem(`trp_variant_add_stock_${businessId}_${parentItem.id}`)
+        const recovery = saved ? JSON.parse(saved) as VariantFamilyRecovery : null
+        if (recovery?.businessId === businessId && recovery.product.id === parentItem.id) {
+          setPendingAddedVariant(recovery)
+          setFormError('La variante ya se creó. Reintentá la confirmación del stock inicial sin duplicarla.')
+        }
+      } catch { /* Invalid storage cannot authorize a stock adjustment. */ }
+    }
     setShowModal(true)
   }
 
@@ -620,11 +628,21 @@ export function Inventory() {
 
   const handleInventorySubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (legacySubmittingRef.current) return
+    legacySubmittingRef.current = true
     setIsSubmitting(true)
     setFormError('')
     showLoading(editingItem ? 'Guardando cambios...' : 'Creando producto...')
 
     try {
+      if (pendingAddedVariant) {
+        await productService.retryVariantInitialStock(pendingAddedVariant)
+        sessionStorage.removeItem(`trp_variant_add_stock_${businessId}_${pendingAddedVariant.product.id}`)
+        setPendingAddedVariant(null)
+        await refresh({ background: true })
+        closeModal()
+        return
+      }
       const isVariantMode = Boolean(variantParentItem)
       const categoryValue = formData.category === 'NUEVA_CATEGORIA'
         ? formData.newCategory.trim()
@@ -679,6 +697,23 @@ export function Inventory() {
         if (!variantName) {
           setFormError('El nombre de la variante es requerido')
           setIsSubmitting(false)
+          return
+        }
+
+        if (isGroupingParent(variantParentItem)) {
+          if (!businessId || !user) throw new Error('Negocio no identificado.')
+          await productService.addVariantWithInitialStock(variantParentItem, {
+            business_id: businessId, created_by: user.id, product_name: variantParentItem.name,
+            name: variantName, sku: cleanedCode, category: variantParentItem.category,
+            cost_currency: formData.base_currency === 'USD' ? 'USD' : 'ARS', cost_price_ars: formData.cost_price,
+            cost_price_usd: formData.cost_price_usd, sale_price_ars: formData.sale_price,
+            wholesale_price_ars: formData.precio_mayorista ?? undefined,
+            exchange_rate_used: formData.exchange_rate_used, auto_update_price: formData.auto_update_price,
+            stock: formData.stock_quantity, min_stock: formData.min_stock, location: cleanedLocation,
+          })
+          await refresh({ background: true })
+          setExpandedRows(prev => new Set([...prev, variantParentItem.id]))
+          closeModal()
           return
         }
 
@@ -957,12 +992,17 @@ export function Inventory() {
       closeModal()
       if (stockIssues.length) alert(stockIssues.join('\n'))
     } catch (err: any) {
+      if (err instanceof VariantInitialStockPendingError) {
+        setPendingAddedVariant(err.recovery)
+        try { sessionStorage.setItem(`trp_variant_add_stock_${businessId}_${err.recovery.product.id}`, JSON.stringify(err.recovery)) } catch { /* Memory recovery remains available. */ }
+      }
       const rawMsg = err?.message || ''
       const friendly = /duplicate key|unique|409|violates/i.test(rawMsg)
         ? `El código ingresado ya está siendo usado por otro producto. Probá con otro.`
         : rawMsg || 'Error al guardar producto'
       setFormError(friendly)
     } finally {
+      legacySubmittingRef.current = false
       setIsSubmitting(false)
       hideLoading()
     }
@@ -983,6 +1023,33 @@ export function Inventory() {
       const costOf = (id: string) => {
         const c = costs.get(id)
         return { cost_price: c?.cost_price ?? 0, cost_price_usd: c?.cost_price_usd ?? 0 }
+      }
+
+      if (businessId && user && (item.has_variants || item.parent_id)) {
+        // V2 copies must create both inventory and variant metadata. Copying
+        // the raw row would leave children pointing to the original family.
+        const parent = item.parent_id ? items.find(i => i.id === item.parent_id) : item
+        if (!parent?.has_variants) throw new Error('No se encontró una familia válida para duplicar.')
+        const definitions = await productService.getVariants(parent.id, businessId)
+        const sourceVariants = item.parent_id ? definitions.filter(v => v.inventory_item_id === item.id) : definitions
+        const copies = sourceVariants.map(v => ({ business_id: businessId, created_by: user.id,
+          name: item.parent_id ? `${v.name} (copia)` : v.name, attributes: v.attributes,
+          cost_price_ars: costOf(v.inventory_item_id!).cost_price, cost_price_usd: costOf(v.inventory_item_id!).cost_price_usd,
+          sale_price_ars: v.sale_price_ars, sale_price_usd: v.sale_price_usd ?? undefined,
+          cost_currency: v.cost_currency, exchange_rate_used: v.exchange_rate_used ?? undefined,
+          wholesale_price_ars: v.wholesale_price_ars ?? undefined,
+          location: v.location ?? undefined, min_stock: v.min_stock, stock: 0,
+          auto_update_price: v.inventory?.auto_update_price ?? false, is_default: !item.parent_id && v.is_default,
+        }))
+        if (!copies.length) throw new Error('No hay variantes activas vinculadas para duplicar.')
+        if (item.parent_id) await productService.createVariant(parent.id, { ...copies[0], product_name: parent.name })
+        else await productService.createProductWithVariants({ business_id: businessId, created_by: user.id,
+          name: `${parent.name} (copia)`, category: parent.category, base_currency: parent.base_currency === 'USD' ? 'USD' : 'ARS',
+          base_price: parent.base_price ?? parent.sale_price, ...costOf(parent.id), sale_price: parent.sale_price,
+          exchange_rate_used: parent.exchange_rate_used, min_stock: parent.min_stock, location: parent.location,
+        }, copies)
+        await refresh({ background: true })
+        return
       }
 
       const buildCopyPayload = (source: any, overrides: Record<string, any> = {}) => {
@@ -1129,6 +1196,12 @@ export function Inventory() {
     if (!confirm(confirmationMessage)) return
     
     try {
+      if (businessId && (isGroupingParent(item) || item.parent_id)) {
+        if (item.parent_id) await productService.setVariantActive(item.id, false, businessId)
+        else await productService.deactivateFamily(item.id, businessId)
+        await refresh()
+        return
+      }
       if (childVariants.length > 0) {
         const idsToDelete = [item.id, ...childVariants.map(childVariant => childVariant.id)]
 
@@ -1385,7 +1458,7 @@ export function Inventory() {
     const isVariant = options?.isVariant || false
     const parentItem = options?.parentItem
     const variantCount = isVariant ? 0 : (variantsByParent[item.id] || []).length
-    const hasVariants = !isVariant && variantCount > 0
+    const hasVariants = !isVariant && (variantCount > 0 || isGroupingParent(item))
     const isService = item.tipo === 'service'
     const effective = getEffectiveStock(item)
     const displayStock = effective.stock_quantity
@@ -1408,6 +1481,8 @@ export function Inventory() {
     return (
       <tr
         key={item.id}
+        data-testid="inventory-product-row" data-inventory-id={item.id}
+        className={item.has_variants || item.parent_id ? 'inventory-variant-row' : undefined}
         style={{
           borderBottom: '1px solid rgba(255,255,255,0.05)',
           backgroundColor: isVariant ? 'rgba(15, 23, 42, 0.55)' : 'transparent'
@@ -1422,6 +1497,7 @@ export function Inventory() {
               <button
                 onClick={() => toggleExpanded(item.id)}
                 title={isExpanded ? 'Ocultar variantes' : 'Mostrar variantes'}
+                aria-expanded={isExpanded}
                 style={{
                   padding: '0.25rem',
                   backgroundColor: 'rgba(56,189,248,0.1)',
@@ -1499,7 +1575,7 @@ export function Inventory() {
               </span>
               {hasVariants && (
                 <div style={{ color: '#64748b', fontSize: '0.6875rem', marginTop: '0.125rem' }}>
-                  Total variantes
+                  unidades en variantes
                 </div>
               )}
             </>
@@ -1574,7 +1650,7 @@ export function Inventory() {
             }}>
               Disponible
             </span>
-          ) : effectiveOutOfStock ? (
+          ) : item.is_active === false ? <span style={{ color: 'var(--text-secondary)' }}>Inactiva</span> : effectiveOutOfStock ? (
             <span style={{
               padding: '0.25rem 0.75rem',
               backgroundColor: 'rgba(239, 68, 68, 0.1)',
@@ -1616,6 +1692,11 @@ export function Inventory() {
         </td>
         <td style={{ padding: '1rem', textAlign: 'center' }}>
           <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
+            {isVariant && item.parent_id && item.is_active === false && <button type="button" title="Activar variante"
+              onClick={async () => {
+                try { if (businessId) { await productService.setVariantActive(item.id, true, businessId); await refresh() } }
+                catch (err) { alert(err instanceof Error ? err.message : 'No se pudo activar la variante.') }
+              }} style={{ minHeight: 44, color: 'var(--text-primary)', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)' }}>Activar</button>}
             {!isVariant && !isService && (
               <button
                 onClick={() => openAddModal(item)}
@@ -2211,6 +2292,7 @@ export function Inventory() {
                 </div>
               )}
 
+              <fieldset disabled={isSubmitting || !!pendingAddedVariant} style={{ display: 'contents' }}>
               {isVariantModal && variantParentItem && (
                 <div style={{
                   marginBottom: '1rem',
@@ -2397,7 +2479,7 @@ export function Inventory() {
                       type="number"
                       min="0"
                       value={formData.stock_quantity}
-                      onChange={(e) => setFormData({ ...formData, stock_quantity: parseInt(e.target.value) || 0 })}
+                      onChange={(e) => setFormData({ ...formData, stock_quantity: Number(e.target.value) })}
                       style={{
                         width: '100%',
                         padding: '0.625rem 0.75rem',
@@ -3179,6 +3261,7 @@ export function Inventory() {
                 </div>
               )}
 
+              </fieldset>
               <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
                 <button type="button" onClick={closeModal} style={{
                   padding: '0.625rem 1.25rem',
@@ -3207,7 +3290,7 @@ export function Inventory() {
                   {isSubmitting ? (
                     <><Loader2 size={16} style={{ animation: 'tr-spin 1s linear infinite' }} /> Guardando...</>
                   ) : (
-                    modalSubmitLabel
+                    pendingAddedVariant ? 'Reintentar stock inicial' : modalSubmitLabel
                   )}
                 </button>
               </div>

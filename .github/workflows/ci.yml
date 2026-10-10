@@ -442,6 +442,9 @@ jobs:
       - name: G2-C.3A2 — frontend stock authority (guard + component tests)
         run: npm run test:g2c3a2
 
+      - name: Product variants V2 — contracts, negative controls and components
+        run: npm run test:product-variants-v2
+
       # G2-C.3A3: lockdown en base de la autoridad de stock. El guard estatico
       # (self-test primero) corre aca; la matriz SQL/PostgREST vive en el job
       # g2c3a3-inventory-lockdown, que aplica la migracion desde cero.
@@ -569,6 +572,7 @@ jobs:
           mv "$g2c3b0" "$RUNNER_TEMP/"
           mv "$g2c3a1" "$RUNNER_TEMP/"
           mv "$g2c3a3" "$RUNNER_TEMP/"
+          mv supabase/migrations/20261014120000_product_variants_v2_metadata_access.sql "$RUNNER_TEMP/"
           mv "$prebeta1" "$RUNNER_TEMP/"
           mv "$p3s_mayorista" "$RUNNER_TEMP/"
           mv "$p3s_clic" "$RUNNER_TEMP/"
@@ -859,6 +863,7 @@ jobs:
         run: |
           set -euo pipefail
           a3="supabase/migrations/20261009120000_g2c3a3_inventory_authority_lockdown.sql"
+          mv supabase/migrations/20261014120000_product_variants_v2_metadata_access.sql "$RUNNER_TEMP/"
           prebeta1="supabase/migrations/20261010120000_prebeta1_public_users_api_retirement.sql"
           mv supabase/migrations/20261011120000_prebeta3a2s_wholesale_server_authority.sql "$RUNNER_TEMP/"
           mv supabase/migrations/20261011130000_prebeta3a2s_portal_clic_internal_authority.sql "$RUNNER_TEMP/"
@@ -919,6 +924,7 @@ jobs:
         run: |
           set -euo pipefail
           prebeta1="supabase/migrations/20261010120000_prebeta1_public_users_api_retirement.sql"
+          mv supabase/migrations/20261014120000_product_variants_v2_metadata_access.sql "$RUNNER_TEMP/"
           mv supabase/migrations/20261011120000_prebeta3a2s_wholesale_server_authority.sql "$RUNNER_TEMP/"
           mv supabase/migrations/20261011130000_prebeta3a2s_portal_clic_internal_authority.sql "$RUNNER_TEMP/"
           mv supabase/migrations/20261012120000_beta_mp_checkout_session_server_authority.sql "$RUNNER_TEMP/"
@@ -972,6 +978,7 @@ jobs:
         run: |
           set -euo pipefail
           mayorista="supabase/migrations/20261011120000_prebeta3a2s_wholesale_server_authority.sql"
+          mv supabase/migrations/20261014120000_product_variants_v2_metadata_access.sql "$RUNNER_TEMP/"
           clic="supabase/migrations/20261011130000_prebeta3a2s_portal_clic_internal_authority.sql"
           # BETA-MP y BETA-MP Plan B (posteriores) se apartan y NO se devuelven:
           # `migration up` tiene que aplicar SOLO las dos de 3A-2S. Los certifica
@@ -1122,6 +1129,8 @@ jobs:
         run: npm run e2e:ci-local -- --project=m7-local
         env:
           CI: 'true'
+      - name: Verify variants metadata permissions and canonical stock in PostgreSQL
+        run: npm run test:sql:product-variants-v2
 
       - name: Upload Playwright report (on failure)
         uses: actions/upload-artifact@v4

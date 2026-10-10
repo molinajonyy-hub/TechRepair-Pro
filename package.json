@@ -299,7 +299,9 @@
     "guard:pwa-install:self-test": "node scripts/guards/pwa-install-identity.mjs --self-test",
     "guard:mobile-session-1a": "node scripts/guards/mobile-session-1a.mjs",
     "guard:mobile-session-1a:self-test": "node scripts/guards/mobile-session-1a.mjs --self-test",
-    "pwa:iconos": "node scripts/pwa/generar-iconos.mjs"
+    "pwa:iconos": "node scripts/pwa/generar-iconos.mjs",
+    "test:product-variants-v2": "node scripts/guards/product-variants-v2.mjs --self-test && node scripts/guards/product-variants-v2.mjs && vitest run --config vitest.config.ts tests/components/productVariantsV2.test.tsx tests/components/productSearchService.test.tsx tests/components/g2c3a2ProductFormModal.test.tsx tests/components/g2c3a2InventoryPage.test.tsx",
+    "test:sql:product-variants-v2": "docker cp tests/sql/product_variants_v2.test.sql supabase_db_techrepair-vite:/tmp/product-variants-v2.sql && docker exec supabase_db_techrepair-vite psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/product-variants-v2.sql"
   },
   "dependencies": {
     "@rollup/rollup-linux-x64-gnu": "^4.60.2",
