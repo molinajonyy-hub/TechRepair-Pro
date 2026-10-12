@@ -170,6 +170,10 @@ describe('ProductFormModal · edición', () => {
     min_stock: 1, sale_price: 1000, is_active: true, created_at: '', updated_at: '', tipo: 'product',
   } as any
 
+  beforeEach(() => {
+    h.state.rows.set('inventory', new Map([[EXISTENTE, { ...item, business_id: BIZ, parent_id: null, has_variants: false }]]))
+  })
+
   it('T18/T19 · sólo metadata: UPDATE sin stock_quantity y 0 RPC de stock', async () => {
     const onSaved = vi.fn()
     render(<ProductFormModal isOpen onClose={() => {}} onCreated={() => {}} onSaved={onSaved} editItem={item} />)

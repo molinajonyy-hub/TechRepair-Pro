@@ -359,15 +359,19 @@ export const productService = {
       .eq('business_id', businessId)
 
     if (error) throw new Error(error.message)
-    const { data: family, error: familyError } = updates.name !== undefined
-      ? await supabase.from('inventory').select('has_variants').eq('id', id).eq('business_id', businessId).maybeSingle()
-      : { data: null, error: null }
-    if (familyError) throw new Error(`Los datos se guardaron, pero no pudimos confirmar la familia: ${familyError.message}`)
-    if (family?.has_variants && updates.name !== undefined) {
+    const { data: identity, error: identityError } = await supabase.from('inventory')
+      .select('parent_id,has_variants').eq('id', id).eq('business_id', businessId).maybeSingle()
+    if (identityError || !identity) {
+      throw new Error(`Los datos se guardaron, pero no pudimos confirmar la identidad del producto: ${identityError?.message ?? 'Producto no disponible.'}`)
+    }
+    if (!identity.parent_id && identity.has_variants && updates.name !== undefined) {
       const { error: childrenError } = await supabase.from('inventory').update({ name: updates.name })
         .eq('parent_id', id).eq('business_id', businessId)
       if (childrenError) throw new Error(`El nombre se guardó, pero falta confirmar el nombre de la familia en sus variantes: ${childrenError.message}`)
     }
+
+    // Simple products and grouping parents have no child compatibility metadata.
+    if (identity.parent_id == null) return
 
     // Compatibility metadata follows the sellable inventory row. Never stock.
     const variantUpdates = {

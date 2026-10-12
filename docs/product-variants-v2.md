@@ -38,7 +38,7 @@ Mensaje: “El producto y sus variantes se crearon, pero no pudimos confirmar el
 | USD | Referencia de venta USD en `base_price`, costo USD separado, cotización y actualización automática por hijo; padre sin repricing automático. Una variante USD puede heredar costo ARS por conversión. Overrides y ceros explícitos se conservan. |
 | Generador | Dimensiones completas y únicas, valores deduplicados, máximo 100 combinaciones; combina con filas manuales sin reemplazar ediciones. Se pueden editar nombres, SKU, atributos y valores propios. |
 | Valores base | Reutiliza applyBaseToVariants para completar huecos sin pisar cambios individuales; conversiones con cotización válida, mínimo y ubicación heredables. |
-| Mobile / temas | 375 px, filas de campos en una columna, textos largos sin desbordar, controles/touch targets de 44 px, foco visible y selector con Escape, ciclo de Tab y restauración de foco. CTA principal usa el token AA vigente. |
+| Mobile / temas | 375 px, filas de campos en una columna, textos largos sin desbordar, controles/touch targets de 44 px, foco visible y selector con Escape, ciclo de Tab y restauración de foco. CTA principal conserva el fondo exacto de la base y el token de texto certificado por BETA-UX-1E. |
 
 ## Migración preparada
 
@@ -53,6 +53,16 @@ Mensaje: “El producto y sus variantes se crearon, pero no pudimos confirmar el
 - Requiere A1 y A3. Aborta si hay vínculos duplicados, sin corregirlos automáticamente.
 
 **Debe aplicarse por el proceso autorizado antes del frontend productivo. Aquí sólo se probó en un contenedor local.** Ese contenedor estaba atrasado y se completaron allí las migraciones de stock existentes de G2-B a A3; no se aplicaron migraciones ARCA/MP ni se accedió a producción. La fecha/version del archivo se ubica después de la última migración de la base solicitada para evitar colisiones del ledger.
+
+El frontend V2 necesita los permisos y guards de `product_variants`, por lo que la migración debe estar aplicada **ANTES** de que llegue a producción. No se debe usar «merge y después db push» como secuencia de rollout. Antes del deploy productivo se ejecutarán manualmente `supabase migration list` y `supabase db push --dry-run` para revisar exactamente las migraciones pendientes; esos comandos no se ejecutaron durante este microfix. El repo incluye `20261013120000_beta_mp_plan_b_session_preapproval_unique.sql` además de esta migración: no corresponde hacer un `db push` a ciegas ni aplicar Mercado Pago junto con este lote.
+
+## Microfix del PR #176
+
+El CI del primer SHA falló en «Producto · Guardar producto» de BETA-UX-1E: el CTA había cambiado incidentalmente a `accentCta.background`. Se restauró únicamente su fondo exacto de la base (`linear-gradient(135deg, #6366f1, #4f46e5)`), conservando el token de texto, mobile, temas y accesibilidad. No se cambió la expectativa del test; la uniformidad global de botones queda para BUTTON-SYSTEM-1A.
+
+`updateProduct` resuelve `parent_id,has_variants` con una lectura de inventario filtrada por ID y negocio después de guardar. Producto simple: cero requests a `product_variants`. Padre agrupador: renombrar conserva la actualización de los nombres de sus hijos, sin metadata de variante del padre. Sólo un hijo con `parent_id != null` sincroniza metadata por su ID de inventario y tenant. Una falla de sync informa explícitamente que inventario se guardó y metadata está sin confirmar; si no se puede confirmar la identidad, también se informa ese límite.
+
+Se agregaron cinco contratos: simple sin requests de variantes, simple con tabla de variantes inaccesible, padre renombrado con hijos y otra familia intacta, sync del hijo y error honesto de sync. Los fixtures de edición G2-C.3A2 ahora incluyen la fila existente realista para la lectura de identidad. La migración no cambió ni se aplicó en producción. Los resultados remotos del nuevo SHA se informan en la entrega.
 
 ## Validación
 

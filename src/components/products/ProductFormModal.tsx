@@ -1768,7 +1768,7 @@ export function ProductFormModal({
             disabled={saving}
             // BETA-UX-1E: `accentCta.text`, no `'#fff'`. El tema claro remapea el
             // blanco en línea a texto oscuro; lo mismo en los otros tres CTAs.
-            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.625rem 1.5rem', background: accentCta.background, border: 'none', borderRadius: '0.75rem', color: accentCta.text, fontWeight: 700, fontSize: '0.875rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, fontFamily: F }}
+            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.625rem 1.5rem', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: 'none', borderRadius: '0.75rem', color: accentCta.text, fontWeight: 700, fontSize: '0.875rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, fontFamily: F }}
           >
             {saving
               ? <><RefreshCw size={14} style={{ animation: 'tr-spin 0.8s linear infinite' }} /> Guardando...</>

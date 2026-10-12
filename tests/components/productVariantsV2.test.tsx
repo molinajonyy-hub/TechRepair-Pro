@@ -31,6 +31,62 @@ const inserts = () => inventoryWrites(state()).filter(op => op.kind === 'insert'
 beforeEach(() => { resetFakeState(state()); localStorage.clear(); sessionStorage.clear() })
 
 describe('PRODUCT-VARIANTS-1 · service contracts', () => {
+  it('editing a simple product makes zero product_variants requests', async () => {
+    const simple = await productService.createProduct({ ...base, tipo: 'product' })
+    state().ops.length = 0
+    await productService.updateProduct(simple.id, { name: 'Funda simple', sale_price: 6000 }, BIZ)
+    expect(state().rows.get('inventory')!.get(simple.id)).toMatchObject({ name: 'Funda simple', sale_price: 6000 })
+    expect(state().ops.filter(op => op.table === 'product_variants')).toHaveLength(0)
+    expect(state().ops.find(op => op.kind === 'select')).toMatchObject({
+      table: 'inventory', columns: 'parent_id,has_variants', filters: [['eq', 'id', simple.id], ['eq', 'business_id', BIZ]],
+    })
+  })
+
+  it('simple product saves even when product_variants is inaccessible', async () => {
+    const simple = await productService.createProduct({ ...base, tipo: 'product' })
+    const from = supabase.from.bind(supabase)
+    vi.spyOn(supabase, 'from').mockImplementation(table => {
+      if (table === 'product_variants') throw new Error('permission denied for table product_variants')
+      return from(table)
+    })
+    await expect(productService.updateProduct(simple.id, { sale_price: 6500 }, BIZ)).resolves.toBeUndefined()
+    expect(state().rows.get('inventory')!.get(simple.id)!.sale_price).toBe(6500)
+  })
+
+  it('renaming a grouping parent updates its children without parent variant metadata requests', async () => {
+    const family = await productService.createProductWithVariants(base, [variant('Negro', 3)])
+    const another = await productService.createProductWithVariants({ ...base, name: 'Otra familia' }, [variant('Azul', 2)])
+    state().ops.length = 0
+    await productService.updateProduct(family.product.id, { name: 'Nueva familia' }, BIZ)
+    expect(state().rows.get('inventory')!.get(family.product.id)!.name).toBe('Nueva familia')
+    expect(state().rows.get('inventory')!.get(family.variants[0].inventory_item_id!)!).toMatchObject({ name: 'Nueva familia', variant_name: 'Negro' })
+    expect(state().rows.get('inventory')!.get(another.variants[0].inventory_item_id!)!.name).toBe('Otra familia')
+    expect(state().ops.filter(op => op.table === 'product_variants')).toHaveLength(0)
+    expect(state().stock.get(family.variants[0].inventory_item_id!)).toBe(3)
+  })
+
+  it('editing a child synchronizes compatibility metadata by its inventory ID and tenant', async () => {
+    const family = await productService.createProductWithVariants(base, [variant('Negro', 3)])
+    const childId = family.variants[0].inventory_item_id!
+    state().ops.length = 0
+    await productService.updateProduct(childId, { variant_name: 'Negro mate', sale_price: 6100 }, BIZ)
+    const requests = state().ops.filter(op => op.table === 'product_variants')
+    expect(requests).toHaveLength(1)
+    expect(requests[0]).toMatchObject({ kind: 'update', payload: { name: 'Negro mate', sale_price_ars: 6100 }, filters: [['eq', 'inventory_item_id', childId], ['eq', 'business_id', BIZ]] })
+    expect(state().rows.get('product_variants')!.get(family.variants[0].id)).toMatchObject({ name: 'Negro mate', sale_price_ars: 6100 })
+    expect(state().stock.get(childId)).toBe(3)
+  })
+
+  it('child metadata sync failure reports that inventory saved but metadata is unconfirmed', async () => {
+    const family = await productService.createProductWithVariants(base, [variant('Negro', 3)])
+    const childId = family.variants[0].inventory_item_id!
+    state().writeError = op => op.table === 'product_variants' ? { message: 'permission denied' } : null
+    await expect(productService.updateProduct(childId, { sale_price: 6200 }, BIZ)).rejects.toThrow('Los datos de inventario se guardaron, pero falta confirmar la metadata de variante: permission denied')
+    expect(state().rows.get('inventory')!.get(childId)!.sale_price).toBe(6200)
+    expect(state().rows.get('product_variants')!.get(family.variants[0].id)!.sale_price_ars).toBe(5000)
+    expect(state().stock.get(childId)).toBe(3)
+  })
+
   it('creates one grouping parent and three independent sellable children; stock only by A1', async () => {
     const result = await productService.createProductWithVariants(base, [variant('Negro', 3), variant('Azul', 5), variant('Rosa', 2)])
     expect(inserts()).toHaveLength(4)
