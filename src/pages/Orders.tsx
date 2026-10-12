@@ -1,6 +1,6 @@
 import { useState, useRef, useMemo, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Plus, Search, Eye, Edit, Trash2, ClipboardList, Printer, Loader2, X } from 'lucide-react'
+import { Search, Eye, Edit, Trash2, ClipboardList, Printer, Loader2, X } from 'lucide-react'
 import { OrderFinancialBadge, type OrderPaymentStatus } from '../components/orders/OrderFinancialBadge'
 import { smartSearch } from '../utils/searchUtils'
 import { CloseButton } from '../components/ui/CloseButton'
@@ -13,6 +13,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useOrderPrintSettings } from '../hooks/useOrderPrintSettings'
 import { buildOrderPrintTitle } from '../lib/printFilename'
 import { CompactList, OverflowMenu, type CompactListItem } from '../ui'
+import { NewOrderIcon } from '../ui/icons'
 
 const getStatusStyle = (status: string) => {
   const config = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]
@@ -312,8 +313,10 @@ export function Orders() {
           </div>
         </div>
         <div className="page-hdr-right">
-          <Link to="/orders/new" data-testid="orders-new-button" className="btn btn-primary btn-sm btn-lift" style={{ textDecoration: 'none' }}>
-            <Plus size={16} />
+          {/* BUTTON-SYSTEM-1A: acción de página. Mismo botón —variante, tamaño e
+              ícono— que «Nueva Orden» en Inicio. */}
+          <Link to="/orders/new" data-testid="orders-new-button" className="btn btn-primary btn-page-action" style={{ textDecoration: 'none' }}>
+            <NewOrderIcon size={16} />
             Nueva Orden
           </Link>
         </div>

@@ -461,7 +461,7 @@ export function Customers() {
             <button onClick={handleExportCustomers} className="btn btn-ghost btn-sm"><Download size={15} />Exportar</button>
             <button onClick={() => setShowImportModal(true)} className="btn btn-ghost btn-sm"><Upload size={15} />Importar</button>
           </div>
-          <Link to="/customers/new" data-testid="customers-new-button" className="btn btn-primary btn-sm btn-lift" style={{ textDecoration: 'none' }}>
+          <Link to="/customers/new" data-testid="customers-new-button" className="btn btn-primary btn-page-action" style={{ textDecoration: 'none' }}>
             <Plus size={16} />Nuevo Cliente
           </Link>
           <div className="list-hdr-overflow">

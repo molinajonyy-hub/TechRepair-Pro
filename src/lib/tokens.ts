@@ -107,13 +107,12 @@ export const colors = {
  *   claro de index.css remapea todo blanco en línea a `--text-primary` y el CTA
  *   queda con texto casi negro sobre índigo. El token no matchea ese patrón y
  *   vale lo mismo en los dos temas.
- * `background` — índigo → violeta (`#4f46e5 → #7c3aed`), un tono más oscuro
- *   que el gradiente legacy `#6366f1 → #8b5cf6`. Sobre aquél el blanco mide
- *   4,20–4,50:1 y no llega a AA en ningún punto; sobre éste, 5,67–6,33:1. El
- *   valor vive en index.css (`--gradient-primary-aa`): es la misma fuente que
- *   usa `.btn-primary-aa`, para que un CTA en línea y un `.btn` no diverjan.
- * `solid` — lo mismo para un fondo plano (la opción activa de un selector):
- *   sobre `#6366f1` el blanco mide 4,47:1; sobre éste, 6,29:1.
+ * `background` — índigo SÓLIDO (`--indigo-600`, #4f46e5): el mismo fondo que
+ *   `.btn-primary`, para que un CTA en línea y un `.btn` no diverjan. El blanco
+ *   mide 6,29:1. BUTTON-SYSTEM-1A: los botones no llevan gradientes; hasta
+ *   entonces esto era `--gradient-primary-aa` (índigo → violeta).
+ * `solid` — el mismo índigo como literal, para un fondo plano (la opción activa
+ *   de un selector): sobre `#6366f1` el blanco mide 4,47:1; sobre éste, 6,29:1.
  * `textOnBright` — tinta para fondos sólidos claros de estado (ámbar, rojo,
  *   verde), donde el blanco no llega a AA. Ver `--text-on-bright` en index.css.
  *
@@ -123,7 +122,7 @@ export const colors = {
  */
 export const accentCta = {
   text:         'var(--text-on-accent)',
-  background:   'var(--gradient-primary-aa)',
+  background:   'var(--indigo-600)',
   solid:        '#4f46e5',
   textOnBright: 'var(--text-on-bright)',
 } as const

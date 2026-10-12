@@ -1,0 +1,249 @@
+[E] Estados · tema light
+  ── Inicio · Nueva Orden (primary)
+     reposo     fondo rgb(79, 70, 229) · texto rgb(255, 255, 255) · borde rgba(0, 0, 0, 0) · sombra ninguna · sin elevar
+  OK    reposo: sin gradiente
+  OK    reposo: ni el fondo ni el borde son de la paleta de Bootstrap
+     hover      fondo rgb(67, 56, 202) · texto rgb(255, 255, 255) · borde rgba(0, 0, 0, 0) · sombra ninguna · sin elevar
+  OK    hover: sin gradiente
+  OK    hover: ni el fondo ni el borde son de la paleta de Bootstrap
+     presionado fondo rgb(67, 56, 202) · texto rgb(255, 255, 255) · borde rgba(0, 0, 0, 0) · sombra ninguna · sin elevar
+  OK    presionado: sin gradiente
+  OK    presionado: ni el fondo ni el borde son de la paleta de Bootstrap
+     foco       fondo rgb(79, 70, 229) · texto rgb(255, 255, 255) · borde rgba(0, 0, 0, 0) · sombra ninguna · sin elevar · contorno solid 2px rgb(79, 70, 229)
+  OK    foco: sin gradiente
+  OK    foco: ni el fondo ni el borde son de la paleta de Bootstrap
+  OK    el foco de teclado se midió con :focus-visible
+  OK    el foco de teclado tiene un indicador visible
+  OK    primary: sin resplandor en reposo ni en hover
+  OK    primary: el hover cambia a otro sólido
+  ── Inicio · Nuevo Comprobante (secondary)
+     reposo     fondo rgba(0, 0, 0, 0) · texto rgb(51, 65, 85) · borde rgba(15, 23, 42, 0.15) · sombra ninguna · sin elevar
+  OK    reposo: sin gradiente
+  OK    reposo: ni el fondo ni el borde son de la paleta de Bootstrap
+     hover      fondo rgba(99, 102, 241, 0.06) · texto rgb(15, 23, 42) · borde rgb(79, 70, 229) · sombra ninguna · sin elevar
+  OK    hover: sin gradiente
+  OK    hover: ni el fondo ni el borde son de la paleta de Bootstrap
+     presionado fondo rgba(99, 102, 241, 0.06) · texto rgb(15, 23, 42) · borde rgb(79, 70, 229) · sombra ninguna · sin elevar
+  OK    presionado: sin gradiente
+  OK    presionado: ni el fondo ni el borde son de la paleta de Bootstrap
+     foco       fondo rgba(0, 0, 0, 0) · texto rgb(51, 65, 85) · borde rgba(15, 23, 42, 0.15) · sombra ninguna · sin elevar · contorno solid 2px rgb(79, 70, 229)
+  OK    foco: sin gradiente
+  OK    foco: ni el fondo ni el borde son de la paleta de Bootstrap
+  OK    el foco de teclado se midió con :focus-visible
+  OK    el foco de teclado tiene un indicador visible
+  ── Inicio · Gestionar Caja (secondary)
+     reposo     fondo rgba(0, 0, 0, 0) · texto rgb(51, 65, 85) · borde rgba(15, 23, 42, 0.15) · sombra ninguna · sin elevar
+  OK    reposo: sin gradiente
+  OK    reposo: ni el fondo ni el borde son de la paleta de Bootstrap
+     hover      fondo rgba(99, 102, 241, 0.06) · texto rgb(15, 23, 42) · borde rgb(79, 70, 229) · sombra ninguna · sin elevar
+  OK    hover: sin gradiente
+  OK    hover: ni el fondo ni el borde son de la paleta de Bootstrap
+     presionado fondo rgba(99, 102, 241, 0.06) · texto rgb(15, 23, 42) · borde rgb(79, 70, 229) · sombra ninguna · sin elevar
+  OK    presionado: sin gradiente
+  OK    presionado: ni el fondo ni el borde son de la paleta de Bootstrap
+     foco       fondo rgba(0, 0, 0, 0) · texto rgb(51, 65, 85) · borde rgba(15, 23, 42, 0.15) · sombra ninguna · sin elevar · contorno solid 2px rgb(79, 70, 229)
+  OK    foco: sin gradiente
+  OK    foco: ni el fondo ni el borde son de la paleta de Bootstrap
+  OK    el foco de teclado se midió con :focus-visible
+  OK    el foco de teclado tiene un indicador visible
+  ── Inicio · Registrar gasto (danger)
+     reposo     fondo rgba(220, 38, 38, 0.06) · texto rgb(185, 28, 28) · borde rgba(220, 38, 38, 0.25) · sombra ninguna · sin elevar
+  OK    reposo: sin gradiente
+  OK    reposo: ni el fondo ni el borde son de la paleta de Bootstrap
+     hover      fondo rgba(220, 38, 38, 0.12) · texto rgb(185, 28, 28) · borde rgb(220, 38, 38) · sombra ninguna · sin elevar
+  OK    hover: sin gradiente
+  OK    hover: ni el fondo ni el borde son de la paleta de Bootstrap
+     presionado fondo rgba(220, 38, 38, 0.12) · texto rgb(185, 28, 28) · borde rgb(220, 38, 38) · sombra ninguna · sin elevar
+  OK    presionado: sin gradiente
+  OK    presionado: ni el fondo ni el borde son de la paleta de Bootstrap
+     foco       fondo rgba(220, 38, 38, 0.06) · texto rgb(185, 28, 28) · borde rgba(220, 38, 38, 0.25) · sombra ninguna · sin elevar · contorno solid 2px rgb(79, 70, 229)
+  OK    foco: sin gradiente
+  OK    foco: ni el fondo ni el borde son de la paleta de Bootstrap
+  OK    el foco de teclado se midió con :focus-visible
+  OK    el foco de teclado tiene un indicador visible
+  ── Inicio · Nueva tarea (primary)
+     reposo     fondo rgb(79, 70, 229) · texto rgb(255, 255, 255) · borde rgba(0, 0, 0, 0) · sombra ninguna · sin elevar
+  OK    reposo: sin gradiente
+  OK    reposo: ni el fondo ni el borde son de la paleta de Bootstrap
+     hover      fondo rgb(67, 56, 202) · texto rgb(255, 255, 255) · borde rgba(0, 0, 0, 0) · sombra ninguna · sin elevar
+  OK    hover: sin gradiente
+  OK    hover: ni el fondo ni el borde son de la paleta de Bootstrap
+     presionado fondo rgb(67, 56, 202) · texto rgb(255, 255, 255) · borde rgba(0, 0, 0, 0) · sombra ninguna · sin elevar
+  OK    presionado: sin gradiente
+  OK    presionado: ni el fondo ni el borde son de la paleta de Bootstrap
+     foco       fondo rgb(79, 70, 229) · texto rgb(255, 255, 255) · borde rgba(0, 0, 0, 0) · sombra ninguna · sin elevar · contorno solid 2px rgb(79, 70, 229)
+  OK    foco: sin gradiente
+  OK    foco: ni el fondo ni el borde son de la paleta de Bootstrap
+  OK    el foco de teclado se midió con :focus-visible
+  OK    el foco de teclado tiene un indicador visible
+  OK    primary: sin resplandor en reposo ni en hover
+  OK    primary: el hover cambia a otro sólido
+  OK    sin errores de página
+
+[E] Estados · tema dark
+  ── Inicio · Nueva Orden (primary)
+     reposo     fondo rgb(79, 70, 229) · texto rgb(255, 255, 255) · borde rgba(0, 0, 0, 0) · sombra ninguna · sin elevar
+  OK    reposo: sin gradiente
+  OK    reposo: ni el fondo ni el borde son de la paleta de Bootstrap
+     hover      fondo rgb(67, 56, 202) · texto rgb(255, 255, 255) · borde rgba(0, 0, 0, 0) · sombra ninguna · sin elevar
+  OK    hover: sin gradiente
+  OK    hover: ni el fondo ni el borde son de la paleta de Bootstrap
+     presionado fondo rgb(67, 56, 202) · texto rgb(255, 255, 255) · borde rgba(0, 0, 0, 0) · sombra ninguna · sin elevar
+  OK    presionado: sin gradiente
+  OK    presionado: ni el fondo ni el borde son de la paleta de Bootstrap
+     foco       fondo rgb(79, 70, 229) · texto rgb(255, 255, 255) · borde rgba(0, 0, 0, 0) · sombra ninguna · sin elevar · contorno solid 2px rgb(99, 102, 241)
+  OK    foco: sin gradiente
+  OK    foco: ni el fondo ni el borde son de la paleta de Bootstrap
+  OK    el foco de teclado se midió con :focus-visible
+  OK    el foco de teclado tiene un indicador visible
+  OK    primary: sin resplandor en reposo ni en hover
+  OK    primary: el hover cambia a otro sólido
+  ── Inicio · Nuevo Comprobante (secondary)
+     reposo     fondo rgba(0, 0, 0, 0) · texto rgb(196, 205, 232) · borde rgba(255, 255, 255, 0.12) · sombra ninguna · sin elevar
+  OK    reposo: sin gradiente
+  OK    reposo: ni el fondo ni el borde son de la paleta de Bootstrap
+     hover      fondo rgba(99, 102, 241, 0.08) · texto rgb(240, 244, 255) · borde rgb(99, 102, 241) · sombra ninguna · sin elevar
+  OK    hover: sin gradiente
+  OK    hover: ni el fondo ni el borde son de la paleta de Bootstrap
+     presionado fondo rgba(99, 102, 241, 0.08) · texto rgb(240, 244, 255) · borde rgb(99, 102, 241) · sombra ninguna · sin elevar
+  OK    presionado: sin gradiente
+  OK    presionado: ni el fondo ni el borde son de la paleta de Bootstrap
+     foco       fondo rgba(0, 0, 0, 0) · texto rgb(196, 205, 232) · borde rgba(255, 255, 255, 0.12) · sombra ninguna · sin elevar · contorno solid 2px rgb(99, 102, 241)
+  OK    foco: sin gradiente
+  OK    foco: ni el fondo ni el borde son de la paleta de Bootstrap
+  OK    el foco de teclado se midió con :focus-visible
+  OK    el foco de teclado tiene un indicador visible
+  ── Inicio · Gestionar Caja (secondary)
+     reposo     fondo rgba(0, 0, 0, 0) · texto rgb(196, 205, 232) · borde rgba(255, 255, 255, 0.12) · sombra ninguna · sin elevar
+  OK    reposo: sin gradiente
+  OK    reposo: ni el fondo ni el borde son de la paleta de Bootstrap
+     hover      fondo rgba(99, 102, 241, 0.08) · texto rgb(240, 244, 255) · borde rgb(99, 102, 241) · sombra ninguna · sin elevar
+  OK    hover: sin gradiente
+  OK    hover: ni el fondo ni el borde son de la paleta de Bootstrap
+     presionado fondo rgba(99, 102, 241, 0.08) · texto rgb(240, 244, 255) · borde rgb(99, 102, 241) · sombra ninguna · sin elevar
+  OK    presionado: sin gradiente
+  OK    presionado: ni el fondo ni el borde son de la paleta de Bootstrap
+     foco       fondo rgba(0, 0, 0, 0) · texto rgb(196, 205, 232) · borde rgba(255, 255, 255, 0.12) · sombra ninguna · sin elevar · contorno solid 2px rgb(99, 102, 241)
+  OK    foco: sin gradiente
+  OK    foco: ni el fondo ni el borde son de la paleta de Bootstrap
+  OK    el foco de teclado se midió con :focus-visible
+  OK    el foco de teclado tiene un indicador visible
+  ── Inicio · Registrar gasto (danger)
+     reposo     fondo rgba(248, 113, 113, 0.08) · texto rgb(248, 113, 113) · borde rgba(248, 113, 113, 0.3) · sombra ninguna · sin elevar
+  OK    reposo: sin gradiente
+  OK    reposo: ni el fondo ni el borde son de la paleta de Bootstrap
+     hover      fondo rgba(248, 113, 113, 0.15) · texto rgb(248, 113, 113) · borde rgb(248, 113, 113) · sombra ninguna · sin elevar
+  OK    hover: sin gradiente
+  OK    hover: ni el fondo ni el borde son de la paleta de Bootstrap
+     presionado fondo rgba(248, 113, 113, 0.15) · texto rgb(248, 113, 113) · borde rgb(248, 113, 113) · sombra ninguna · sin elevar
+  OK    presionado: sin gradiente
+  OK    presionado: ni el fondo ni el borde son de la paleta de Bootstrap
+     foco       fondo rgba(248, 113, 113, 0.08) · texto rgb(248, 113, 113) · borde rgba(248, 113, 113, 0.3) · sombra ninguna · sin elevar · contorno solid 2px rgb(99, 102, 241)
+  OK    foco: sin gradiente
+  OK    foco: ni el fondo ni el borde son de la paleta de Bootstrap
+  OK    el foco de teclado se midió con :focus-visible
+  OK    el foco de teclado tiene un indicador visible
+  ── Inicio · Nueva tarea (primary)
+     reposo     fondo rgb(79, 70, 229) · texto rgb(255, 255, 255) · borde rgba(0, 0, 0, 0) · sombra ninguna · sin elevar
+  OK    reposo: sin gradiente
+  OK    reposo: ni el fondo ni el borde son de la paleta de Bootstrap
+     hover      fondo rgb(67, 56, 202) · texto rgb(255, 255, 255) · borde rgba(0, 0, 0, 0) · sombra ninguna · sin elevar
+  OK    hover: sin gradiente
+  OK    hover: ni el fondo ni el borde son de la paleta de Bootstrap
+     presionado fondo rgb(67, 56, 202) · texto rgb(255, 255, 255) · borde rgba(0, 0, 0, 0) · sombra ninguna · sin elevar
+  OK    presionado: sin gradiente
+  OK    presionado: ni el fondo ni el borde son de la paleta de Bootstrap
+     foco       fondo rgb(79, 70, 229) · texto rgb(255, 255, 255) · borde rgba(0, 0, 0, 0) · sombra ninguna · sin elevar · contorno solid 2px rgb(99, 102, 241)
+  OK    foco: sin gradiente
+  OK    foco: ni el fondo ni el borde son de la paleta de Bootstrap
+  OK    el foco de teclado se midió con :focus-visible
+  OK    el foco de teclado tiene un indicador visible
+  OK    primary: sin resplandor en reposo ni en hover
+  OK    primary: el hover cambia a otro sólido
+  OK    sin errores de página
+
+[G] Geometría · una acción de página mide lo mismo en todas las pantallas
+  · Inicio · Nueva Orden                 44px · padding 16px/16px · gap 8px · radio 8px · 14px/600 · ícono 16x16 · fondo rgb(79, 70, 229)
+  · Inicio · Nuevo Comprobante           44px · padding 16px/16px · gap 8px · radio 8px · 14px/600 · ícono 16x16 · fondo rgba(0, 0, 0, 0)
+  · Inicio · Gestionar Caja              44px · padding 16px/16px · gap 8px · radio 8px · 14px/600 · ícono 16x16 · fondo rgba(0, 0, 0, 0)
+  · Inicio · Registrar gasto             44px · padding 16px/16px · gap 8px · radio 8px · 14px/600 · ícono 16x16 · fondo rgba(220, 38, 38, 0.06)
+  · Inicio · Nueva tarea                 44px · padding 16px/16px · gap 8px · radio 8px · 14px/600 · ícono 16x16 · fondo rgb(79, 70, 229)
+  · Inicio · Ver todas (tareas)          44px · padding 16px/16px · gap 8px · radio 8px · 14px/600 · ícono 16x16 · fondo rgba(0, 0, 0, 0)
+  · Inicio · Ver todas (órdenes)         44px · padding 16px/16px · gap 8px · radio 8px · 14px/600 · ícono 16x16 · fondo rgba(0, 0, 0, 0)
+  · Órdenes · Nueva Orden                44px · padding 16px/16px · gap 8px · radio 8px · 14px/600 · ícono 16x16 · fondo rgb(79, 70, 229)
+  · Clientes · Nuevo Cliente             44px · padding 16px/16px · gap 8px · radio 8px · 14px/600 · ícono 16x16 · fondo rgb(79, 70, 229)
+  · Tareas · Nueva tarea                 44px · padding 16px/16px · gap 8px · radio 8px · 14px/600 · ícono 16x16 · fondo rgb(79, 70, 229)
+  · Comprobantes · Nuevo Comprobante     44px · padding 16px/16px · gap 8px · radio 8px · 14px/600 · ícono 16x16 · fondo rgb(79, 70, 229)
+  · Garantías · Nueva garantía           44px · padding 16px/16px · gap 8px · radio 8px · 14px/600 · ícono 16x16 · fondo rgb(79, 70, 229)
+  · Ofertas · Nueva oferta               44px · padding 16px/16px · gap 8px · radio 8px · 14px/600 · ícono 16x16 · fondo rgb(79, 70, 229)
+  OK    todas miden 44px de alto: 44
+  OK    mismo padding horizontal (16px): 16px/16px
+  OK    mismo espacio ícono–texto (8px): 8px
+  OK    mismo radio: 8px
+  OK    misma tipografía (14px / 600): 14px/600
+  OK    todos los íconos miden 16px: 16x16
+  OK    las 8 primarias pintan igual (fondo rgb(79, 70, 229), texto rgb(255, 255, 255), sombra none)
+  OK    ninguna lleva gradiente
+  OK    sin errores de página
+
+[G] Mobile · Inicio a 375 / 390 / 430 y Órdenes a 375
+  OK    320px · principal 296x44 · secundarias 93x72 93x72 93x72 · sin recorte ni desborde
+  OK    375px · principal 343x44 · secundarias 109x72 109x72 109x72 · sin recorte ni desborde
+  OK    390px · principal 358x44 · secundarias 114x72 114x72 114x72 · sin recorte ni desborde
+  OK    430px · principal 398x44 · secundarias 127x72 127x72 127x72 · sin recorte ni desborde
+  OK    Órdenes a 375 · «Nueva Orden» mide 343x44 (≥ 44 de alto, > 80 % del ancho) y no desborda
+  OK    Clientes a 375 · «Nuevo Cliente» (44px) y el menú (44px) comparten fila; 2 controles en el encabezado; sin desborde
+
+[C] Contraste pintado · tema light (mínimo 4,5:1)
+  OK    Inicio · Nueva Orden             (primary  ) reposo 6.29:1 · hover 7.90:1
+  OK    Inicio · Nuevo Comprobante       (secondary) reposo 9.53:1 · hover 15.25:1
+  OK    Inicio · Gestionar Caja          (secondary) reposo 9.61:1 · hover 15.38:1
+  OK    Inicio · Registrar gasto         (danger   ) reposo 5.42:1 · hover 4.96:1
+  OK    Inicio · Nueva tarea             (primary  ) reposo 6.29:1 · hover 7.90:1
+  OK    Inicio · Ver todas (tareas)      (secondary) reposo 10.35:1 · hover 16.60:1
+  OK    Inicio · Ver todas (órdenes)     (secondary) reposo 10.35:1 · hover 16.60:1
+  OK    Órdenes · Nueva Orden            (primary  ) reposo 6.29:1 · hover 7.90:1
+
+[C] Contraste pintado · tema dark (mínimo 4,5:1)
+  OK    Inicio · Nueva Orden             (primary  ) reposo 6.29:1 · hover 7.90:1
+  OK    Inicio · Nuevo Comprobante       (secondary) reposo 12.09:1 · hover 16.40:1
+  OK    Inicio · Gestionar Caja          (secondary) reposo 12.27:1 · hover 16.69:1
+  OK    Inicio · Registrar gasto         (danger   ) reposo 6.55:1 · hover 5.87:1
+  OK    Inicio · Nueva tarea             (primary  ) reposo 6.29:1 · hover 7.90:1
+  OK    Inicio · Ver todas (tareas)      (secondary) reposo 10.97:1 · hover 14.74:1
+  OK    Inicio · Ver todas (órdenes)     (secondary) reposo 10.52:1 · hover 14.08:1
+  OK    Órdenes · Nueva Orden            (primary  ) reposo 6.29:1 · hover 7.90:1
+
+[L] Todas las variantes · tema light — se MIDEN; sólo se exige lo que 1A cambió
+  · primary   texto 6.29:1 · sólido · sombra ninguna · deshabilitado: fondo rgb(79, 70, 229)
+  OK    primary: AA, sólido y sin sombra
+  OK    primary deshabilitado: el mismo índigo, no el azul de Bootstrap
+  · secondary texto 9.32:1 · sólido · sombra ninguna · deshabilitado: fondo rgb(108, 117, 125) ← de Bootstrap
+  OK    secondary: AA y sin gradiente
+  · danger    texto 5.47:1 · sólido · sombra ninguna · deshabilitado: fondo rgb(220, 53, 69) ← de Bootstrap
+  OK    danger: AA y sin gradiente
+  · success   texto 3.26:1 (BAJO) · sólido · sombra ninguna · deshabilitado: fondo rgb(25, 135, 84)
+  · ghost     texto 4.25:1 (BAJO) · sólido · sombra ninguna · deshabilitado: fondo rgba(0, 0, 0, 0)
+  · green     texto 2.40:1 (BAJO) · GRADIENTE · sombra sí · deshabilitado: fondo rgba(0, 0, 0, 0)
+  · amber     texto 2.28:1 (BAJO) · GRADIENTE · sombra sí · deshabilitado: fondo rgba(0, 0, 0, 0)
+  · red       texto 3.94:1 (BAJO) · GRADIENTE · sombra sí · deshabilitado: fondo rgba(0, 0, 0, 0)
+  · teal      texto 2.68:1 (BAJO) · GRADIENTE · sombra sí · deshabilitado: fondo rgba(0, 0, 0, 0)
+  · cyan      texto 3.68:1 (BAJO) · sólido · sombra sí · deshabilitado: fondo rgba(0, 0, 0, 0)
+
+[L] Todas las variantes · tema dark — se MIDEN; sólo se exige lo que 1A cambió
+  · primary   texto 6.29:1 · sólido · sombra ninguna · deshabilitado: fondo rgb(79, 70, 229)
+  OK    primary: AA, sólido y sin sombra
+  OK    primary deshabilitado: el mismo índigo, no el azul de Bootstrap
+  · secondary texto 11.98:1 · sólido · sombra ninguna · deshabilitado: fondo rgb(108, 117, 125) ← de Bootstrap
+  OK    secondary: AA y sin gradiente
+  · danger    texto 6.49:1 · sólido · sombra ninguna · deshabilitado: fondo rgb(220, 53, 69) ← de Bootstrap
+  OK    danger: AA y sin gradiente
+  · success   texto 9.09:1 · sólido · sombra ninguna · deshabilitado: fondo rgb(25, 135, 84)
+  · ghost     texto 6.37:1 · sólido · sombra ninguna · deshabilitado: fondo rgba(0, 0, 0, 0)
+  · green     texto 2.40:1 (BAJO) · GRADIENTE · sombra sí · deshabilitado: fondo rgba(0, 0, 0, 0)
+  · amber     texto 2.28:1 (BAJO) · GRADIENTE · sombra sí · deshabilitado: fondo rgba(0, 0, 0, 0)
+  · red       texto 3.94:1 (BAJO) · GRADIENTE · sombra sí · deshabilitado: fondo rgba(0, 0, 0, 0)
+  · teal      texto 2.68:1 (BAJO) · GRADIENTE · sombra sí · deshabilitado: fondo rgba(0, 0, 0, 0)
+  · cyan      texto 2.43:1 (BAJO) · sólido · sombra sí · deshabilitado: fondo rgba(0, 0, 0, 0)
+
+VERIFICACIÓN DE BOTONES: todo en verde

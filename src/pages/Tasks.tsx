@@ -276,7 +276,7 @@ export function Tasks() {
             <AppButton variant="ghost" size="sm" leftIcon={<RefreshCw size={14} />} onClick={loadData} aria-label="Actualizar">
               <span className="tasks-label-optional">Actualizar</span>
             </AppButton>
-            <AppButton variant="indigo" size="sm" leftIcon={<AddIcon size={14} />} onClick={() => setShowCreate(true)}>
+            <AppButton variant="primary" size="page" leftIcon={<AddIcon size={16} />} onClick={() => setShowCreate(true)}>
               Nueva tarea
             </AppButton>
           </div>

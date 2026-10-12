@@ -28,17 +28,14 @@
    ya se veía así por accidente (el mismo barrido oscurecía el blanco en línea);
    el token lo vuelve explícito y lo iguala en oscuro.
 
-   --gradient-primary-aa (BETA-UX-1E): el fondo de acento sobre el que el blanco
-   llega a AA en TODOS sus puntos (5,67–6,33:1). Es la única fuente del
-   gradiente: lo usan `accentCta.background` (tokens.ts) y `.btn-primary-aa`.
-   NO reemplaza a --gradient-primary: sobre ése (índigo → cyan) el blanco mide
-   2,67–4,08:1 en oscuro y 4,01–5,92 en claro, y sigue siendo deuda del sistema
-   de diseño. `-hover` es un tono más oscuro, también medido. */
+   BUTTON-SYSTEM-1A retiró `--gradient-primary-aa` (BETA-UX-1E): los botones ya
+   no llevan gradientes. El fondo de acento de un botón es `--indigo-600`
+   (6,29:1 con este blanco) y su hover `--indigo-700` (7,90:1); lo usan
+   `.btn-primary` y `accentCta.background` (tokens.ts). `--gradient-primary`
+   sigue existiendo para superficies que NO son botones. */
 :root {
   --text-on-accent: #ffffff;
   --text-on-bright: #0f172a;
-  --gradient-primary-aa:       linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-  --gradient-primary-aa-hover: linear-gradient(135deg, #4338ca 0%, #6d28d9 100%);
 }
 
 /* ── DARK MODE (default) ──────────────────────────────────────────────────── */
@@ -631,6 +628,31 @@ table, td, th { transition: color 0.15s ease; }
 
 /* ══════════════════════════════════════════════════════════════════════════
    BOTONES
+
+   BUTTON-SYSTEM-1A · contrato
+   ---------------------------------------------------------------------------
+   Los botones no llevan gradientes. La jerarquía la dan la semántica y la
+   posición, no un color distinto para que se vea más lindo.
+
+     primary    crear / guardar / confirmar. Índigo SÓLIDO, texto
+                `--text-on-accent`, sin resplandor. Hover: un índigo más oscuro.
+     secondary  neutro, con borde.
+     ghost      baja jerarquía, o ícono solo.
+     danger     rojo semántico, suave.
+     success    verde, sólo cuando la semántica es éxito / cobro / completar.
+
+   El tamaño es por CATEGORÍA, no uno para todo: `.btn-page-action` (44px) es
+   la acción de un encabezado de página o de un bloque protagonista; `.btn-sm`
+   y `.btn-xs` siguen para tablas, menús y controles compactos.
+
+   Bootstrap entra por CDN (index.html) y define color, fondo y borde de
+   `.btn:hover`, `:focus-visible`, `:active` y `:disabled` con más especificidad
+   que la regla base de cada variante. Por eso las variantes del contrato
+   declaran esos estados: sin eso, con el foco del teclado un secundario se
+   pintaba gris y un `danger`, rojo sobre rojo.
+
+   Pendiente (BUTTON-SYSTEM-1B): `.btn-green`, `.btn-amber`, `.btn-red` y
+   `.btn-teal` todavía llevan gradiente; no se tocan en 1A.
    ══════════════════════════════════════════════════════════════════════════ */
 
 .btn {
@@ -655,52 +677,70 @@ table, td, th { transition: color 0.15s ease; }
 
 .btn:disabled { opacity: 0.45; pointer-events: none; }
 
-/* Primario: gradiente índigo → cyan */
-.btn-primary {
-  color: #ffffff;
-  background: var(--gradient-primary);
+/* Foco de teclado: el anillo del sistema (el mismo de `:focus-visible`), no el
+   halo de color que Bootstrap le pone a cada variante. */
+.btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+/* Primario: índigo SÓLIDO. Con `--text-on-accent`, `--indigo-600` mide 6,29:1
+   y `--indigo-700` (hover / presionado) 7,90:1. Los dos viven en `:root`: el
+   fondo es el mismo en claro y en oscuro. Sin resplandor y sin elevación.
+
+   `.btn-indigo` y `.btn-fill-indigo` eran otros dos índigos —el segundo con su
+   propio gradiente—. Hoy son ALIAS de primary, sin ninguna diferencia visual;
+   los retira BUTTON-SYSTEM-1B. */
+.btn-primary,
+.btn-indigo,
+.btn-fill-indigo {
+  color: var(--text-on-accent);
+  background: var(--indigo-600);
   border-color: transparent;
-  box-shadow: var(--shadow-indigo);
+  box-shadow: none;
 }
 
-.btn-primary:hover:not(:disabled) {
-  background: var(--gradient-primary-hover);
-  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.50);
-  transform: translateY(-1px);
+.btn-primary:focus-visible,
+.btn-indigo:focus-visible,
+.btn-fill-indigo:focus-visible,
+.btn-primary:disabled,
+.btn-indigo:disabled,
+.btn-fill-indigo:disabled {
+  color: var(--text-on-accent);
+  background: var(--indigo-600);
+  border-color: transparent;
 }
 
-.btn-primary:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow: var(--shadow-indigo);
+.btn-primary:hover:not(:disabled),
+.btn-indigo:hover:not(:disabled),
+.btn-fill-indigo:hover:not(:disabled),
+.btn-primary:active:not(:disabled),
+.btn-indigo:active:not(:disabled),
+.btn-fill-indigo:active:not(:disabled) {
+  color: var(--text-on-accent);
+  background: var(--indigo-700);
+  border-color: transparent;
+  box-shadow: none;
 }
 
-/* Secundario: fondo oscuro + borde */
+/* Secundario: neutro + borde */
 .btn-secondary,
-.btn-outline {
+.btn-outline,
+.btn-secondary:focus-visible,
+.btn-outline:focus-visible {
   color: var(--text-secondary);
   background: transparent;
   border-color: var(--border-strong);
 }
 
 .btn-secondary:hover:not(:disabled),
-.btn-outline:hover:not(:disabled) {
+.btn-outline:hover:not(:disabled),
+.btn-secondary:active:not(:disabled),
+.btn-outline:active:not(:disabled) {
   background: var(--bg-hover);
   border-color: var(--accent-primary);
   color: var(--text-primary);
-}
-
-/* Índigo sólido */
-.btn-indigo {
-  color: #fff;
-  background: var(--accent-primary);
-  border-color: transparent;
-  box-shadow: var(--shadow-indigo);
-}
-
-.btn-indigo:hover:not(:disabled) {
-  background: var(--accent-primary-hover);
-  transform: translateY(-1px);
-  box-shadow: 0 6px 20px var(--accent-primary-glow);
 }
 
 /* Cyan / acción rápida */
@@ -728,27 +768,34 @@ table, td, th { transition: color 0.15s ease; }
   color: var(--text-primary);
 }
 
-/* Danger */
-.btn-danger {
-  color: var(--error);
+/* Danger: rojo semántico, suave. El texto es el rojo que llega a AA en los dos
+   temas (`--order-badge-pending-fg`): `--error` sobre `--error-subtle` medía
+   ~4,1:1 en claro. En oscuro los dos tokens valen lo mismo. Sin resplandor. */
+.btn-danger,
+.btn-danger:focus-visible {
+  color: var(--order-badge-pending-fg);
   background: var(--error-subtle);
   border-color: var(--error-border);
 }
 
-.btn-danger:hover:not(:disabled) {
+.btn-danger:hover:not(:disabled),
+.btn-danger:active:not(:disabled) {
+  color: var(--order-badge-pending-fg);
   background: var(--error-light);
   border-color: var(--error);
-  box-shadow: 0 4px 12px rgba(248, 113, 113, 0.28);
 }
 
 /* Success */
-.btn-success {
+.btn-success,
+.btn-success:focus-visible {
   color: var(--success);
   background: var(--success-subtle);
   border-color: var(--success-border);
 }
 
-.btn-success:hover:not(:disabled) {
+.btn-success:hover:not(:disabled),
+.btn-success:active:not(:disabled) {
+  color: var(--success);
   background: var(--success-light);
   border-color: var(--success);
 }
@@ -809,19 +856,8 @@ table, td, th { transition: color 0.15s ease; }
 }
 .btn-teal:active:not(:disabled) { transform: translateY(0); }
 
-/* ── Solid fill: índigo sólido (nuevo comprobante, crear) — alias de btn-indigo */
-.btn-fill-indigo {
-  color: #fff;
-  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-  border-color: transparent;
-  box-shadow: 0 4px 14px rgba(99,102,241,0.35);
-}
-.btn-fill-indigo:hover:not(:disabled) {
-  background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
-  box-shadow: 0 6px 20px rgba(99,102,241,0.48);
-  transform: translateY(-1px);
-}
-.btn-fill-indigo:active:not(:disabled) { transform: translateY(0); }
+/* `.btn-fill-indigo` (AppButton `variant="indigo"`) ya no tiene regla propia: es
+   un alias de `.btn-primary`, declarado junto a él más arriba. */
 
 /* Tamaños */
 .btn-xs  { padding: 0.2rem 0.5rem;  font-size: 0.75rem; border-radius: var(--radius-sm); }
@@ -832,6 +868,25 @@ table, td, th { transition: color 0.15s ease; }
 
 /* Icono en botón */
 .btn svg { width: 1em; height: 1em; flex-shrink: 0; }
+
+/* Acción de página: el CTA de un encabezado de página o de un bloque
+   protagonista («Nueva Orden», «Nueva tarea», «Ver todas»…). El mismo alto,
+   padding, tipografía e ícono en todas las pantallas, sea cual sea la variante:
+   la misma acción no cambia de diseño por estar en otra página.
+
+   No fija el ancho: lo da el texto. Y no reemplaza a `.btn-sm` / `.btn-xs`: los
+   controles compactos (tablas, menús, acciones secundarias de un modal) son
+   otra categoría y conservan su tamaño. Va después de `.btn svg` a propósito. */
+.btn-page-action {
+  min-height: 44px;
+  padding: 0.5rem 1rem;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.25;
+  border-radius: var(--radius-md);
+}
+.btn-page-action svg { width: 1rem; height: 1rem; }
 
 /* ── Icon-only buttons ──────────────────────────────────────────────────── */
 .icon-btn {
@@ -3762,14 +3817,15 @@ tbody tr:hover td {
 /* ══════════════════════════════════════════════════════════════════════════
    BETA-UX-1F — Inicio como centro operativo + utilidades de la barra superior
 
-   Tres piezas:
+   Dos piezas:
      1. `.shell-chip` — Caja y dólar, compactos, en `TopHeader` (escritorio) y
         en `.mobile-utility-bar` (mobile, sólo en Inicio).
      2. `.dash-*` — el cuerpo de Inicio: acciones, «Hoy», Mis tareas y Órdenes
         recientes.
-     3. `.btn-indigo-aa` / `.btn-danger-aa` — variantes LOCALES de dos botones
-        cuyo texto no llega a 4,5:1 en alguno de los temas. Las reglas globales
-        `.btn-fill-indigo` y `.btn-danger` NO se tocan.
+
+   (Había una tercera: `.btn-indigo-aa` / `.btn-danger-aa`, variantes locales
+   de dos botones que no llegaban a AA. BUTTON-SYSTEM-1A lo resolvió en las
+   reglas base de los botones y las retiró.)
 
    Responsive por CSS: no se mide el viewport en el render. Sólo tokens de tema.
    El texto usa `--text-primary` / `--text-secondary`: `--text-tertiary` y
@@ -3799,31 +3855,11 @@ tbody tr:hover td {
 .card.dash-tasks,
 .card.dash-orders { color: var(--text-primary); }
 
-/* ── Variantes AA de botón ────────────────────────────────────────────────────
-   Doble clase: ganan por especificidad, no por orden de carga. El hover repite
-   el color porque Bootstrap (CDN) define `.btn:hover { color: … }` con más
-   especificidad que la regla base de cada variante.
-
-   `.btn-indigo-aa` — secundario fuerte. `.btn-fill-indigo` arranca en #6366f1,
-   donde el blanco mide 4,47:1; sobre #4f46e5 mide 6,29 y sobre #4338ca, 7,90.
-   Plano y sin resplandor a propósito: es el segundo botón de la fila, no el
-   primero.
-
-   `.btn-danger-aa` — `.btn-danger` pinta `--error` sobre `--error-subtle`: en
-   claro (#dc2626) queda en ~4,1:1. Con el par de `--order-badge-pending-fg`
-   mide 5,5 en claro y 6,4 en oscuro; 5,0 y 5,9 en hover. */
-.btn-fill-indigo.btn-indigo-aa {
-  color: var(--text-on-accent);
-  background: var(--indigo-600);
-  box-shadow: none;
-}
-.btn-fill-indigo.btn-indigo-aa:hover:not(:disabled) {
-  color: var(--text-on-accent);
-  background: var(--indigo-700);
-  box-shadow: none;
-}
-.btn-danger.btn-danger-aa { color: var(--order-badge-pending-fg); }
-.btn-danger.btn-danger-aa:hover:not(:disabled) { color: var(--order-badge-pending-fg); }
+/* ── Variantes AA de botón: retiradas ─────────────────────────────────────────
+   `.btn-indigo-aa` y `.btn-danger-aa` existían porque las reglas base no
+   llegaban a AA. BUTTON-SYSTEM-1A lo corrigió en la base (`.btn-primary` y sus
+   alias, sólidos; `.btn-danger`, con el rojo AA), así que ya no tienen regla y
+   Inicio dejó de usarlas. */
 
 /* ── Barra superior · Caja y dólar ─────────────────────────────────────────── */
 .top-header__utilities {
@@ -3933,9 +3969,11 @@ tbody tr:hover td {
 }
 
 /* ── Inicio · encabezado y acciones ───────────────────────────────────────────
-   Jerarquía de la fila: (1) Nueva Orden, gradiente AA y 44px · (2) Nuevo
-   Comprobante, índigo plano · (3) Gestionar Caja, contorno · (4) Registrar
-   gasto, rojo semántico · (5) Actualizar, sólo ícono. */
+   Las cuatro son acciones de página (`.btn-page-action`): mismo alto, radio,
+   padding, tipografía e ícono; acá no se redefine ninguno. La jerarquía la da
+   la variante: Nueva Orden es la única primaria; Nuevo Comprobante y Gestionar
+   Caja, secundarias; Registrar gasto, `danger`. Actualizar es un ícono del
+   mismo alto. */
 .dash-page .page-subtitle { color: var(--text-secondary); }
 
 .dash-actions-slot { min-width: 0; max-width: 100%; }
@@ -3946,14 +3984,7 @@ tbody tr:hover td {
   justify-content: flex-end;
   gap: 0.5rem;
 }
-.dash-action { min-height: 40px; }
-.dash-action--primary {
-  min-height: 44px;
-  padding-inline: 1.125rem;
-  font-size: 0.9375rem;
-  font-weight: 700;
-}
-.dash-action--refresh { width: 40px; }
+.dash-action--refresh { width: 44px; min-height: 44px; }
 
 /* ── Inicio · Hoy ─────────────────────────────────────────────────────────────
    Una sola superficie con tres indicadores, no tres tarjetas sueltas. */
@@ -4035,9 +4066,9 @@ a.dash-today__item:hover { background: var(--bg-hover); }
   line-height: 1.2;
 }
 .dash-tasks__subtitle { margin: 0.125rem 0 0; color: var(--text-secondary); font-size: 0.8125rem; }
+/* «Nueva tarea» y los dos «Ver todas» son acciones de bloque: su tamaño es el
+   de `.btn-page-action`, no uno propio. */
 .dash-tasks__actions { display: flex; align-items: center; gap: 0.5rem; }
-.dash-tasks__action,
-.dash-link { min-height: 40px; }
 .dash-link { text-decoration: none; }
 
 .dash-tasks__summary {
@@ -4220,13 +4251,10 @@ a.dash-today__item:hover { background: var(--bg-hover); }
 .dash-tasks :focus-visible,
 .dash-orders :focus-visible { outline-offset: -2px; }
 
-/* Shell mobile (<1024, también una tablet): todo lo que se toca mide 44px. */
+/* Shell mobile (<1024, también una tablet): todo lo que se toca mide 44px. Las
+   acciones ya lo miden en cualquier ancho (`.btn-page-action`). */
 @media (max-width: 1023px) {
-  .dash-action,
-  .dash-tasks__action,
-  .dash-tasks__retry,
-  .dash-link { min-height: 44px; }
-  .dash-action--refresh { width: 44px; }
+  .dash-tasks__retry { min-height: 44px; }
 }
 
 @media (max-width: 767px) {
@@ -4241,8 +4269,7 @@ a.dash-today__item:hover { background: var(--bg-hover); }
   .dash-page .page-top { position: relative; }
   .dash-actions-slot { width: 100%; }
   .dash-actions { justify-content: stretch; align-items: stretch; }
-  .dash-action { min-height: 44px; }
-  .dash-action--primary { flex: 1 1 100%; min-height: 48px; }
+  .dash-action--primary { flex: 1 1 100%; }
   .dash-action--secondary {
     flex: 1 1 0;
     min-width: 0;
@@ -4257,7 +4284,7 @@ a.dash-today__item:hover { background: var(--bg-hover); }
     gap: 0.25rem;
     padding-block: 0.5rem;
   }
-  .dash-action--refresh { position: absolute; top: 0; right: 0; width: 44px; }
+  .dash-action--refresh { position: absolute; top: 0; right: 0; }
 
   /* Hoy: sigue siendo una fila de tres, con el número arriba y sin ícono. */
   .dash-today { margin-bottom: 1.25rem; }
@@ -4326,29 +4353,16 @@ a.dash-today__item:hover { background: var(--bg-hover); }
 /* ══════════════════════════════════════════════════════════════════════════
    BETA-UX-1E — `.btn-primary-aa`: botón primario que llega a AA
 
-   `.btn-primary` pinta texto blanco sobre --gradient-primary (índigo → cyan),
-   y sobre el extremo cyan el blanco no llega a AA. Cambiar esa regla cambia el
-   gradiente de marca en toda la aplicación: NO se toca acá.
+   RETIRADA por BUTTON-SYSTEM-1A. Existía porque `.btn-primary` pintaba blanco
+   sobre --gradient-primary (índigo → cyan) y en el extremo cyan no llegaba a
+   AA; la variante le cambiaba el fondo por otro gradiente (índigo → violeta).
 
-   Esta variante es LOCAL: se suma al `.btn-primary` de los primarios que viven
-   en las superficies de BETA-UX-1E (Usuarios, Inventario, Detalle de orden) y
-   sólo le cambia el texto y el fondo. La elevación, la sombra, el estado
-   activo y el deshabilitado siguen viniendo de `.btn-primary`.
-
-   Doble clase: gana por especificidad, no por orden de carga. El hover se
-   declara aparte porque `.btn-primary:hover` volvería a poner el gradiente con
-   cyan; repite el color para no depender de qué hoja lo fije en ese estado.
+   Hoy `.btn-primary` es índigo sólido y llega a AA por sí solo, así que la
+   variante no tiene regla: un segundo gradiente era justo lo que el contrato
+   de botones prohíbe. La clase `btn-primary-aa` sigue escrita en los primarios
+   de las superficies de BETA-UX-1E (Usuarios, Inventario, Detalle de orden)
+   como alias sin efecto; sacarla del marcado es parte de BUTTON-SYSTEM-1B.
    ══════════════════════════════════════════════════════════════════════════ */
-
-.btn-primary.btn-primary-aa {
-  color: var(--text-on-accent);
-  background: var(--gradient-primary-aa);
-}
-
-.btn-primary.btn-primary-aa:hover:not(:disabled) {
-  color: var(--text-on-accent);
-  background: var(--gradient-primary-aa-hover);
-}
 
 /* ══════════════════════════════════════════════════════════════════════════
    BETA-UX-1D — la orden en el celular

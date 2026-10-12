@@ -157,8 +157,8 @@ function RecentOrders({ orders, loading }: { orders: RecentOrder[]; loading: boo
     <section className="card dash-orders" data-testid="dashboard-recent-orders" aria-labelledby="dash-orders-title">
       <div className="card-header">
         <h2 className="card-title" id="dash-orders-title">Órdenes recientes</h2>
-        <Link to="/orders" className="btn btn-secondary btn-sm dash-link" aria-label="Ver todas las órdenes">
-          Ver todas <ForwardIcon size={14} aria-hidden="true" />
+        <Link to="/orders" className="btn btn-secondary btn-page-action dash-link" aria-label="Ver todas las órdenes">
+          Ver todas <ForwardIcon size={16} aria-hidden="true" />
         </Link>
       </div>
 
@@ -302,8 +302,9 @@ export function Dashboard() {
             {puedeCrearOrden && (
               <AppButton
                 variant="primary"
-                className="btn-primary-aa dash-action dash-action--primary"
-                leftIcon={<NewOrderIcon size={17} />}
+                size="page"
+                className="dash-action dash-action--primary"
+                leftIcon={<NewOrderIcon size={16} />}
                 onClick={() => navigate('/orders/new')}
               >
                 Nueva Orden
@@ -311,10 +312,10 @@ export function Dashboard() {
             )}
             {puedeEmitirComprobante && (
               <AppButton
-                variant="indigo"
-                size="sm"
-                className="btn-indigo-aa dash-action dash-action--secondary"
-                leftIcon={<InvoiceIcon size={15} />}
+                variant="secondary"
+                size="page"
+                className="dash-action dash-action--secondary"
+                leftIcon={<InvoiceIcon size={16} />}
                 onClick={() => navigate('/comprobantes', { state: { openNew: true } })}
               >
                 Nuevo Comprobante
@@ -323,9 +324,9 @@ export function Dashboard() {
             {canUseCaja && (
               <AppButton
                 variant="secondary"
-                size="sm"
+                size="page"
                 className="dash-action dash-action--secondary"
-                leftIcon={<FinanceIcon size={15} />}
+                leftIcon={<FinanceIcon size={16} />}
                 onClick={() => navigate('/caja')}
               >
                 Gestionar Caja
@@ -334,9 +335,9 @@ export function Dashboard() {
             {puedeRegistrarGasto && (
               <AppButton
                 variant="danger"
-                size="sm"
-                className="btn-danger-aa dash-action dash-action--secondary"
-                leftIcon={<ExpenseReceiptIcon size={15} />}
+                size="page"
+                className="dash-action dash-action--secondary"
+                leftIcon={<ExpenseReceiptIcon size={16} />}
                 onClick={() => navigate('/expenses')}
               >
                 Registrar gasto

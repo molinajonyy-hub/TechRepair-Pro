@@ -210,7 +210,7 @@ export default function ComprobantesPage() {
           <button onClick={cargarComprobantes} disabled={loading} className="btn btn-ghost btn-sm">
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Actualizar
           </button>
-          <button data-testid="comprobantes-new-button" onClick={() => setShowModal(true)} disabled={loading} className="btn btn-primary">
+          <button data-testid="comprobantes-new-button" onClick={() => setShowModal(true)} disabled={loading} className="btn btn-primary btn-page-action">
             <Plus size={16} /> Nuevo Comprobante
           </button>
         </div>

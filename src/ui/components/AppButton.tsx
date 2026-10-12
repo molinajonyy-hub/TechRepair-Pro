@@ -3,20 +3,25 @@ import { Loader2 } from 'lucide-react'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
+// BUTTON-SYSTEM-1A — los botones no llevan gradientes y la jerarquía la da la
+// semántica, no el color. El contrato está en index.css («BOTONES»).
 export type ButtonVariant =
-  | 'primary'    // gradiente índigo→cyan  — crear, guardar, confirmar
-  | 'indigo'     // índigo sólido          — acción principal alternativa
-  | 'secondary'  // outline oscuro         — cancelar, volver, secundarias
-  | 'ghost'      // sin fondo              — acciones icon dentro de tablas
+  | 'primary'    // índigo sólido          — crear, guardar, confirmar
+  | 'indigo'     // ALIAS de `primary`     — sin diferencia visual; no usar en código nuevo
+  | 'secondary'  // neutro con borde       — cancelar, volver, secundarias
+  | 'ghost'      // sin fondo              — baja jerarquía, acciones de ícono
   | 'green'      // verde sólido           — cobrar, confirmar pago, completar
-  | 'danger'     // rojo outline           — eliminar, anular
+  | 'danger'     // rojo suave             — eliminar, anular, registrar un gasto
   | 'red'        // rojo sólido            — acción destructiva destacada
   | 'warning'    // ámbar outline          — advertencia
-  | 'amber'      // ámbar sólido           — nueva orden, alertas
-  | 'success'    // verde outline          — marcar completado
+  | 'amber'      // ámbar sólido           — alertas
+  | 'success'    // verde suave            — marcar completado
   | 'cyan'       // cyan sólido            — acción rápida secundaria
 
-export type ButtonSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl'
+// El tamaño es por categoría. `page` es la acción de un encabezado de página o
+// de un bloque protagonista (44px, `.btn-page-action`): el mismo en todas las
+// pantallas. `xs` / `sm` siguen para tablas, menús y controles compactos.
+export type ButtonSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'page'
 
 export interface AppButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant
@@ -51,6 +56,7 @@ const SIZE_CLASS: Record<ButtonSize, string> = {
   md: '',
   lg: 'btn-lg',
   xl: 'btn-xl',
+  page: 'btn-page-action',
 }
 
 // ─── Componente ───────────────────────────────────────────────────────────────

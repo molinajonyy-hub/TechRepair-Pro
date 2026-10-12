@@ -102,6 +102,13 @@ const hexes = (valor: string) => valor.match(/#[0-9a-f]{6}\b/gi) ?? []
 
 const css = leer('src/index.css').replace(/\/\*[\s\S]*?\*\//g, '')
 
+/** Valor de un token de paleta (`--indigo-600`…): se define una sola vez, en `:root`. */
+function tokenDePaleta(nombre: string): string {
+  const hallados = [...css.matchAll(new RegExp(`${nombre}:\\s*([^;]+);`, 'g'))].map(m => m[1].trim())
+  if (hallados.length !== 1) throw new Error(`${nombre}: se esperaba una definición y hay ${hallados.length}`)
+  return hallados[0]
+}
+
 /** Valor de un token dentro del bloque `:root { … }` propio (el invariante de tema). */
 function tokenInvariante(nombre: string): string | null {
   const bloque = /(^|\n):root\s*\{([^}]*)\}/.exec(css)
@@ -237,25 +244,25 @@ describe('BETA-UX-1E · tokens', () => {
     expect(css.match(/--text-on-bright\s*:/g)).toHaveLength(1)
   })
 
-  it('el gradiente de acento tiene UNA fuente: el token de index.css', () => {
-    // `accentCta.background` (CTAs en línea) y `.btn-primary-aa` (botones de
-    // clase) leen el mismo token: no pueden divergir.
-    expect(accentCta.background).toBe('var(--gradient-primary-aa)')
-    expect(tokenInvariante('--gradient-primary-aa')).toBe('linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)')
-    expect(css.match(/--gradient-primary-aa\s*:/g)).toHaveLength(1)
-    expect(css.match(/--gradient-primary-aa-hover\s*:/g)).toHaveLength(1)
-    // Y el gradiente no está escrito otra vez en JS.
-    expect(leer('src/lib/tokens.ts')).not.toMatch(/linear-gradient\(/)
+  // BUTTON-SYSTEM-1A: los botones no llevan gradientes. Lo que en 1E era un
+  // gradiente propio (`--gradient-primary-aa`, índigo → violeta) pasó a ser el
+  // mismo índigo SÓLIDO de `.btn-primary`.
+  it('el fondo de acento tiene UNA fuente y es sólido: el índigo de `.btn-primary`', () => {
+    // `accentCta.background` (CTAs en línea) y `.btn-primary` (botones de clase)
+    // leen el mismo token de paleta: no pueden divergir.
+    expect(accentCta.background).toBe('var(--indigo-600)')
+    expect(css.match(/--indigo-600\s*:/g)).toHaveLength(1)
+    // El gradiente de 1E se retiró: ni el token ni un gradiente escrito en JS.
+    expect(css).not.toMatch(/--gradient-primary-aa/)
+    expect(leer('src/lib/tokens.ts')).not.toMatch(/linear-gradient\(|gradient-primary-aa['")]/)
+    // `solid` es ese mismo índigo como literal (para un fondo plano en línea).
+    expect(accentCta.solid.toLowerCase()).toBe(tokenDePaleta('--indigo-600').toLowerCase())
   })
 
-  it('el blanco llega a AA en TODOS los puntos del fondo de acento, en reposo y en hover', () => {
-    for (const token of ['--gradient-primary-aa', '--gradient-primary-aa-hover']) {
-      const paradas = hexes(tokenInvariante(token) ?? '')
-      expect(paradas.length, `${token} declara sus paradas`).toBeGreaterThanOrEqual(2)
-      for (const parada of paradas) {
-        expect(contraste('#ffffff', parada), `blanco sobre ${parada} (${token})`).toBeGreaterThanOrEqual(AA)
-      }
-    }
+  it('el blanco llega a AA sobre el fondo de acento, en reposo y en hover', () => {
+    const blanco = tokenInvariante('--text-on-accent')!
+    expect(contraste(blanco, tokenDePaleta('--indigo-600')), 'reposo').toBeGreaterThanOrEqual(AA)
+    expect(contraste(blanco, tokenDePaleta('--indigo-700')), 'hover').toBeGreaterThanOrEqual(AA)
     expect(contraste('#ffffff', accentCta.solid)).toBeGreaterThanOrEqual(AA)
   })
 
@@ -263,7 +270,7 @@ describe('BETA-UX-1E · tokens', () => {
     // #6366f1 → #8b5cf6: 4,47:1 y 4,23:1. Ningún punto intermedio supera al mejor extremo.
     expect(contraste('#ffffff', '#6366f1')).toBeLessThan(AA)
     expect(contraste('#ffffff', '#8b5cf6')).toBeLessThan(AA)
-    expect(tokenInvariante('--gradient-primary-aa')).not.toMatch(/#6366f1|#8b5cf6/i)
+    expect(tokenDePaleta('--indigo-600')).not.toMatch(/#6366f1|#8b5cf6/i)
     expect(accentCta.solid).not.toMatch(/#6366f1/i)
   })
 
@@ -411,41 +418,41 @@ describe('BETA-UX-1E · la fuente de las seis superficies', () => {
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe('BETA-UX-1E · `.btn-primary-aa`: el primario de las superficies del lote', () => {
+  /** Cuerpo de la regla cuya lista de selectores incluye exactamente `selector`. */
   const cuerpo = (selector: string) => {
-    const inicio = css.indexOf(`\n${selector} {`)
-    return inicio < 0 ? null : css.slice(css.indexOf('{', inicio) + 1, css.indexOf('}', inicio))
+    for (const m of css.matchAll(/([^{}@;]+)\{([^{}]*)\}/g)) {
+      if (m[1].split(',').map(s => s.trim()).includes(selector)) return m[2]
+    }
+    return null
   }
   const declaraciones = (texto: string) =>
     Object.fromEntries(texto.split(';').map(d => d.split(':').map(s => s.trim())).filter(d => d.length === 2))
 
-  it('la variante cambia texto y fondo, y nada más', () => {
-    const regla = cuerpo('.btn-primary.btn-primary-aa')
-    expect(regla, 'no hay regla `.btn-primary.btn-primary-aa`').not.toBeNull()
-    // Elevación, sombra, estado activo y deshabilitado siguen viniendo de `.btn-primary`.
-    expect(declaraciones(regla!)).toEqual({
-      color: 'var(--text-on-accent)',
-      background: 'var(--gradient-primary-aa)',
-    })
+  // BUTTON-SYSTEM-1A: la variante existía porque `.btn-primary` no llegaba a AA
+  // y le ponía OTRO gradiente. El primario es sólido y llega solo; la variante
+  // quedó sin regla y la clase es un alias sin efecto en el marcado de 1E.
+  it('la variante ya no tiene regla: un segundo gradiente es lo que el contrato prohíbe', () => {
+    expect(cuerpo('.btn-primary.btn-primary-aa')).toBeNull()
+    expect(cuerpo('.btn-primary.btn-primary-aa:hover:not(:disabled)')).toBeNull()
+    expect(css).not.toMatch(/\.btn-primary-aa\b[^{}]*\{/)
   })
 
-  it('el hover se declara aparte: sin eso `.btn-primary:hover` volvería a poner el cyan', () => {
-    const regla = cuerpo('.btn-primary.btn-primary-aa:hover:not(:disabled)')
-    expect(regla, 'no hay regla de hover para la variante').not.toBeNull()
-    expect(declaraciones(regla!)).toEqual({
-      color: 'var(--text-on-accent)',
-      background: 'var(--gradient-primary-aa-hover)',
-    })
-  })
-
-  it('NO se tocó el `.btn-primary` global ni su gradiente', () => {
+  it('`.btn-primary` llega a AA por sí solo: índigo sólido, sin gradiente ni resplandor', () => {
     expect(declaraciones(cuerpo('.btn-primary')!)).toEqual({
-      color: '#ffffff',
-      background: 'var(--gradient-primary)',
+      color: 'var(--text-on-accent)',
+      background: 'var(--indigo-600)',
       'border-color': 'transparent',
-      'box-shadow': 'var(--shadow-indigo)',
+      'box-shadow': 'none',
     })
-    expect(declaraciones(cuerpo('.btn-primary:hover:not(:disabled)')!).background).toBe('var(--gradient-primary-hover)')
-    // El gradiente de marca sigue siendo índigo → cyan en los dos temas.
+    expect(declaraciones(cuerpo('.btn-primary:hover:not(:disabled)')!)).toEqual({
+      color: 'var(--text-on-accent)',
+      background: 'var(--indigo-700)',
+      'border-color': 'transparent',
+      'box-shadow': 'none',
+    })
+  })
+
+  it('el gradiente de marca no se tocó: sigue para lo que NO es un botón', () => {
     expect(css.match(/--gradient-primary:\s*([^;]+);/g)).toEqual([
       '--gradient-primary:   linear-gradient(135deg, #6366f1 0%, #06b6d4 100%);',
       '--gradient-primary:   linear-gradient(135deg, #4f46e5 0%, #0891b2 100%);',
@@ -464,35 +471,18 @@ describe('BETA-UX-1E · `.btn-primary-aa`: el primario de las superficies del lo
     ['Estado financiero · «Imputar crédito»',        'src/components/orders/OrderFinancialSummary.tsx', 'order-allocate-button', 'button'],
     ['Comunicación · «Enviar Notificación»',         'src/components/order/NotificationCard.tsx', 'Enviar Notificación', 'button'],
   ]
-  it.each(PRIMARIOS)('%s lleva la variante además de `.btn-primary`', (_nombre, rel, aguja, etiqueta) => {
-    const clases = clasesDe(rel, aguja, etiqueta)
-    expect(clases).toContain('btn-primary')
-    expect(clases).toContain('btn-primary-aa')
+  // Lo que estos primarios tienen que ser es `.btn-primary`. `btn-primary-aa`
+  // sigue escrita en su marcado como alias sin efecto; que esté o no ya no es
+  // un requisito (sacarla es parte de BUTTON-SYSTEM-1B).
+  it.each(PRIMARIOS)('%s es un `.btn-primary`: el primario sólido del sistema', (_nombre, rel, aguja, etiqueta) => {
+    expect(clasesDe(rel, aguja, etiqueta)).toContain('btn-primary')
   })
 
-  // Los archivos cuyos primarios se renderizan dentro de las superficies de 1E.
-  const ARCHIVOS_DE_SUPERFICIE = [
-    ...SUPERFICIES,
-    'src/components/order/OrderItemsCard.tsx',
-    'src/components/orders/OrderFinancialSummary.tsx',
-    'src/components/order/NotificationCard.tsx',
-  ]
-  it.each(ARCHIVOS_DE_SUPERFICIE)('%s: ningún primario depende sólo de `.btn-primary`', (rel) => {
-    const fuente = leer(rel)
-    const sinVariante = [...fuente.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\})/g)]
-      .map(m => m[1] ?? m[2])
-      .filter(clases => /(^|\s)btn-primary(\s|$)/.test(clases) && !/(^|\s)btn-primary-aa(\s|$)/.test(clases))
-    expect(sinVariante).toEqual([])
-    // Y los del design system (`AppButton variant="primary"`) la reciben por `className`.
-    const appButtons = [...fuente.matchAll(/<AppButton\b[^>]*\bvariant="primary"[^>]*>/g)].map(m => m[0])
-    for (const boton of appButtons) expect(boton).toMatch(/className="[^"]*\bbtn-primary-aa\b[^"]*"/)
-  })
-
-  it('«Guardar» de Acceso del equipo: el AppButton primario termina con las dos clases', () => {
+  it('«Guardar» de Acceso del equipo: el AppButton primario es un `.btn-primary`', () => {
     render(<DeviceLockCard orderId="o1" accessMode="pin" />)
     fireEvent.click(screen.getByRole('button', { name: 'Configurar' }))
     const guardar = screen.getByRole('button', { name: 'Guardar' })
-    expect([...guardar.classList]).toEqual(expect.arrayContaining(['btn', 'btn-primary', 'btn-primary-aa']))
+    expect([...guardar.classList]).toEqual(expect.arrayContaining(['btn', 'btn-primary']))
   })
 })
 

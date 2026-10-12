@@ -183,17 +183,19 @@ export function DashboardTasks({ refreshKey = 0 }: DashboardTasksProps) {
           </div>
         </div>
         <div className="dash-tasks__actions">
+          {/* Acciones de bloque: mismo tamaño que las de un encabezado de página
+              (`.btn-page-action`), y entre sí. */}
           <AppButton
             variant="primary"
-            size="sm"
-            className="btn-primary-aa dash-tasks__action"
-            leftIcon={<Plus size={15} />}
+            size="page"
+            className="dash-tasks__action"
+            leftIcon={<Plus size={16} />}
             onClick={openCreate}
           >
             Nueva tarea
           </AppButton>
-          <Link to="/tasks" className="btn btn-secondary btn-sm dash-link dash-tasks__action" aria-label="Ver todas las tareas">
-            Ver todas <ChevronRight size={14} aria-hidden="true" />
+          <Link to="/tasks" className="btn btn-secondary btn-page-action dash-link dash-tasks__action" aria-label="Ver todas las tareas">
+            Ver todas <ChevronRight size={16} aria-hidden="true" />
           </Link>
         </div>
       </div>

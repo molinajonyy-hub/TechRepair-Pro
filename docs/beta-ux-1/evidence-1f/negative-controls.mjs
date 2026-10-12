@@ -13,7 +13,8 @@ import { execFileSync, spawnSync } from 'node:child_process'
 
 const root = process.argv[2]
 const filtro = process.argv[3] || ''
-const SUITE = 'tests/components/betaUx1fDashboard.test.tsx'
+// BUTTON-SYSTEM-1A sumó su suite: los controles de botones fallan en ella.
+const SUITES = ['tests/components/betaUx1fDashboard.test.tsx', 'tests/components/buttonSystem1a.test.tsx']
 const hash = s => crypto.createHash('sha256').update(s).digest('hex')
 const diffAntes = hash(execFileSync('git', ['-C', root, 'diff'], { encoding: 'utf8', maxBuffer: 64e6 }))
 
@@ -149,9 +150,48 @@ const CONTROLES = [
   ['32 la fila de acciones mobile vuelve a centrarse (alto desparejo)', 'src/index.css',
     cambiar('  .dash-actions { justify-content: stretch; align-items: stretch; }', '  .dash-actions { justify-content: stretch; }'),
     'mobile: la principal ocupa el ancho'],
+  // ── BUTTON-SYSTEM-1A · sin gradientes, primary sólido, un tamaño de acción ─
+  ['33 reintroducir el gradiente en `.btn-primary`', 'src/index.css',
+    cambiar('.btn-fill-indigo {\n  color: var(--text-on-accent);\n  background: var(--indigo-600);', '.btn-fill-indigo {\n  color: var(--text-on-accent);\n  background: var(--gradient-primary);'),
+    '`.btn-primary` no contiene un gradiente en ningún estado'],
+  ['34 `.btn-fill-indigo` vuelve a tener su propio gradiente', 'src/index.css',
+    cambiar('/* Tamaños */\n', '.btn-fill-indigo { background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); }\n\n/* Tamaños */\n'),
+    '`.btn-fill-indigo` (AppButton `indigo`) no contiene un gradiente'],
+  ['35 el primario vuelve a tener resplandor', 'src/index.css',
+    cambiar('  box-shadow: none;\n}\n\n.btn-primary:focus-visible,', '  box-shadow: var(--shadow-indigo);\n}\n\n.btn-primary:focus-visible,'),
+    'sin resplandor y sin elevación'],
+  ['36 el fondo del primario vuelve al índigo que no llega a AA', 'src/index.css',
+    cambiar('--indigo-600:     #4f46e5;', '--indigo-600:     #6366f1;'),
+    'el blanco llega a AA sobre el fondo, en reposo y en hover'],
+  ['37 la acción de página deja de medir 44px', 'src/index.css',
+    cambiar('.btn-page-action {\n  min-height: 44px;', '.btn-page-action {\n  min-height: 36px;'),
+    '`.btn-page-action`: 44px'],
+  ['38 una acción de Inicio vuelve a ser compacta', DASH,
+    cambiar('                variant="danger"\n                size="page"\n', '                variant="danger"\n                size="sm"\n'),
+    'las cuatro acciones comparten tamaño'],
+  ['39 «Nueva Orden» de Órdenes vuelve a su tamaño propio', 'src/pages/Orders.tsx',
+    cambiar('className="btn btn-primary btn-page-action" style={{ textDecoration: \'none\' }}>', 'className="btn btn-primary btn-sm btn-lift" style={{ textDecoration: \'none\' }}>'),
+    '«Nueva Orden» es el mismo botón en Inicio y en Órdenes'],
+  ['40 «Ver todas» de Tareas vuelve a ser más baja que «Nueva tarea»', 'src/components/tasks/DashboardTasks.tsx',
+    cambiar('className="btn btn-secondary btn-page-action dash-link dash-tasks__action"', 'className="btn btn-secondary btn-sm dash-link dash-tasks__action"'),
+    '«Nueva tarea» y «Ver todas» comparten el tamaño de acción'],
+  ['41 «Nuevo Comprobante» vuelve a ser un segundo índigo', DASH,
+    cambiar('                variant="secondary"\n                size="page"\n                className="dash-action dash-action--secondary"\n                leftIcon={<InvoiceIcon',
+      '                variant="indigo"\n                size="page"\n                className="dash-action dash-action--secondary"\n                leftIcon={<InvoiceIcon'),
+    'hay UNA sola primaria'],
+  ['42 el foco de `danger` queda otra vez a merced de Bootstrap', 'src/index.css',
+    cambiar('.btn-danger,\n.btn-danger:focus-visible {', '.btn-danger {'),
+    '.btn-danger: el foco conserva los colores de la variante'],
+  ['43 un CTA en línea vuelve a un gradiente', 'src/lib/tokens.ts',
+    cambiar("  background:   'var(--indigo-600)',", "  background:   'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',"),
+    'el segundo gradiente de 1E se retiró'],
+  ['44 uniformar TODO a 44px (también los compactos)', 'src/index.css',
+    cambiar('.btn-sm  { padding: 0.35rem 0.75rem; font-size: 0.8125rem; border-radius: var(--radius-sm); }',
+      '.btn-sm  { padding: 0.35rem 0.75rem; font-size: 0.8125rem; border-radius: var(--radius-sm); min-height: 44px; }'),
+    'los tamaños compactos NO se tocaron'],
 ]
 
-const vitest = () => spawnSync(process.execPath, ['node_modules/vitest/vitest.mjs', 'run', '--config', 'vitest.config.ts', SUITE],
+const vitest = () => spawnSync(process.execPath, ['node_modules/vitest/vitest.mjs', 'run', '--config', 'vitest.config.ts', ...SUITES],
   { cwd: root, encoding: 'utf8', maxBuffer: 64e6 })
 
 let fallas = 0

@@ -429,12 +429,20 @@ test.describe('@beta-ux-1e Notas de la orden', () => {
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Los primarios de clase (`.btn-primary`) que viven en estas mismas superficies.
-// `.btn-primary` pinta blanco sobre un gradiente índigo → cyan y sobre el cyan
-// el blanco no llega a AA. La regla global no se toca en este lote: los
-// primarios de acá llevan además `btn-primary-aa`, que les cambia texto y fondo.
+// En 1E `.btn-primary` pintaba blanco sobre un gradiente índigo → cyan que no
+// llegaba a AA, y estos primarios llevaban además `btn-primary-aa`, que les
+// cambiaba el fondo por otro gradiente. BUTTON-SYSTEM-1A hizo sólido al
+// primario global: la variante quedó sin regla y la clase sigue en el marcado
+// como alias sin efecto. Lo que este bloque mide —el contraste pintado, en
+// reposo y con hover— vale igual.
 test.describe('@beta-ux-1e Botón primario de las superficies', () => {
   const ORDEN_SIN_COMPROBANTE = `/orders/${MOBILE_ORDERS.ordenes.sinEquipo}`
-  const fondoComputado = (cta: Locator) => cta.evaluate(el => getComputedStyle(el).backgroundImage)
+  // Color E imagen: con fondos sólidos el `background-image` es `none` en reposo
+  // y en hover, y lo que cambia es el color.
+  const fondoComputado = (cta: Locator) => cta.evaluate(el => {
+    const s = getComputedStyle(el)
+    return `${s.backgroundImage} ${s.backgroundColor}`
+  })
 
   /** El primario lleva la variante, se mide en reposo y —si se pide— bajo el puntero. */
   async function medirPrimario(page: Page, cta: Locator, c: Contexto, { hover = false } = {}) {
