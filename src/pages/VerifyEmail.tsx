@@ -8,6 +8,7 @@ import {
 } from '../contexts/AuthContext'
 import { canalSoporte } from '../config/contacto'
 import { SupportContactLink } from '../components/ui/SupportContactButton'
+import { RESEND_MESSAGE } from '../lib/authErrors'
 import {
   AuthFlowShell, AuthFlowLoading, AuthFlowActions, AuthFlowNote,
   AuthFlowPrimaryButton, AuthFlowSecondaryButton, AuthFlowTextButton,
@@ -56,13 +57,15 @@ const MENSAJE: Record<Estado, { tono: 'info' | 'ok' | 'warn'; texto: string }> =
     tono: 'info',
     texto: 'Te enviamos un enlace para activar tu cuenta de TechRepair Pro.',
   },
+  // BETA-UX-1G — los tres textos del reenvío son los mismos del login
+  // (src/lib/authErrors.ts): antes cada pantalla tenía su versión.
   RESEND_SUCCESS: {
     tono: 'ok',
-    texto: 'Listo, te reenviamos el correo. Revisá tu bandeja de entrada y la carpeta de spam.',
+    texto: RESEND_MESSAGE.sent,
   },
   RESEND_RATE_LIMITED: {
     tono: 'warn',
-    texto: 'Ya enviamos varios correos en poco tiempo. Esperá unos minutos antes de pedir otro.',
+    texto: RESEND_MESSAGE.rate_limited,
   },
   CONFIRMED: {
     tono: 'ok',
@@ -80,7 +83,7 @@ const MENSAJE: Record<Estado, { tono: 'info' | 'ok' | 'warn'; texto: string }> =
   // verificar tu cuenta»: lo que falló es el envío (típicamente el SMTP).
   RESEND_FAILED: {
     tono: 'warn',
-    texto: 'No pudimos reenviar el correo. Probá de nuevo en unos minutos.',
+    texto: RESEND_MESSAGE.error,
   },
   AUTH_ERROR: {
     tono: 'warn',
@@ -287,6 +290,18 @@ export function VerifyEmail() {
         <AlertTriangle size={13} aria-hidden="true" />
         Si no lo ves, revisá la carpeta de spam o correo no deseado.
       </AuthFlowNote>
+
+      {/* BETA-UX-1G — alta con un correo que ya tenía cuenta. Con Confirm Email
+          ON, GoTrue responde lo mismo exista o no la cuenta, y a una cuenta ya
+          confirmada no le manda un enlace nuevo: el usuario quedaba esperando
+          un correo que no iba a llegar. La nota se muestra SIEMPRE que no hay
+          sesión, exista o no la cuenta, así que no revela nada. */}
+      {!isAuthenticated && (
+        <AuthFlowNote testId="verify-email-existing-account">
+          Si ya tenías una cuenta con este correo, puede que no te llegue un enlace nuevo. En ese caso
+          iniciá sesión con tu contraseña o recuperala desde la pantalla de ingreso.
+        </AuthFlowNote>
+      )}
 
       {MUESTRA_SOPORTE.has(estado) && soporte.tipo === 'whatsapp' && (
         <AuthFlowNote testId="verify-email-soporte">

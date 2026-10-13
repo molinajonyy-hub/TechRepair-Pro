@@ -1,15 +1,22 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Mail, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { Ban, CheckCircle2, CircleAlert, Link2, Mail, MailWarning, RefreshCw, TimerOff, UserRoundPlus, Users } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { invitationsService, InvitationError } from '../services/invitationsService';
+import { invitationsService, InvitationError, type InvitationErrorCode } from '../services/invitationsService';
 import {
   acceptInviteePath,
   clearInviteToken,
   peekInviteToken,
   stashInviteToken,
 } from '../lib/pendingInvite';
+import { invitationTokenFromInput } from '../lib/invitationLink';
 import { logger } from '../lib/logger';
+import {
+  AuthFlowShell, AuthFlowLoading, AuthFlowActions,
+  AuthFlowPrimaryButton, AuthFlowSecondaryButton, AuthFlowTextButton,
+  type AuthFlowTone,
+} from '../components/auth/AuthFlowShell';
+import { AuthFlowAlert, AuthFlowTextField } from '../components/auth/AuthFlowFields';
 
 /**
  * P0-P2 — Aceptación de una invitación.
@@ -25,6 +32,15 @@ import { logger } from '../lib/logger';
  *    deriva el servidor.
  *  · Ningún error de SQL llega a la pantalla: `invitationsService` traduce a
  *    mensajes semánticos antes de salir.
+ *
+ * BETA-UX-1G — la pantalla usa el shell del embudo y cada rechazo tiene salida:
+ *  · un fallo que no es del enlace (red, servidor) ofrece «Reintentar» con el
+ *    MISMO enlace. Antes mostraba un campo para pegar un «token» que el invitado
+ *    no tiene a mano: está dentro del enlace del correo;
+ *  · «esta invitación es para otro correo» dice con qué cuenta se entró y ofrece
+ *    cambiarla sin perder el enlace. Antes la única acción era «Volver al inicio»;
+ *  · sin enlace, se pide el ENLACE del correo (pegado entero) en vez de un token.
+ * La autoridad no cambió: aceptar sigue siendo una sola RPC con sólo el token.
  */
 
 type Estado =
@@ -35,15 +51,49 @@ type Estado =
   | { fase: 'listo-para-aceptar'; token: string }
   | { fase: 'aceptando' }
   | { fase: 'ok'; yaEraMiembro: boolean }
-  | { fase: 'error'; mensaje: string; puedeReintentar: boolean };
+  | { fase: 'error'; codigo: InvitationErrorCode | null; mensaje: string; token: string };
+
+/**
+ * Rechazos definitivos: el enlace no va a mejorar por reintentar. Se limpia el
+ * token guardado para que el usuario no quede en un bucle al recargar.
+ */
+const RECHAZOS_DEFINITIVOS: ReadonlySet<InvitationErrorCode> = new Set<InvitationErrorCode>([
+  'INVITATION_NOT_FOUND', 'INVITATION_EXPIRED', 'INVITATION_CANCELLED',
+  'INVITATION_EMAIL_MISMATCH', 'INVITATION_ALREADY_USED',
+  'ALREADY_MEMBER_OF_ANOTHER_BUSINESS',
+]);
+
+interface Presentacion {
+  titulo: string;
+  tono: AuthFlowTone;
+  icono: ReactNode;
+}
+
+const ERROR_GENERICO: Presentacion = {
+  titulo: 'No pudimos sumarte al equipo', tono: 'danger', icono: <CircleAlert size={26} />,
+};
+
+/** Título e ícono por rechazo. El detalle es el mensaje de `invitationsService`. */
+const PRESENTACION_ERROR: Partial<Record<InvitationErrorCode, Presentacion>> = {
+  INVITATION_EXPIRED: { titulo: 'La invitación venció', tono: 'warning', icono: <TimerOff size={26} /> },
+  INVITATION_CANCELLED: { titulo: 'La invitación fue cancelada', tono: 'warning', icono: <Ban size={26} /> },
+  INVITATION_NOT_FOUND: { titulo: 'No encontramos la invitación', tono: 'warning', icono: <Link2 size={26} /> },
+  INVITATION_ALREADY_USED: { titulo: 'Esta invitación ya se usó', tono: 'warning', icono: <CheckCircle2 size={26} /> },
+  INVITATION_NOT_PENDING: { titulo: 'Esta invitación ya no está disponible', tono: 'warning', icono: <Ban size={26} /> },
+  INVITATION_EMAIL_MISMATCH: { titulo: 'Esta invitación es para otro correo', tono: 'warning', icono: <MailWarning size={26} /> },
+  ALREADY_MEMBER_OF_ANOTHER_BUSINESS: { titulo: 'Tu cuenta ya está en otro negocio', tono: 'warning', icono: <Users size={26} /> },
+  EMAIL_NOT_CONFIRMED: { titulo: 'Confirmá tu correo', tono: 'warning', icono: <Mail size={26} /> },
+};
 
 export function AcceptInvite() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { isAuthenticated, emailConfirmed, loading: authLoading, refreshProfile } = useAuth();
+  const { user, isAuthenticated, emailConfirmed, loading: authLoading, refreshProfile, signOut } = useAuth();
 
   const [estado, setEstado] = useState<Estado>({ fase: 'cargando' });
-  const [tokenManual, setTokenManual] = useState('');
+  const [enlaceManual, setEnlaceManual] = useState('');
+  const [errorManual, setErrorManual] = useState('');
+  const [saliendo, setSaliendo] = useState(false);
 
   // Una invitación se acepta UNA vez. Sin este guard, un re-render (o el
   // refresco de perfil que dispara el éxito) volvería a llamar a la RPC.
@@ -113,23 +163,18 @@ export function AcceptInvite() {
       setEstado({ fase: 'ok', yaEraMiembro: res.status === 'ALREADY_MEMBER' });
       setTimeout(() => navigate('/dashboard', { replace: true }), 1500);
     } catch (err) {
-      const esSemantico = err instanceof InvitationError;
+      const codigo = err instanceof InvitationError ? err.code : null;
 
-      // Los rechazos definitivos no se reintentan: el token no va a mejorar. Se
-      // limpia el stash para que el usuario no quede en un bucle al recargar.
-      const definitivo =
-        esSemantico &&
-        ['INVITATION_NOT_FOUND', 'INVITATION_EXPIRED', 'INVITATION_CANCELLED',
-         'INVITATION_EMAIL_MISMATCH', 'INVITATION_ALREADY_USED',
-         'ALREADY_MEMBER_OF_ANOTHER_BUSINESS'].includes(err.code);
-
-      if (definitivo) clearInviteToken();
-      if (!esSemantico) logger.error('AUTH', 'Fallo inesperado al aceptar la invitación', err);
+      if (codigo && RECHAZOS_DEFINITIVOS.has(codigo)) clearInviteToken();
+      if (!codigo) logger.error('AUTH', 'Fallo inesperado al aceptar la invitación', err);
 
       setEstado({
         fase: 'error',
-        mensaje: esSemantico ? err.message : 'No se pudo aceptar la invitación. Intentá nuevamente.',
-        puedeReintentar: !definitivo,
+        codigo,
+        mensaje: err instanceof InvitationError ? err.message : 'No se pudo aceptar la invitación. Intentá nuevamente.',
+        // El token queda sólo en memoria de esta pantalla, para reintentar o
+        // para cambiar de cuenta sin que el invitado tenga que volver al correo.
+        token,
       });
       yaIntentado.current = false;
     }
@@ -141,126 +186,189 @@ export function AcceptInvite() {
     if (estado.fase === 'listo-para-aceptar') void aceptar(estado.token);
   }, [estado, aceptar]);
 
-  const contenedor = (hijo: React.ReactNode) => (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-base)', padding: '1rem' }}>
-      <div className="surface-raised" style={{ width: '100%', maxWidth: '420px', padding: '2rem', borderRadius: '1rem' }}>
-        {hijo}
-      </div>
-    </div>
-  );
+  /**
+   * Cambiar de cuenta sin perder la invitación: se cierra la sesión (que limpia
+   * el token guardado, como en cualquier logout) y el enlace viaja en el
+   * `?redirectTo=` del login, igual que cuando se llega sin sesión.
+   */
+  const usarOtraCuenta = async (token: string) => {
+    setSaliendo(true);
+    try {
+      await signOut();
+    } catch (err) {
+      logger.error('AUTH', 'No se pudo cerrar la sesión para cambiar de cuenta', err);
+      setSaliendo(false);
+      return;
+    }
+    navigate(`/login?redirectTo=${encodeURIComponent(acceptInviteePath(token))}`, { replace: true });
+  };
 
-  const icono = (color: string, fondo: string, borde: string, hijo: React.ReactNode) => (
-    <div style={{ width: 76, height: 76, background: fondo, border: `2px solid ${borde}`, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem', color }}>
-      {hijo}
-    </div>
-  );
+  const enviarEnlaceManual = (e: FormEvent) => {
+    e.preventDefault();
+    const token = invitationTokenFromInput(enlaceManual);
+    if (!token) {
+      setErrorManual('Pegá el enlace completo del correo de invitación.');
+      return;
+    }
+    setErrorManual('');
+    stashInviteToken(token);
+    yaIntentado.current = false;
+    setEstado(isAuthenticated ? { fase: 'listo-para-aceptar', token } : { fase: 'necesita-login', token });
+  };
 
-  if (estado.fase === 'cargando' || estado.fase === 'necesita-login' || estado.fase === 'aceptando') {
-    return contenedor(
-      <div style={{ textAlign: 'center' }}>
-        {icono('var(--accent-primary)', 'var(--accent-primary-subtle)', 'transparent',
-          <Loader2 size={32} className="spin" style={{ animation: 'spin 1s linear infinite' }} />)}
-        <p style={{ color: 'var(--text-muted)' }}>
-          {estado.fase === 'aceptando' ? 'Sumándote al negocio...' : 'Verificando la invitación...'}
-        </p>
-      </div>
+  const irAlInicio = () => navigate(isAuthenticated ? '/dashboard' : '/login');
+  const textoInicio = isAuthenticated ? 'Ir al inicio' : 'Ir a iniciar sesión';
+
+  if (estado.fase === 'cargando' || estado.fase === 'necesita-login' || estado.fase === 'listo-para-aceptar' || estado.fase === 'aceptando') {
+    return (
+      <AuthFlowLoading
+        pageTestId="accept-invite-page"
+        estado={estado.fase}
+        testId="accept-invite-loading"
+        label={estado.fase === 'aceptando' || estado.fase === 'listo-para-aceptar' ? 'Sumándote al equipo…' : 'Verificando la invitación…'}
+      />
     );
   }
 
   if (estado.fase === 'confirmando-correo') {
-    return contenedor(
-      <div style={{ textAlign: 'center' }}>
-        {icono('#fbbf24', 'rgba(251,191,36,0.12)', 'rgba(251,191,36,0.35)', <Mail size={32} />)}
-        <h2 style={{ fontSize: '1.35rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>
-          Confirmá tu correo
-        </h2>
-        <p style={{ color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
-          Te enviamos un enlace de verificación. Cuando lo confirmes, volvé a abrir el link de la
-          invitación y te sumamos al equipo.
-        </p>
-        <button onClick={() => navigate('/verificar-email')} className="btn btn-primary btn-lift" style={{ width: '100%', justifyContent: 'center' }}>
+    return (
+      <AuthFlowShell
+        testId="accept-invite-page"
+        estado={estado.fase}
+        cardTestId="accept-invite-confirm-email"
+        align="center"
+        tone="warning"
+        icon={<Mail size={26} />}
+        title="Confirmá tu correo"
+        description="Te enviamos un enlace de verificación. Cuando lo confirmes, te sumamos al equipo que te invitó."
+      >
+        <AuthFlowPrimaryButton onClick={() => navigate('/verificar-email')}>
           Ir a verificar mi correo
-        </button>
-      </div>
+        </AuthFlowPrimaryButton>
+      </AuthFlowShell>
     );
   }
 
   if (estado.fase === 'ok') {
-    return contenedor(
-      <div style={{ textAlign: 'center' }}>
-        {icono('#34d399', 'rgba(52,211,153,0.15)', 'rgba(52,211,153,0.35)', <CheckCircle size={36} />)}
-        <h2 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>
-          {estado.yaEraMiembro ? 'Ya sos parte del equipo' : 'Invitación aceptada'}
-        </h2>
-        <p style={{ color: 'var(--text-muted)', marginBottom: '1rem' }}>
-          Ya quedaste asociado al negocio.
-        </p>
-        <p style={{ color: 'var(--text-subtle)', fontSize: '0.875rem' }}>Entrando...</p>
-      </div>
+    return (
+      <AuthFlowShell
+        testId="accept-invite-page"
+        estado={estado.fase}
+        cardTestId="accept-invite-ok"
+        contentKey="ok"
+        align="center"
+        tone="success"
+        icon={<CheckCircle2 size={26} />}
+        title={estado.yaEraMiembro ? 'Ya sos parte del equipo' : 'Invitación aceptada'}
+        description="Tu cuenta quedó asociada al negocio. Te llevamos al inicio…"
+      >
+        <AuthFlowPrimaryButton data-testid="accept-invite-continuar" onClick={() => navigate('/dashboard', { replace: true })}>
+          Ir al inicio
+        </AuthFlowPrimaryButton>
+      </AuthFlowShell>
     );
   }
 
-  // 'sin-token' y 'error' comparten el formulario manual: en los dos casos lo
-  // que puede destrabar al usuario es pegar el token correcto.
-  const mensajeError = estado.fase === 'error' ? estado.mensaje : '';
-  const permiteManual = estado.fase === 'sin-token' || (estado.fase === 'error' && estado.puedeReintentar);
+  if (estado.fase === 'error') {
+    const { codigo, token } = estado;
+    const presentacion = (codigo && PRESENTACION_ERROR[codigo]) || ERROR_GENERICO;
+    const definitivo = Boolean(codigo && RECHAZOS_DEFINITIVOS.has(codigo));
+    const otroCorreo = codigo === 'INVITATION_EMAIL_MISMATCH';
 
-  return contenedor(
-    <>
-      <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
-        {icono(
-          estado.fase === 'error' ? '#f87171' : 'var(--accent-primary)',
-          estado.fase === 'error' ? 'rgba(248,113,113,0.12)' : 'var(--accent-primary-subtle)',
-          estado.fase === 'error' ? 'rgba(248,113,113,0.35)' : 'transparent',
-          estado.fase === 'error' ? <AlertCircle size={32} /> : <Mail size={32} />
+    return (
+      <AuthFlowShell
+        testId="accept-invite-page"
+        estado={`error:${codigo ?? 'desconocido'}`}
+        cardTestId="accept-invite-error"
+        contentKey={`error:${codigo ?? 'desconocido'}`}
+        align="center"
+        tone={presentacion.tono}
+        icon={presentacion.icono}
+        title={presentacion.titulo}
+        description={
+          <>
+            <p data-testid="accept-invite-error-message">{estado.mensaje}</p>
+            {otroCorreo && user?.email && (
+              <p data-testid="accept-invite-current-account">Entraste con <strong>{user.email}</strong>.</p>
+            )}
+          </>
+        }
+      >
+        <AuthFlowActions layout="stack">
+          {otroCorreo && (
+            <AuthFlowPrimaryButton
+              data-testid="accept-invite-switch-account"
+              onClick={() => void usarOtraCuenta(token)}
+              loading={saliendo}
+              leftIcon={<UserRoundPlus aria-hidden="true" />}
+            >
+              {saliendo ? 'Cerrando sesión…' : 'Usar otra cuenta'}
+            </AuthFlowPrimaryButton>
+          )}
+          {codigo === 'EMAIL_NOT_CONFIRMED' && (
+            <AuthFlowPrimaryButton onClick={() => navigate('/verificar-email')}>
+              Ir a verificar mi correo
+            </AuthFlowPrimaryButton>
+          )}
+          {!definitivo && codigo !== 'EMAIL_NOT_CONFIRMED' && (
+            <AuthFlowPrimaryButton
+              data-testid="accept-invite-retry"
+              onClick={() => setEstado({ fase: 'listo-para-aceptar', token })}
+              leftIcon={<RefreshCw aria-hidden="true" />}
+            >
+              Reintentar
+            </AuthFlowPrimaryButton>
+          )}
+          {otroCorreo
+            ? <AuthFlowTextButton data-testid="accept-invite-home" onClick={irAlInicio} disabled={saliendo}>{textoInicio}</AuthFlowTextButton>
+            : definitivo
+              ? <AuthFlowPrimaryButton data-testid="accept-invite-home" onClick={irAlInicio}>{textoInicio}</AuthFlowPrimaryButton>
+              : <AuthFlowSecondaryButton data-testid="accept-invite-home" onClick={irAlInicio}>{textoInicio}</AuthFlowSecondaryButton>}
+        </AuthFlowActions>
+      </AuthFlowShell>
+    );
+  }
+
+  // 'sin-token': se llegó sin el enlace (la pantalla abierta a mano, o desde
+  // «Tengo una invitación»). Lo que destraba es pegar el enlace del correo.
+  return (
+    <AuthFlowShell
+      testId="accept-invite-page"
+      estado={estado.fase}
+      cardTestId="accept-invite-manual"
+      icon={<Mail size={26} />}
+      title="Sumate a un equipo"
+      description="Abrí el enlace del correo de invitación. Si no se abrió solo, copialo del correo y pegalo acá."
+    >
+      <form onSubmit={enviarEnlaceManual} noValidate className="auth-flow__form">
+        {!isAuthenticated && (
+          <AuthFlowAlert tone="info" role="note">
+            Después de pegarlo te vamos a pedir que inicies sesión o crees tu cuenta.
+          </AuthFlowAlert>
         )}
-        <h2 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>
-          {estado.fase === 'error' ? 'No pudimos sumarte' : 'Aceptar invitación'}
-        </h2>
-        <p style={{ color: 'var(--text-muted)' }}>
-          {estado.fase === 'error'
-            ? mensajeError
-            : 'Si abriste el link desde el mail, el token se completa solo.'}
-        </p>
-      </div>
-
-      {permiteManual && (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            const t = tokenManual.trim();
-            if (!t) return;
-            stashInviteToken(t);
-            yaIntentado.current = false;
-            setEstado({ fase: 'listo-para-aceptar', token: t });
-          }}
-        >
-          <div style={{ marginBottom: '1.25rem' }}>
-            <label className="label-caps">Token de invitación</label>
-            <input
-              type="text"
-              value={tokenManual}
-              onChange={(e) => setTokenManual(e.target.value)}
-              placeholder="Pegá acá el token o abrí el link del mail"
-              className="form-control"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={!tokenManual.trim()}
-            className="btn btn-primary btn-lift"
-            style={{ width: '100%', justifyContent: 'center', opacity: tokenManual.trim() ? 1 : 0.55 }}
-          >
-            Aceptar invitación
-          </button>
-        </form>
-      )}
-
-      <div style={{ marginTop: '1.5rem', textAlign: 'center' }}>
-        <button onClick={() => navigate(isAuthenticated ? '/dashboard' : '/login')} className="btn btn-ghost btn-sm">
-          {isAuthenticated ? 'Volver al inicio' : 'Volver al login'}
-        </button>
-      </div>
-    </>
+        <AuthFlowTextField
+          id="accept-invite-link"
+          data-testid="accept-invite-link"
+          errorTestId="accept-invite-link-error"
+          label="Enlace de la invitación"
+          icon={<Link2 />}
+          type="text"
+          inputMode="url"
+          autoComplete="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          placeholder="Pegá el enlace del correo"
+          value={enlaceManual}
+          error={errorManual}
+          onChange={e => { setEnlaceManual(e.target.value); setErrorManual(''); }}
+        />
+        <AuthFlowPrimaryButton type="submit" data-testid="accept-invite-submit">
+          Continuar
+        </AuthFlowPrimaryButton>
+        <AuthFlowTextButton data-testid="accept-invite-home" onClick={irAlInicio}>
+          {textoInicio}
+        </AuthFlowTextButton>
+      </form>
+    </AuthFlowShell>
   );
 }

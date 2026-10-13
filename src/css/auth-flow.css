@@ -1,11 +1,13 @@
 /* ══════════════════════════════════════════════════════════════════════
-   TechRepair Pro — AuthFlowShell (PRE-BETA-3A-1a)
-   Superficies post-login del alta: /verificar-email, /no-business, /onboarding.
+   TechRepair Pro — AuthFlowShell (PRE-BETA-3A-1a · BETA-UX-1G)
+   Todo el embudo de acceso: /login, /reset-password, /auth/callback,
+   /accept-invite, /verificar-email, /no-business y /onboarding.
    Todo scopeado bajo .auth-flow / .auth-flow__*.
 
    No define colores, radios ni sombras propios: compone layout con los
    tokens de index.css. La tarjeta y los fondos decorativos son los de
-   authCardStyles (los mismos del Login); los botones, AppButton de src/ui.
+   authCardStyles; los botones, AppButton de src/ui; los campos,
+   `.form-control`; las alertas, `.alert`.
    ══════════════════════════════════════════════════════════════════════ */
 
 /* ── Página ───────────────────────────────────────────────────────────── */
@@ -60,6 +62,39 @@
   font-weight: 800;
   letter-spacing: -0.025em;
   color: var(--text-primary);
+}
+
+/* Marca grande, dentro de la tarjeta: la puerta de entrada (/login). Es el
+   título de la página, así que también es destino de foco sin anillo. */
+.auth-flow__header--hero { text-align: center; }
+
+.auth-flow__hero-logo {
+  display: block;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 1rem;
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-indigo);
+}
+
+.auth-flow__wordmark--hero {
+  margin: 0 0 0.25rem;
+  font-size: 1.625rem;
+  font-weight: 900;
+  line-height: 1.15;
+  letter-spacing: -0.04em;
+}
+
+.auth-flow__wordmark--hero:focus { outline: none; }
+
+/* Bajo la tarjeta: una línea de salida (el acceso al alta desde el login).
+   Queda sobre el fondo de la PÁGINA, no sobre la tarjeta: ahí `--text-muted`
+   mide 4,4:1 en tema claro (medido), así que usa `--text-secondary`. */
+.auth-flow__footer {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--text-secondary);
 }
 
 /* ── Navegación secundaria + progreso ─────────────────────────────────── */
@@ -160,6 +195,7 @@
 .auth-flow__icon--accent  { background: var(--accent-primary-light); border-color: var(--border-accent);  color: var(--color-primary-light); }
 .auth-flow__icon--success { background: var(--success-light);        border-color: var(--success-border); color: var(--success); }
 .auth-flow__icon--warning { background: var(--warning-light);        border-color: var(--warning-border); color: var(--warning); }
+.auth-flow__icon--danger  { background: var(--error-light);          border-color: var(--error-border);   color: var(--error); }
 
 /* El índigo claro del modo oscuro no llega a 4.5:1 sobre blanco: en claro se
    usa el acento más profundo. Los dos son tokens existentes. */
@@ -242,6 +278,12 @@
   color: var(--text-muted);
 }
 
+/* Nota de cierre de un formulario alineado al inicio (el pie legal del login). */
+.auth-flow__note--center { text-align: center; }
+
+/* Una nota dentro de la columna del formulario ya tiene el `gap` de separación. */
+.auth-flow__form > .auth-flow__note { margin-top: 0; }
+
 /* El reset global pone `svg { display: block }`: un ícono dentro de una nota
    quedaba solo en su línea. */
 .auth-flow__note svg {
@@ -249,6 +291,187 @@
   margin-right: 0.35rem;
   vertical-align: -2px;
 }
+
+/* ── Campos (BETA-UX-1G) ──────────────────────────────────────────────── */
+/* El control es `.form-control`: alto, radio, foco, hover y disabled salen de
+   index.css. Acá sólo va lo que es de un campo del embudo. */
+.auth-flow__control { position: relative; }
+
+/* Ícono del campo. No se usa `.input-group` / `.input-icon`: Bootstrap (CDN)
+   define `.input-group` como un grupo flex y pisa el radio y el apilado. */
+.auth-flow__control-icon {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0.875rem;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.auth-flow__control-icon svg { width: 1.0625rem; height: 1.0625rem; }
+
+.auth-flow__control--icon .form-control { padding-left: 2.625rem; }
+
+/* Lugar para el botón de mostrar/ocultar. */
+.auth-flow__control--trailing .form-control { padding-right: var(--mobile-touch-target); }
+
+.auth-flow__reveal {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  width: var(--mobile-touch-target);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.auth-flow__reveal:hover:not(:disabled),
+.auth-flow__reveal[aria-pressed="true"] { color: var(--text-primary); }
+
+.auth-flow__reveal:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* `.form-error` trae su margen; dentro del campo el espacio lo da el `gap`.
+   Doble clase: empata en especificidad con `.form-error` y el orden de carga
+   de las hojas no está garantizado. */
+.auth-flow .auth-flow__field-error { margin: 0; line-height: 1.4; }
+
+/* Requisito que se cumple mientras se escribe. `--order-badge-paid-fg` es el
+   verde que llega a AA como texto en los dos temas (`--success` no, en claro). */
+.auth-flow__requirement {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.auth-flow__requirement svg { flex: 0 0 auto; }
+.auth-flow__requirement[data-met="true"] { color: var(--order-badge-paid-fg); }
+
+/* ── Alertas (BETA-UX-1G) ─────────────────────────────────────────────── */
+/* Superficie, borde y geometría son los de `.alert`. El texto va en el color
+   primario: `--success` y `--error` no llegan a AA como texto sobre su propio
+   fondo en tema claro. El tono queda en el ícono, el borde y el fondo.
+
+   Doble clase a propósito: `.alert-*` (index.css) y `.alert` (Bootstrap, por
+   CDN, que además le pone margen inferior) empatan en especificidad con una
+   clase sola, y el orden de carga de las hojas no está garantizado. */
+.auth-flow .auth-flow__alert {
+  margin: 0;
+  color: var(--text-primary);
+  text-align: start;
+  line-height: 1.5;
+}
+
+.auth-flow .auth-flow__alert.alert-error   > svg { color: var(--error); }
+.auth-flow .auth-flow__alert.alert-success > svg { color: var(--success); }
+.auth-flow .auth-flow__alert.alert-warning > svg { color: var(--warning); }
+.auth-flow .auth-flow__alert.alert-info    > svg { color: var(--info); }
+
+.auth-flow__alert-body { min-width: 0; overflow-wrap: anywhere; }
+.auth-flow__alert-body > p { margin: 0; }
+.auth-flow__alert-body > p + p { margin-top: 0.375rem; }
+.auth-flow__alert-body strong { font-weight: 700; }
+
+/* ── Selector de modo (BETA-UX-1G) ────────────────────────────────────── */
+/* Mismo lenguaje que el control segmentado de Tareas: riel neutro y opción
+   elegida en índigo sólido. Con `--indigo-600` y `--text-on-accent` (los del
+   botón primario) el texto mide 6,29:1 en los dos temas. */
+.auth-flow__segmented {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+}
+
+.auth-flow__segment-option {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: var(--mobile-touch-target);
+  padding: 0.5rem 0.75rem;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.25;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.auth-flow__segment-option:hover:not(:disabled):not([aria-selected="true"]) { color: var(--text-primary); }
+
+.auth-flow__segment-option[aria-selected="true"] {
+  background: var(--indigo-600);
+  color: var(--text-on-accent);
+}
+
+.auth-flow__segment-option:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* ── Separador (BETA-UX-1G) ───────────────────────────────────────────── */
+.auth-flow__divider {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.auth-flow__divider::before,
+.auth-flow__divider::after {
+  content: '';
+  flex: 1 1 0;
+  height: 1px;
+  background: var(--border-strong);
+}
+
+/* ── Enlaces dentro de una línea de texto (BETA-UX-1G) ────────────────── */
+/* Un botón que se lee como enlace dentro de una frase. El área táctil se
+   agranda con padding y un margen negativo igual, sin mover el texto. */
+.auth-flow__inline-link {
+  display: inline;
+  margin: -0.5rem -0.25rem;
+  padding: 0.5rem 0.25rem;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-primary-light);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+[data-theme="light"] .auth-flow__inline-link { color: var(--accent-primary); }
+
+.auth-flow__inline-link:hover:not(:disabled) { color: var(--text-primary); }
+.auth-flow__inline-link:disabled { opacity: 0.6; cursor: wait; }
+
+.auth-flow__footer a {
+  color: var(--color-primary-light);
+  font-weight: 700;
+}
+
+/* Bajo la tarjeta el fondo es el de la página, teñido por los fondos
+   decorativos: ahí `--accent-primary` mide 4,3:1 en tema claro (medido en el
+   punto más oscuro). `--indigo-700`, el del botón primario presionado, llega. */
+[data-theme="light"] .auth-flow__footer a,
+[data-theme="light"] .auth-flow__footer .auth-flow__inline-link { color: var(--indigo-700); }
 
 /* ── Opciones (rubro, condición fiscal) ───────────────────────────────── */
 /* Dos columnas sólo si cada opción tiene lugar real: medido a 375 px, la
@@ -382,17 +605,27 @@
   color: var(--accent-primary);
 }
 
+/* La espera no tiene tarjeta: el texto queda sobre el fondo de la página, donde
+   `--text-muted` no llega a AA en tema claro (BETA-UX-1G, medido). */
 .auth-flow__loading p {
   margin: 0;
   font-size: 0.9rem;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 /* ── Foco y movimiento ────────────────────────────────────────────────── */
 .auth-flow__back:focus-visible,
-.auth-flow__choice:focus-visible {
+.auth-flow__choice:focus-visible,
+.auth-flow__segment-option:focus-visible,
+.auth-flow__inline-link:focus-visible {
   outline: 2px solid var(--accent-primary);
   outline-offset: 2px;
+}
+
+/* El botón vive dentro del campo: el anillo va hacia adentro para no salirse. */
+.auth-flow__reveal:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: -4px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -400,5 +633,7 @@
   .auth-flow__segment,
   .auth-flow__choice,
   .auth-flow__back,
+  .auth-flow__reveal,
+  .auth-flow__segment-option,
   .auth-flow__upload-tile { transition: none; }
 }

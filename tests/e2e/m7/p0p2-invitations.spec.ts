@@ -18,6 +18,9 @@
 //   4. owner de otro taller -> fail closed, su taller queda intacto
 //   5. retry: aceptar dos veces -> resultado estable, 1 solo profile
 //   6. el token sobrevive al rodeo por login (?redirectTo=)
+//   7. BETA-UX-1G — invitado NUEVO, de punta a punta: el login reconoce la
+//      invitación, se registra, confirma por el correo REAL en otra pestaña y
+//      queda en el negocio que lo invitó, sin crear un tenant
 //
 // NUNCA corre contra producción: el globalSetup valida el destino y
 // `assertDestinoLocalSeguro` lo revalida acá.
@@ -29,6 +32,7 @@ import { createClient } from '@supabase/supabase-js'
 import { consultarJSON } from '../setup/sqlLocal.ts'
 import { assertDestinoLocalSeguro } from '../setup/assertLocalTarget.ts'
 import { createCompatibleUserClient } from '../setup/compatibleUserClient.ts'
+import { borrarCorreos, esEnlaceTokenHash, esperarEnlace } from '../setup/mailpit.ts'
 
 // Sesión propia por test: este spec maneja varios actores y NO puede heredar el
 // storageState del owner sembrado.
@@ -336,6 +340,13 @@ test('@m7 6. el token sobrevive al rodeo por el login', async ({ page }) => {
     .toBe(`/accept-invite?token=${token}`)
 
   await page.waitForSelector('[data-testid="login-email"]', { timeout: 15_000 })
+  // BETA-UX-1G — el login reconoce la invitación: lo dice y arranca en «Crear
+  // cuenta» (lo habitual es que el invitado todavía no tenga una). B ya tiene
+  // cuenta, así que elige «Iniciar sesión».
+  await expect(page.getByTestId('login-invite-context')).toBeVisible()
+  await expect(page.getByTestId('login-confirm-password')).toBeVisible()
+  await page.getByTestId('login-tab-login').click()
+  await expect(page.getByTestId('login-confirm-password')).toHaveCount(0)
   await page.fill('[data-testid="login-email"]', emailB)
   await page.fill('[data-testid="login-password"]', PASSWORD)
   await page.click('[data-testid="login-submit"]')
@@ -348,6 +359,67 @@ test('@m7 6. el token sobrevive al rodeo por el login', async ({ page }) => {
   expect(perfil.business_id).toBe(A.businessId)
   expect(perfil.role).toBe('tech')
 
+  await borrarPorEmail(emailA)
+  await borrarPorEmail(emailB)
+})
+
+test('@m7 7. invitado NUEVO: del enlace al equipo, pasando por el alta y el correo real', async ({ page, context }) => {
+  const emailA = emailUnico('ownera7')
+  // Único por corrida: el alta manda un correo, y GoTrue limita los envíos por dirección.
+  const emailB = emailUnico(`nuevob7-${Date.now()}`)
+  await borrarPorEmail(emailB)
+  await borrarCorreos(emailB)
+
+  const A = await crearOwnerConNegocio(emailA, 'Taller Invitaciones 7')
+  const token = await invitar(emailA, emailB, 'tech')
+  expect(idDe(emailB), 'el invitado todavía no tiene cuenta').toBeNull()
+
+  const bizAntes = contarBusinesses()
+  const trialsAntes = contarTrials()
+
+  // Abre el enlace del correo de invitación, sin sesión.
+  await page.goto(`/accept-invite?token=${token}`)
+  await page.waitForURL(/\/login\?redirectTo=/, { timeout: 25_000 })
+
+  // El login sabe de dónde viene: lo dice, arranca en «Crear cuenta», ofrece
+  // Google y no le vende una prueba gratis.
+  await expect(page.getByTestId('login-invite-context')).toContainText('Te invitaron a un equipo')
+  await expect(page.getByTestId('login-confirm-password')).toBeVisible()
+  await expect(page.getByTestId('login-google')).toBeVisible()
+  await expect(page.getByTestId('login-trial-cta')).toHaveCount(0)
+
+  await page.fill('[data-testid="login-email"]', emailB)
+  await page.fill('[data-testid="login-password"]', PASSWORD)
+  await page.fill('[data-testid="login-confirm-password"]', PASSWORD)
+  await page.click('[data-testid="login-submit"]')
+  await expect(page).toHaveURL(/\/verificar-email/, { timeout: 25_000 })
+
+  // Registrarse no lo sumó a nada todavía, ni le creó un negocio.
+  const idB = idDe(emailB)
+  expect(idB, 'el alta creó el usuario').not.toBeNull()
+  expect(perfilDe(idB!).n).toBe(0)
+  expect(estadoInvitacion(token)).toBe('pending')
+
+  // Confirma desde el correo REAL, que se abre en OTRA pestaña: ahí no existe
+  // el destino guardado por la pestaña original, sólo la invitación pendiente.
+  const enlace = await esperarEnlace(emailB, esEnlaceTokenHash('signup'))
+  const pestana = await context.newPage()
+  await pestana.goto(enlace)
+  await expect(pestana.getByText(/Invitación aceptada|Ya sos parte del equipo/i)).toBeVisible({ timeout: 25_000 })
+  await pestana.waitForURL(/\/dashboard/, { timeout: 25_000 })
+  expect(pestana.url()).not.toContain('token')
+
+  const perfil = perfilDe(idB!)
+  expect(perfil.n, 'B tiene exactamente 1 profile').toBe(1)
+  expect(perfil.business_id, 'B queda en el negocio de A').toBe(A.businessId)
+  expect(perfil.role).toBe('tech')
+  expect(estadoInvitacion(token)).toBe('accepted')
+
+  // LA INVARIANTE: el invitado nuevo no fundó un negocio ni inició una prueba.
+  expect(contarBusinesses(), 'no debe crearse ningún business').toBe(bizAntes)
+  expect(contarTrials(), 'no debe iniciarse ningún trial').toBe(trialsAntes)
+
+  await borrarCorreos(emailB)
   await borrarPorEmail(emailA)
   await borrarPorEmail(emailB)
 })

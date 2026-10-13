@@ -1,13 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { CircleAlert } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
-import { sanitizeInternalPath } from '../lib/authRedirect'
 import { markRecoveryLinkRejected, markRecoverySession } from '../lib/passwordRecovery'
-import { AUTH_URL_ERROR_MESSAGE, classifyAuthUrlError } from '../lib/authErrors'
+import {
+  AUTH_CALLBACK_NO_SESSION_PATH,
+  AUTH_URL_ERROR_MESSAGE,
+  AUTH_URL_ERROR_TITLE,
+  classifyAuthUrlError,
+  type AuthUrlErrorKind,
+} from '../lib/authErrors'
 import { isEmailLinkType } from '../lib/authEmailLink'
-import { acceptInviteePath, peekInviteToken } from '../lib/pendingInvite'
+import { consumePostAuthDestination } from '../lib/postAuthDestination'
 import { PORTAL_DOMAINS } from '../portal/portalDomains'
+import { AuthFlowShell, AuthFlowLoading, AuthFlowPrimaryButton } from '../components/auth/AuthFlowShell'
 
 /**
  * Callback único de autenticación. Soporta TRES caminos:
@@ -39,43 +46,33 @@ import { PORTAL_DOMAINS } from '../portal/portalDomains'
  *
  * Nada de esto confía en un query param como autoridad: el estado final
  * siempre se relee de la sesión/servidor. No existe `?verified=true`.
+ *
+ * BETA-UX-1G — la pantalla usa el shell del embudo (antes tenía un fondo y una
+ * tarjeta oscuros fijos, sin tema ni marca). Cambios de comportamiento:
+ *   · un error que vuelve por la URL se queda en pantalla con su salida
+ *     («Volver a iniciar sesión»). Antes se mostraba 3 segundos y saltaba solo
+ *     a un login que no explicaba nada;
+ *   · cuando la sesión no queda creada, el login lo dice (`?motivo=`): antes se
+ *     volvía en silencio y parecía que el botón de Google no había hecho nada;
+ *   · el destino sale de la misma regla que usa el login
+ *     (src/lib/postAuthDestination.ts: destino guardado → invitación pendiente
+ *     → /dashboard, respetando el dominio dedicado del portal).
  */
 
-/** Destino tras confirmar, respetando el dominio dedicado del portal. */
-function destinoPostConfirmacion(): string {
-  // En un dominio exclusivo del portal mayorista todo cuelga de la raíz: el
-  // PortalRouter se monta en `/` y no existe `/dashboard`. Mandar ahí a un
-  // cliente mayorista lo sacaría de su portal.
-  if (PORTAL_DOMAINS[window.location.hostname]) return '/'
-
-  const guardado = window.sessionStorage.getItem('post_login_redirect')
-  window.sessionStorage.removeItem('post_login_redirect')
-
-  // P0-P2 — Rescate del camino de invitación.
-  //
-  // `post_login_redirect` vive en sessionStorage, que es POR PESTAÑA. El enlace
-  // de confirmación de correo se abre casi siempre en una pestaña NUEVA, así que
-  // ahí `guardado` viene vacío y el invitado terminaba en /dashboard con la
-  // invitación sin aceptar.
-  //
-  // Si hay un token de invitación vigente guardado (localStorage con TTL), el
-  // destino es la pantalla de aceptación. Sólo se usa como FALLBACK: un
-  // `post_login_redirect` explícito gana, porque es más específico.
-  if (!sanitizeInternalPath(guardado, '')) {
-    const invitacion = peekInviteToken()
-    if (invitacion) return acceptInviteePath(invitacion)
-  }
-
-  return sanitizeInternalPath(guardado, '/dashboard')
-}
-
 type Fase = 'verificando' | 'listo' | 'error'
+
+/** Tope de espera a que auth + perfil resuelvan. Pasado eso, se vuelve al login. */
+const CALLBACK_TIMEOUT_MS = 15_000
+/** Margen antes de dar la sesión por no creada. */
+const NO_SESSION_GRACE_MS = 1_500
 
 export function AuthCallback() {
   const navigate = useNavigate()
   const { isAuthenticated, loading, profileLoading } = useAuth()
-  const [urlError, setUrlError] = useState<string | null>(null)
+  const [urlError, setUrlError] = useState<AuthUrlErrorKind | null>(null)
   const [fase, setFase] = useState<Fase>('verificando')
+  // Con `token_hash` se está validando un enlace de correo; sin él, es Google.
+  const [esEnlace] = useState(() => new URLSearchParams(window.location.search).has('token_hash'))
   const navigatedRef = useRef(false)
   const procesadoRef = useRef(false)
 
@@ -90,9 +87,10 @@ export function AuthCallback() {
     // escribe cualquiera que arme el link, así que ni se lee.
     const errorKind = classifyAuthUrlError(params)
     if (errorKind) {
-      setUrlError(AUTH_URL_ERROR_MESSAGE[errorKind])
+      // Los parámetros del error no quedan en la barra ni en el historial.
+      window.history.replaceState(window.history.state, '', window.location.pathname)
+      setUrlError(errorKind)
       setFase('error')
-      setTimeout(() => navigate('/login', { replace: true }), 3000)
       return
     }
 
@@ -164,89 +162,81 @@ export function AuthCallback() {
     })()
   }, [navigate])
 
+  // En un dominio exclusivo del portal mayorista todo cuelga de la raíz: el
+  // PortalRouter se monta en `/` y no existe `/dashboard`. Mandar ahí a un
+  // cliente mayorista lo sacaría de su portal. Tampoco se le muestra la marca
+  // de TechRepair Pro: ese dominio es del comercio.
+  const enPortal = Boolean(PORTAL_DOMAINS[window.location.hostname])
+
   // ── Navegación final, una vez que auth + profile resolvieron ───────────────
   useEffect(() => {
     if (fase !== 'listo') return
     if (navigatedRef.current) return
     if (loading || profileLoading) return
 
-    navigatedRef.current = true
-
     if (isAuthenticated) {
-      navigate(destinoPostConfirmacion(), { replace: true })
-    } else {
-      setTimeout(() => navigate('/login', { replace: true }), 1500)
+      navigatedRef.current = true
+      // P0-P2 — el destino guardado vive en sessionStorage, que es POR PESTAÑA,
+      // y el enlace de confirmación se abre casi siempre en una pestaña nueva:
+      // ahí el respaldo es la invitación pendiente (localStorage con TTL).
+      navigate(consumePostAuthDestination({ portalHost: enPortal }), { replace: true })
+      return
     }
-  }, [fase, loading, profileLoading, isAuthenticated, navigate])
 
-  // Timeout de seguridad: si en 15s no resuelve, ir al login.
+    // Sin sesión. Se espera un momento por si llega tarde: si llega, este
+    // efecto vuelve a correr (el temporizador se cancela) y sigue por arriba.
+    const t = setTimeout(() => {
+      if (navigatedRef.current) return
+      navigatedRef.current = true
+      navigate(AUTH_CALLBACK_NO_SESSION_PATH, { replace: true })
+    }, NO_SESSION_GRACE_MS)
+    return () => clearTimeout(t)
+  }, [fase, loading, profileLoading, isAuthenticated, navigate, enPortal])
+
+  // Tope de seguridad: si no resuelve, al login (que explica por qué).
   useEffect(() => {
     if (fase === 'error') return
     const t = setTimeout(() => {
       if (!navigatedRef.current) {
         navigatedRef.current = true
-        navigate('/login', { replace: true })
+        navigate(AUTH_CALLBACK_NO_SESSION_PATH, { replace: true })
       }
-    }, 15_000)
+    }, CALLBACK_TIMEOUT_MS)
     return () => clearTimeout(t)
   }, [fase, navigate])
 
+  const marca = enPortal ? 'none' : 'compact'
+
+  if (fase === 'error' && urlError) {
+    return (
+      <AuthFlowShell
+        testId="auth-callback-page"
+        estado={`error:${urlError}`}
+        cardTestId="auth-callback-error"
+        brand={marca}
+        align="center"
+        tone={urlError === 'oauth_cancelled' ? 'warning' : 'danger'}
+        icon={<CircleAlert size={26} />}
+        title={AUTH_URL_ERROR_TITLE[urlError]}
+        description={AUTH_URL_ERROR_MESSAGE[urlError]}
+      >
+        <AuthFlowPrimaryButton
+          data-testid="auth-callback-volver"
+          onClick={() => navigate('/login', { replace: true })}
+        >
+          Volver a iniciar sesión
+        </AuthFlowPrimaryButton>
+      </AuthFlowShell>
+    )
+  }
+
   return (
-    <div style={{
-      minHeight: '100vh',
-      backgroundColor: '#060d1a',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontFamily: 'system-ui, sans-serif',
-    }}>
-      <div style={{
-        textAlign: 'center',
-        padding: '2.5rem',
-        backgroundColor: '#0f1829',
-        border: '1px solid rgba(255,255,255,0.06)',
-        borderRadius: '1rem',
-        maxWidth: '360px',
-        width: '90%',
-        boxShadow: '0 25px 50px rgba(0,0,0,0.5)',
-      }}>
-        {urlError ? (
-          <>
-            <div style={{
-              width: '52px', height: '52px', borderRadius: '50%',
-              backgroundColor: 'rgba(248,113,113,0.12)',
-              border: '2px solid rgba(248,113,113,0.3)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              margin: '0 auto 1rem', fontSize: '1.5rem',
-            }}>✕</div>
-            <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.1rem', fontWeight: 700, color: '#f87171' }}>
-              Error al iniciar sesión
-            </h2>
-            <p style={{ margin: '0 0 1rem', fontSize: '0.875rem', color: '#64748b', lineHeight: 1.5 }}>
-              {urlError}
-            </p>
-            <p style={{ margin: 0, fontSize: '0.75rem', color: '#334155' }}>
-              Redirigiendo al login...
-            </p>
-          </>
-        ) : (
-          <>
-            <div style={{
-              width: '52px', height: '52px', borderRadius: '50%',
-              border: '3px solid rgba(99,102,241,0.15)',
-              borderTop: '3px solid #6366f1',
-              animation: 'tr-spin 0.8s linear infinite',
-              margin: '0 auto 1.25rem',
-            }} />
-            <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.1rem', fontWeight: 700, color: '#f1f5f9' }}>
-              Verificando tu cuenta...
-            </h2>
-            <p style={{ margin: 0, fontSize: '0.875rem', color: '#475569' }}>
-              Un momento, estamos confirmando tus datos
-            </p>
-          </>
-        )}
-      </div>
-    </div>
+    <AuthFlowLoading
+      pageTestId="auth-callback-page"
+      estado="verificando"
+      testId="auth-callback-loading"
+      brand={marca}
+      label={esEnlace ? 'Verificando tu enlace…' : 'Iniciando sesión…'}
+    />
   )
 }

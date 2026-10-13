@@ -13,6 +13,7 @@
 // (localhost / 127.0.0.1 / [::1]) — dev y E2E locales.
 // ─────────────────────────────────────────────────────────────────────────────
 import {
+  ACCEPT_INVITE_PATH,
   buildInvitationUrl,
   invitationPath,
 } from '../../supabase/functions/_shared/invitationLink.ts'
@@ -41,4 +42,24 @@ export function invitationUrl(token: string): string {
   return invitationUrlFor(token, currentRuntime())
 }
 
-export { invitationPath }
+export { ACCEPT_INVITE_PATH, invitationPath }
+
+/**
+ * Token de una invitación a partir de lo que el invitado pega a mano: el enlace
+ * entero del correo (lo habitual) o el código suelto. Pura.
+ *
+ * Sólo LEE el parámetro `token` (o el `invite` histórico) de una URL bien
+ * formada. No navega a lo pegado ni mira su host: el valor sólo viaja a la RPC
+ * de aceptación, que es la que decide.
+ */
+export function invitationTokenFromInput(raw: string): string {
+  const value = raw.trim()
+  if (!value) return ''
+  if (!/^https?:\/\//i.test(value)) return value
+  try {
+    const params = new URL(value).searchParams
+    return (params.get('token') || params.get('invite') || '').trim()
+  } catch {
+    return ''
+  }
+}

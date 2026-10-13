@@ -1,28 +1,17 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Tarjeta de las pantallas de acceso (Login, nueva contraseña).
+// Superficie del embudo de acceso: la tarjeta y los fondos decorativos que usa
+// AuthFlowShell. Valores sobre las variables del tema (--auth-card-bg,
+// --border-color, --shadow-xl): acompañan light y dark sin ramas.
 //
-// BETA-GATE-1 · Lote B: movido TAL CUAL desde src/pages/Login.tsx para que
-// /reset-password se vea igual que el login sin copiar 250 líneas de estilos.
-// Usa las variables del tema (--auth-bg, --auth-card-bg, --input-*), así que
-// respeta light/dark igual que antes.
+// BETA-UX-1G — este archivo guardaba además TODO el sistema visual del Login
+// (página, campos, botón primario con gradiente, botón de Google, pestañas con
+// gradiente, foco pintado desde JavaScript). Esas piezas se retiraron: el
+// embudo entero usa `.form-control`, AppButton y los primitivos de
+// AuthFlowFields, igual que el resto del producto. Acá no se agregan estilos de
+// controles: si falta uno, va a AuthFlowFields + src/css/auth-flow.css.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ── Inline styles (misma estética que la landing page) ──────────────
-
 export const S = {
-  // Fondo global
-  page: {
-    minHeight: '100dvh',
-    background: 'var(--auth-bg)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '1.5rem',
-    position: 'relative' as const,
-    overflow: 'hidden',
-    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-  },
-
   // Blobs de fondo
   blob1: {
     position: 'fixed' as const,
@@ -52,14 +41,6 @@ export const S = {
     pointerEvents: 'none' as const,
   },
 
-  // Envoltorio del card
-  shell: {
-    width: '100%',
-    maxWidth: '420px',
-    position: 'relative' as const,
-    zIndex: 1,
-  },
-
   // Card de glass
   card: {
     background: 'var(--auth-card-bg)',
@@ -80,179 +61,4 @@ export const S = {
     height: '1px',
     background: 'linear-gradient(90deg, transparent, rgba(99,102,241,0.6), transparent)',
   },
-
-  // Logo icon
-  logoIcon: {
-    width: '68px', height: '68px',
-    borderRadius: '1.125rem',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    margin: '0 auto 1.25rem',
-    boxShadow: '0 12px 32px rgba(99,102,241,0.45)',
-    overflow: 'hidden',
-  },
-
-  // Input field wrapper
-  inputWrap: { position: 'relative' as const, display: 'flex', flexDirection: 'column' as const },
-
-  // Input base
-  input: (hasError: boolean, disabled: boolean): React.CSSProperties => ({
-    width: '100%',
-    padding: '0.875rem 1rem 0.875rem 3rem',
-    background: 'var(--input-bg)',
-    border: `1px solid ${hasError ? 'rgba(248,113,113,0.6)' : 'var(--input-border)'}`,
-    borderRadius: '0.875rem',
-    color: 'var(--text-primary)',
-    fontSize: '0.9375rem',
-    outline: 'none',
-    transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
-    opacity: disabled ? 0.55 : 1,
-    caretColor: 'var(--accent-primary)',
-    boxSizing: 'border-box',
-  }),
-
-  // Input derecho (para contraseña con ojo)
-  inputWithRight: (hasError: boolean, disabled: boolean): React.CSSProperties => ({
-    width: '100%',
-    padding: '0.875rem 3rem 0.875rem 3rem',
-    background: 'var(--input-bg)',
-    border: `1px solid ${hasError ? 'rgba(248,113,113,0.6)' : 'var(--input-border)'}`,
-    borderRadius: '0.875rem',
-    color: 'var(--text-primary)',
-    fontSize: '0.9375rem',
-    outline: 'none',
-    transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
-    opacity: disabled ? 0.55 : 1,
-    caretColor: 'var(--accent-primary)',
-    boxSizing: 'border-box',
-  }),
-
-  iconLeft: {
-    position: 'absolute' as const,
-    left: '1rem',
-    top: '50%',
-    transform: 'translateY(-50%)',
-    pointerEvents: 'none' as const,
-  },
-
-  label: {
-    display: 'block',
-    fontSize: '0.8125rem',
-    fontWeight: 600,
-    color: 'var(--text-muted)',
-    marginBottom: '0.5rem',
-    letterSpacing: '0.01em',
-  },
-
-  errorText: {
-    color: 'var(--error)',
-    fontSize: '0.75rem',
-    marginTop: '0.375rem',
-    marginLeft: '0.25rem',
-  },
-
-  // Botón principal (gradient)
-  btnPrimary: (disabled: boolean): React.CSSProperties => ({
-    width: '100%',
-    padding: '0.9375rem',
-    background: disabled
-      ? 'rgba(99,102,241,0.4)'
-      : 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-    border: 'none',
-    borderRadius: '0.875rem',
-    // PRE-BETA-3A-0: token, no `#fff` inline — el remapeo de light mode lo
-    // volvía texto oscuro sobre índigo (ver --text-on-accent en index.css).
-    color: 'var(--text-on-accent)',
-    fontWeight: 700,
-    fontSize: '0.9375rem',
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '0.5rem',
-    transition: 'all 0.22s ease',
-    boxShadow: disabled ? 'none' : '0 4px 20px rgba(99,102,241,0.4)',
-  }),
-
-  // Botón Google
-  btnGoogle: (disabled: boolean): React.CSSProperties => ({
-    width: '100%',
-    padding: '0.875rem',
-    background: 'var(--input-bg)',
-    border: '1px solid var(--input-border)',
-    borderRadius: '0.875rem',
-    color: 'var(--text-secondary)',
-    fontWeight: 600,
-    fontSize: '0.9375rem',
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '0.75rem',
-    transition: 'all 0.2s ease',
-    opacity: disabled ? 0.55 : 1,
-  }),
-
-  // Toggle tabs
-  tabTrack: {
-    display: 'flex',
-    background: 'var(--input-bg)',
-    border: '1px solid var(--border-color)',
-    borderRadius: '0.875rem',
-    padding: '0.25rem',
-    marginBottom: '1.75rem',
-    gap: '0.25rem',
-  },
-
-  tab: (active: boolean, disabled: boolean): React.CSSProperties => ({
-    flex: 1,
-    padding: '0.625rem',
-    background: active
-      ? 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)'
-      : 'transparent',
-    border: 'none',
-    borderRadius: '0.625rem',
-    color: active ? 'var(--text-on-accent)' : 'var(--text-muted)',
-    fontWeight: 600,
-    fontSize: '0.875rem',
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    transition: 'all 0.2s ease',
-    boxShadow: active ? '0 2px 12px rgba(99,102,241,0.35)' : 'none',
-    opacity: disabled ? 0.6 : 1,
-  }),
-
-  dividerWrap: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '1rem',
-    margin: '1.5rem 0',
-  },
-
-  dividerLine: {
-    flex: 1,
-    height: '1px',
-    background: 'var(--border-color)',
-  },
-
-  dividerText: {
-    color: 'var(--text-subtle)',
-    fontSize: '0.78rem',
-    fontWeight: 500,
-    whiteSpace: 'nowrap' as const,
-  },
-}
-
-// ── Helpers de foco ──────────────────────────────────────────────────
-
-export function focusOn(e: React.FocusEvent<HTMLInputElement>, hasError: boolean) {
-  e.target.style.borderColor = hasError ? 'rgba(248,113,113,0.8)' : 'var(--input-focus-border)'
-  e.target.style.boxShadow = hasError
-    ? '0 0 0 3px rgba(248,113,113,0.12)'
-    : 'var(--input-focus-shadow)'
-}
-
-export function blurOn(e: React.FocusEvent<HTMLInputElement>, hasError: boolean) {
-  e.target.style.borderColor = hasError ? 'rgba(248,113,113,0.6)' : 'var(--input-border)'
-  e.target.style.boxShadow = 'none'
 }
