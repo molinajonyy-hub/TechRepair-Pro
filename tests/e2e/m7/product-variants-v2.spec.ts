@@ -83,14 +83,28 @@ test('@m7 variants V2: create through UI, sell one child, add another to an orde
   expect(stockOf(parent.id)).toBe(0)
 })
 
+for (const viewport of [{ name: 'mobile 375', width: 375, height: 812 }, { name: 'desktop', width: 1440, height: 900 }]) {
 for (const theme of ['light', 'dark']) {
-  test(`@m7 variants V2 mobile 375: manual cards and dimensional generator (${theme})`, async ({ page }, testInfo) => {
-    await page.setViewportSize({ width: 375, height: 812 })
+  test(`@m7 variants V2 ${viewport.name}: manual cards and dimensional generator (${theme})`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height })
     await page.goto('/inventory')
     await page.evaluate(theme => document.documentElement.setAttribute('data-theme', theme), theme)
     await page.getByTestId('inventory-new-product-chevron').click()
     await page.getByTestId('inventory-new-product-variants').click()
     const modal = page.getByTestId('product-form-modal')
+    const save = modal.getByTestId('product-form-save-button')
+    const appearance = () => save.evaluate(element => {
+      const style = getComputedStyle(element)
+      return { background: style.backgroundColor, image: style.backgroundImage, shadow: style.boxShadow, height: element.getBoundingClientRect().height }
+    })
+    await page.mouse.move(0, 0)
+    expect(await appearance()).toMatchObject({ background: 'rgb(79, 70, 229)', image: 'none', shadow: 'none' })
+    expect((await appearance()).height).toBeGreaterThanOrEqual(44)
+    await save.hover()
+    await expect.poll(async () => (await appearance()).background).toBe('rgb(67, 56, 202)')
+    expect(await appearance()).toMatchObject({ image: 'none', shadow: 'none' })
+    await page.mouse.move(0, 0)
+    await expect.poll(async () => (await appearance()).background).toBe('rgb(79, 70, 229)')
     await expect(modal.getByTestId('variant-name-input')).toBeVisible()
     await modal.getByTestId('variant-name-input').fill('Negro / 128GB')
     await modal.getByRole('button', { name: 'Generador masivo', exact: true }).click()
@@ -110,6 +124,7 @@ for (const theme of ['light', 'dark']) {
     expect(fields.every(width => width >= 44)).toBe(true)
     const checkboxTargets = await modal.locator('label:has(input[type="checkbox"]):visible').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().height))
     expect(checkboxTargets.every(height => height >= 44)).toBe(true)
-    await page.screenshot({ path: testInfo.outputPath(`variants-mobile-${theme}.png`) })
+    await page.screenshot({ path: testInfo.outputPath(`variants-${viewport.name === 'desktop' ? 'desktop' : 'mobile'}-${theme}.png`) })
   })
+}
 }

@@ -27,6 +27,9 @@ function check(s) {
   const retry = s.service.slice(retryStart, s.service.indexOf('\n  },', retryStart))
   demand(!/createProduct|createVariant|\.insert\(/.test(retry), 'retry recreates family')
   demand(/if \(submittingRef.current\) return/.test(s.form), 'double submit allowed')
+  const saveCta = /data-testid="product-form-save-button"[\s\S]*?style=\{\{([\s\S]*?)\}\}/.exec(s.form)
+  demand(Boolean(saveCta && /className="btn btn-primary"/.test(saveCta[0])), 'save CTA bypasses canonical primary')
+  demand(Boolean(saveCta && !/\b(?:background|backgroundColor|backgroundImage|boxShadow)\s*:/.test(saveCta[1])), 'save CTA overrides canonical background or shadow')
   demand(/validateVariantInputs\(variants\)/.test(s.service) && /skus, 'SKU'/.test(s.service), 'duplicate SKU unchecked')
   demand(/\.not\('has_variants', 'is', true\)/.test(s.search), 'sellable search offers parent')
   demand(/const wantsStockChange = !isGroupingParent\(editItem\)/.test(s.form), 'parent stock adjustable')
@@ -42,6 +45,8 @@ function check(s) {
 }
 assert.deepEqual(check(sources), [], 'PRODUCT-VARIANTS-1 contract')
 if (process.argv.includes('--self-test')) {
+  const saveCta = /data-testid="product-form-save-button"[\s\S]*?style=\{\{[\s\S]*?\}\}/.exec(sources.form)?.[0]
+  assert.ok(saveCta, 'save CTA mutation target missing')
   const mutations = [
     ['direct stock write', 'service', 'const baseInvRow = {', 'const baseInvRow = { stock_quantity: 5,'],
     ['sell parent', 'search', ".not('has_variants', 'is', true)", ''],
@@ -57,6 +62,9 @@ if (process.argv.includes('--self-test')) {
     ['double submit', 'form', 'if (submittingRef.current) return', ''],
     ['adjust parent', 'form', '!isGroupingParent(editItem)', 'true'],
     ['wholesale parent', 'wholesale', ".not('has_variants', 'is', true)", ''],
+    ['primary CTA gradient', 'form', saveCta, saveCta.replace('style={{', "style={{ background: 'linear-gradient(red,blue)',")],
+    ['primary CTA glow', 'form', saveCta, saveCta.replace('style={{', "style={{ boxShadow: '0 0 20px purple',")],
+    ['primary CTA without canonical class', 'form', saveCta, saveCta.replace('className="btn btn-primary"', '')],
   ]
   for (const [label, key, from, to] of mutations) {
     const changed = label === 'recreate on retry'

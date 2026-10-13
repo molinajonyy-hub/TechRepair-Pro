@@ -3,6 +3,18 @@
 Branch: `codex/product-variants-v2`. Base solicitada: `6ef066d5bc3e28ed56e94c1587be584c48f7e0a0`.
 El PR y su SHA final se informan en la entrega. Sin merge, despliegue, `db push` ni cambios en producción.
 
+## Integración final con main / BUTTON-SYSTEM-1A
+
+La rama se rebasó sobre `f0f72acf6a8dacff06668bca4f83fa04c7879ab1` (merge certificado de #177). No hubo conflictos de Git; sí había un conflicto de intención entre el microfix histórico del CTA y la nueva autoridad de botones. Los cuatro CTAs primarios del modal ahora reutilizan `.btn-primary`, sin fondo ni sombra en línea: `--indigo-600` en reposo, `--indigo-700` en hover, sin gradientes/glow. Conservan el token de texto, disposición, accesibilidad y tamaños de modal. Las acciones de página y `.btn-page-action` de main permanecen intactas.
+
+La expectativa antigua de gradiente para esos CTAs seguía en el archivo BETA-UX-1E de main; se actualizó para exigir la clase canónica, ausencia de overrides de fondo/sombra y el token de texto. Los contratos actuales de BUTTON-SYSTEM-1A y sus valores de contraste no se relajaron. El guard de variantes agrega tres mutantes: gradiente, glow y pérdida de clase canónica (17 controles en total).
+
+El servicio `productService.ts` y la migración coinciden exactamente con el SHA certificado anterior. Se preserva la identidad tenant-scoped de `updateProduct`, así como stock, retry, relaciones, compatibilidad legacy y precios/costos. Entre la base anterior y este main no se incorporaron migraciones: las de Mercado Pago y G2-C.3A3 ya estaban en la base anterior, y no cambian los objetos ni dependencias de esta migración.
+
+La certificación se ejecuta de nuevo sobre esta base, sin reutilizar el verde anterior. Se amplía la matriz visual del modal a 375×812 y 1440×900, claro/oscuro, verificando fondo sólido, hover, ausencia de glow, controles de 44px y ausencia de overflow. Los resultados de tests, capturas revisadas y CI completo del nuevo SHA se informan en la entrega. No se aplicó ninguna migración adicional al entorno existente ni a producción; las matrices CI usan bases descartables.
+
+Antes del push pasaron 684 pruebas de componentes (BETA-UX-1E/1F, BUTTON-SYSTEM-1A, variantes y A2), TypeScript, lint sin errores, los 17 mutantes de variantes, 38 de A2, 92 de A3 y 47 de SEC-08B. Se revisaron las cuatro capturas reales nuevas incluidas abajo. El entorno local tenía el puerto de su gateway reservado por Windows; para la validación se utilizó un puente temporal sólo en localhost:55421, permitido por el guard existente, sin relajarlo ni cambiar migraciones.
+
 ## Discovery y alcance
 
 Se reutilizaron ProductFormModal, VariantSelector, productService y el generador existente. Se leyeron la autoridad de Product Design y sus referencias de contexto, sistema visual, seguridad de ingeniería y calidad. POS mantiene su diseño protegido; Mi Guita no se usa como referencia.
@@ -38,7 +50,7 @@ Mensaje: “El producto y sus variantes se crearon, pero no pudimos confirmar el
 | USD | Referencia de venta USD en `base_price`, costo USD separado, cotización y actualización automática por hijo; padre sin repricing automático. Una variante USD puede heredar costo ARS por conversión. Overrides y ceros explícitos se conservan. |
 | Generador | Dimensiones completas y únicas, valores deduplicados, máximo 100 combinaciones; combina con filas manuales sin reemplazar ediciones. Se pueden editar nombres, SKU, atributos y valores propios. |
 | Valores base | Reutiliza applyBaseToVariants para completar huecos sin pisar cambios individuales; conversiones con cotización válida, mínimo y ubicación heredables. |
-| Mobile / temas | 375 px, filas de campos en una columna, textos largos sin desbordar, controles/touch targets de 44 px, foco visible y selector con Escape, ciclo de Tab y restauración de foco. CTA principal conserva el fondo exacto de la base y el token de texto certificado por BETA-UX-1E. |
+| Mobile / temas | 375 px, filas de campos en una columna, textos largos sin desbordar, controles/touch targets de 44 px, foco visible y selector con Escape, ciclo de Tab y restauración de foco. CTAs primarios reutilizan el índigo sólido y hover de BUTTON-SYSTEM-1A con el token de texto certificado. |
 
 ## Migración preparada
 
@@ -56,15 +68,15 @@ Mensaje: “El producto y sus variantes se crearon, pero no pudimos confirmar el
 
 El frontend V2 necesita los permisos y guards de `product_variants`, por lo que la migración debe estar aplicada **ANTES** de que llegue a producción. No se debe usar «merge y después db push» como secuencia de rollout. Antes del deploy productivo se ejecutarán manualmente `supabase migration list` y `supabase db push --dry-run` para revisar exactamente las migraciones pendientes; esos comandos no se ejecutaron durante este microfix. El repo incluye `20261013120000_beta_mp_plan_b_session_preapproval_unique.sql` además de esta migración: no corresponde hacer un `db push` a ciegas ni aplicar Mercado Pago junto con este lote.
 
-## Microfix del PR #176
+## Microfix histórico del PR #176 (antes de BUTTON-SYSTEM-1A)
 
-El CI del primer SHA falló en «Producto · Guardar producto» de BETA-UX-1E: el CTA había cambiado incidentalmente a `accentCta.background`. Se restauró únicamente su fondo exacto de la base (`linear-gradient(135deg, #6366f1, #4f46e5)`), conservando el token de texto, mobile, temas y accesibilidad. No se cambió la expectativa del test; la uniformidad global de botones queda para BUTTON-SYSTEM-1A.
+El CI del primer SHA falló en «Producto · Guardar producto» de BETA-UX-1E: el CTA había cambiado incidentalmente a `accentCta.background`. En ese microfix se restauró su fondo exacto de la base entonces vigente, conservando el token de texto, mobile, temas y accesibilidad. Ese contrato visual histórico fue reemplazado en la integración final con BUTTON-SYSTEM-1A descrita arriba; no se debe restaurar su gradiente.
 
 `updateProduct` resuelve `parent_id,has_variants` con una lectura de inventario filtrada por ID y negocio después de guardar. Producto simple: cero requests a `product_variants`. Padre agrupador: renombrar conserva la actualización de los nombres de sus hijos, sin metadata de variante del padre. Sólo un hijo con `parent_id != null` sincroniza metadata por su ID de inventario y tenant. Una falla de sync informa explícitamente que inventario se guardó y metadata está sin confirmar; si no se puede confirmar la identidad, también se informa ese límite.
 
 Se agregaron cinco contratos: simple sin requests de variantes, simple con tabla de variantes inaccesible, padre renombrado con hijos y otra familia intacta, sync del hijo y error honesto de sync. Los fixtures de edición G2-C.3A2 ahora incluyen la fila existente realista para la lectura de identidad. La migración no cambió ni se aplicó en producción. Los resultados remotos del nuevo SHA se informan en la entrega.
 
-## Validación
+## Validación original (la integración requiere nueva certificación)
 
 | Verificación | Resultado local |
 | --- | --- |
@@ -84,10 +96,12 @@ CI agrega la suite de componentes y la matriz SQL; m7-local incluye los nuevos E
 
 ## Evidencia visual
 
-Capturas revisadas, viewport 375 × 812, después de generar y editar combinaciones:
+Capturas nuevas de la integración con main: familia manual de tres variantes, CTA sólido visible. Revisadas en claro/oscuro a 375×812 y 1440×900:
 
 ![Mobile claro](product-variants-v2/mobile-light.png)
 ![Mobile oscuro](product-variants-v2/mobile-dark.png)
+![Desktop claro](product-variants-v2/desktop-light.png)
+![Desktop oscuro](product-variants-v2/desktop-dark.png)
 
 ## Archivos
 
