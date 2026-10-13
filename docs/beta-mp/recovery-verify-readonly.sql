@@ -12,8 +12,8 @@ SELECT 'no payment identity duplicated',
 UNION ALL
 SELECT 'approved ledger rows carry invoice, subscription, payment and approval date',
        NOT EXISTS (SELECT 1 FROM public.payments WHERE provider='mercadopago' AND status='approved'
-         AND (external_payment_id IS NULL OR paid_at IS NULL OR raw_payload->>'preapproval_id' IS NULL
-           OR raw_payload->>'authorized_payment_id' IS DISTINCT FROM external_payment_id OR raw_payload->>'payment_id' IS NULL));
+         AND (NULLIF(external_payment_id,'') IS NULL OR paid_at IS NULL OR NULLIF(raw_payload->>'preapproval_id','') IS NULL
+           OR raw_payload->>'authorized_payment_id' IS DISTINCT FROM external_payment_id OR NULLIF(raw_payload->>'payment_id','') IS NULL));
 
 SELECT event_type, processed, error_message, count(*) AS events
   FROM public.subscription_events
@@ -26,4 +26,6 @@ SELECT count(*) AS paid_sessions_without_approved_ledger
  WHERE s.status='paid' AND NOT EXISTS (
    SELECT 1 FROM public.payments p WHERE p.business_id=s.business_id AND p.provider='mercadopago'
      AND p.status='approved' AND p.raw_payload->>'preapproval_id'=s.mp_preapproval_id
-     AND p.raw_payload->>'payment_id' IS NOT NULL AND p.paid_at IS NOT NULL);
+     AND NULLIF(p.raw_payload->>'payment_id','') IS NOT NULL AND p.paid_at IS NOT NULL
+     AND p.raw_payload->>'authorized_payment_id'=p.external_payment_id
+     AND p.amount=s.amount AND p.currency=s.currency AND p.subscription_plan=s.plan_id);

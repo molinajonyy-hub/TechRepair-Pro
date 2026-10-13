@@ -52,6 +52,8 @@ try {
   sql(readFileSync('tests/sql/beta_mp_checkout_authority.test.sql', 'utf8'))
   phase = 'SQL payment identity'
   sql(readFileSync('tests/sql/beta_mp_recovery_payment_identity.test.sql', 'utf8'))
+  phase = 'readonly recovery verification'
+  sql(readFileSync('docs/beta-mp/recovery-verify-readonly.sql', 'utf8'))
   dbUri.pathname = `/${database}`
   const configured = { ...env, PGRST_DB_URI: dbUri.href, PGRST_SERVER_PORT: '3000', PGRST_DB_SCHEMAS: 'public' }
   const entries = Object.entries(configured).filter(([key]) => key.startsWith('PGRST_'))

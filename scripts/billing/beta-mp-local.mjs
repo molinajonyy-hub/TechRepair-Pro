@@ -314,9 +314,14 @@ const main = async () => {
   check(r.status === 200 && r.body.activated === true && r.body.outcome === 'activated' && r.body.checkout?.status === 'paid'
     && C.subscription_status === 'active' && C.subscription_plan === 'full' && C.mp_preapproval_id === pre('c'),
   'webhook perdido: reconcile lee el preapproval por el id de la sesión y activa Full anual')
-  check(mp.calls.every((c) => c.method === 'GET' && !c.path.includes('/preapproval/search') && !c.path.includes('payer_email')), 'reconcile sólo lee ids y facturas de la suscripción conocida')
+  check(mp.calls.every((c) => (c.method === 'GET' || (c.method === 'PUT' && c.path === `/preapproval/${pre('c0')}`))
+    && !c.path.includes('/preapproval/search') && !c.path.includes('payer_email')),
+    'reconcile sólo usa IDs vinculados: lee sus facturas y cancela el checkout anterior conocido')
   check(count('payments', `business_id = '${ids.C}' AND status = 'approved' AND raw_payload->>'preapproval_id' = '${pre('c')}'`) === 1,
     'sin webhook: reconcile reconstruye un único pago aprobado en el ledger real')
+  check(mp.preapprovals.get(pre('c0')).status === 'cancelled'
+    && count('payments', `business_id = '${ids.C}' AND status = 'approved' AND raw_payload->>'preapproval_id' = '${pre('c0')}'`) === 1,
+    'el checkout anterior autorizado sin activar queda cancelado y su cuota histórica queda registrada una sola vez')
   check(count('subscription_events', `business_id = '${ids.C}' AND event_type = 'billing_state_applied' AND raw_payload->>'source' = 'reconcile'`) === 1, 'el cambio queda auditado con origen reconcile')
   const despuesRec = huella('C')
   r = await call('ownerC', { action: 'reconcile', business_id: ids.C })

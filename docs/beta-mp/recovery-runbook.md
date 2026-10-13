@@ -23,6 +23,9 @@ Una etiqueta histórica `paid`, una URL de retorno, `invoice.status = processed`
 el email del pagador o `last_payment_status` aislado no prueban un pago.
 El backend entrega `payment_confirmed` desde el ledger; las pantallas de espera y éxito
 exigen esa prueba. Se conserva el acceso previo mientras espera la primera cuota.
+Se conserva también la regla existente de que gana la intención pagada más nueva
+(creación de la sesión, con ID como desempate), ahora con prueba del pago real.
+Un cobro tardío de una intención anterior no reemplaza una compra más nueva aprobada.
 No se extienden trials ni se conceden accesos manuales para compensar automáticamente.
 
 ## Diagnóstico por fase
@@ -125,8 +128,18 @@ contra evidencia concurrente y contra un acceso administrativo que cambió duran
 la operación. La primera activación tiene un evento durable reclamado antes de
 escribir negocio/sesión: el reintento termina ese mismo evento.
 
+Antes de cerrar un checkout anterior con ID conocido, se confirma su baja en MP;
+una etiqueta local expired no impide que un enlace siga siendo pagable. Esto cubre
+contratos previos autorizados que nunca llegaron a activarse en businesses, además
+del contrato canónico anterior. Cada cuota verificada se registra con su identidad
+original. Una intención posterior todavía sin aprobación conserva su checkout.
+No se cancela ni asocia el Plan A sin identidad local.
+
 Límites residuales:
 
+- Verificación de reemplazo limitada a un historial de 100 sesiones: más historial bloquea
+  la activación hasta auditarlo y ampliar la recuperación con pruebas. No se asume
+  que un contrato omitido esté cancelado.
 - Recuperación máxima de 100 facturas por suscripción. Paginación contradictoria,
   incompleta, cambiante o mayor al límite falla cerrada; requiere investigar y ampliar
   el límite con pruebas antes de recuperar contratos más largos.
@@ -178,14 +191,14 @@ primero el contrato antiguo para evitar doble cobro; no cobrar otra vez por defe
 
 Verificación ejecutada en este candidato:
 
-- 457 pruebas de billing/interfaz y firmas en Vitest; 33 contratos y diagnóstico
+- 463 pruebas de billing/interfaz y firmas en Vitest; 33 contratos y diagnóstico
   privado sin exposición de valores en Node.
 - 16 pruebas del handler real de webhook en Deno; check de los siete módulos
   compartidos de billing.
 - Guard BETA-MP: 99 sabotajes detectados, cero falsos positivos; guard de los
   tres SQL de lectura.
 - Matriz SQL de autoridad/RLS/GRANT y nueva restricción de identidad en PostgreSQL
-  real; 66 comprobaciones del código contra PostgREST real.
+  real; 67 comprobaciones del código contra PostgREST real.
 - TypeScript, lint del frontend y build. Las advertencias existentes del build
   y de las pruebas no son evidencia de certificación comercial.
 - Regresión de pantallas de suscripción BETA-1/BETA-UX-1C: 235 pruebas en siete archivos adicionales.

@@ -433,6 +433,10 @@ async function applyToUnbound(
 
   const previousPreapproval = business.mp_preapproval_id
   const previousStatus = business.subscription_status
+  const retirement = await retireOtherCheckouts(ctx, business, session)
+  if (retirement.reason) {
+    return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: retirement.reason })
+  }
 
   // The new first payment is approved, but access moves ONLY after the old
   // recurring contract has been reread as cancelled. A retry can finish a partial failure.
@@ -491,8 +495,7 @@ async function applyToUnbound(
   }
 
   // 4. Otros checkouts abiertos del mismo negocio dejan de estar vigentes.
-  const others = await ctx.store.listCheckoutSessions(business.id, 20)
-  for (const other of others) {
+  for (const other of retirement.sessions) {
     if (other.id !== session.id && other.status === 'pending') {
       await ctx.store.updateCheckoutSession(other.id, { status: 'expired' }, nowIso)
     }
@@ -517,7 +520,7 @@ async function noteUnauthorized(
  * a retry succeeds: this condition must remain visible to the owner.
  */
 async function supersedePreapproval(
-  ctx: BillingContext, businessId: string, previousId: string, replacedBy: string,
+  ctx: BillingContext, businessId: string, previousId: string, replacedBy: string, pendingOnly = false,
 ): Promise<boolean> {
   let error: string | null = null
   try {
@@ -525,6 +528,9 @@ async function supersedePreapproval(
     if (!previous || previous.id !== previousId) throw new Error('previous subscription missing')
     const origin = await ctx.store.findCheckoutSessionByPreapprovalId(previousId)
     if (origin && (origin.business_id !== businessId || referenceConflicts(previous, origin))) throw new Error('previous subscription mismatch')
+    if (pendingOnly && !['pending', 'cancelled'].includes(preapprovalState(previous.status))) {
+      throw new Error('another checkout became authorized')
+    }
     if (preapprovalState(previous.status) !== 'cancelled') {
       await ctx.mp.cancelPreapproval(previousId)
       const confirmed = await ctx.mp.getPreapproval(previousId)
@@ -545,4 +551,51 @@ async function supersedePreapproval(
     await ctx.store.updateEvent(event.id, { processed: error === null, processed_at: ctx.now().toISOString(), error_message: error })
   }
   return error === null
+}
+
+/** Closing a local checkout cannot leave its known MP link payable or billing. */
+async function retireOtherCheckouts(
+  ctx: BillingContext, business: BusinessBillingRow, incoming: CheckoutSessionRow,
+): Promise<{ sessions: CheckoutSessionRow[]; reason: 'replacement_pending' | 'superseded_preapproval' | null }> {
+  const blocked = { sessions: [], reason: 'replacement_pending' as const }
+  const sessions = await ctx.store.listCheckoutSessions(business.id, 101)
+  const incomingIndex = sessions.findIndex(s => s.id === incoming.id)
+  if (sessions.length > 100 || incomingIndex < 0) {
+    ctx.log({ event: 'replacement_checkout_limit', business_id: business.id })
+    return blocked // Incomplete history cannot certify absence of another known contract.
+  }
+  const obsolete: CheckoutSessionRow[] = []
+  for (const [index, other] of sessions.entries()) {
+    if (other.id === incoming.id || !other.mp_preapproval_id) continue
+    const pre = await ctx.mp.getPreapproval(other.mp_preapproval_id)
+    if (!pre || pre.id !== other.mp_preapproval_id || referenceConflicts(pre, other)) return blocked
+    const state = preapprovalState(pre.status)
+    if (state === 'authorized' || state === 'paused') {
+      // Changed future terms cannot invalidate a historical fee's native identity.
+      // They do prevent selecting a newer checkout as the winning paid plan.
+      if (index < incomingIndex && checkoutTermsProblem(
+        { billingCycle: other.billing_cycle, amount: other.amount, currency: other.currency }, pre.auto_recurring,
+      )) return blocked
+      const recovered = await recoverPayments(ctx, pre, other)
+      if (recovered.problem) return blocked
+      // Preserve the existing rule: the newest server-issued paid intent wins.
+      // A newer authorization without an approved first fee stays open; it is
+      // neither proof of payment nor a reason to revoke this paid plan.
+      if (index < incomingIndex) {
+        if (recovered.invoices.some(i => i.row.status === 'approved')) {
+          return { sessions: [], reason: 'superseded_preapproval' }
+        }
+        continue
+      }
+      if (other.mp_preapproval_id === business.mp_preapproval_id) continue // Primary replacement confirms it below.
+      if (!(await supersedePreapproval(ctx, business.id, pre.id, incoming.mp_preapproval_id!))) return blocked
+    }
+    if (state === 'pending') {
+      if (index < incomingIndex) continue // A newer unconsumed intent remains usable.
+      if (other.mp_preapproval_id === business.mp_preapproval_id) continue
+      if (!(await supersedePreapproval(ctx, business.id, pre.id, incoming.mp_preapproval_id!, true))) return blocked
+    } else if (!['authorized', 'paused', 'cancelled'].includes(state)) return blocked
+    obsolete.push(other)
+  }
+  return { sessions: obsolete, reason: null }
 }

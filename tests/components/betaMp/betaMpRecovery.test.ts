@@ -171,6 +171,74 @@ describe('approved first payment is the commercial authority', () => {
 })
 
 describe('confirmed cancellation and retryable plan replacement', () => {
+  it('a newer authorized checkout without approval stays open while the older approved plan activates', async () => {
+    await w.openCheckout(OWNER_A, BIZ_A, 'basico', 'monthly', 'paid')
+    w.advance(HOUR)
+    await w.openCheckout(OWNER_A, BIZ_A, 'pro', 'monthly', 'awaiting')
+    w.pay('paid'); w.mp.authorize('awaiting')
+    const r = await reconcile()
+    expect(r.body.confirmed).toBe(false) // latest checkout still awaits its own first fee
+    expect(w.db.business(BIZ_A)).toMatchObject({ subscription_plan: 'basico', mp_preapproval_id: 'paid' })
+    expect(w.sessionOf('awaiting').status).toBe('pending')
+    expect(w.mp.preapprovals.get('awaiting')!.status).toBe('authorized')
+  })
+  it('a late older unconsumed checkout cannot cancel or replace the already active newer paid intent', async () => {
+    await w.openCheckout(OWNER_A, BIZ_A, 'basico', 'monthly', 'old_unconsumed')
+    w.advance(HOUR)
+    await w.subscribe(OWNER_A, BIZ_A, 'pro', 'active_new')
+    // Simulate provider evidence arriving after the old pending link was retired.
+    w.pay('old_unconsumed')
+    const before = w.snapshot(BIZ_A)
+    await w.notify('subscription_preapproval', 'old_unconsumed')
+    expect(w.snapshot(BIZ_A)).toEqual(before)
+    expect(w.mp.preapprovals.get('active_new')!.status).toBe('authorized')
+    expect(w.mp.callsTo('PUT', '/preapproval/active_new')).toHaveLength(0)
+  })
+  it('a contradicting older known checkout is not cancelled or guessed from its amount/email', async () => {
+    await w.openCheckout(OWNER_A, BIZ_A, 'basico', 'monthly', 'mismatch')
+    w.advance(HOUR)
+    await w.openCheckout(OWNER_A, BIZ_A, 'pro', 'monthly', 'winner')
+    w.mp.preapprovals.get('mismatch')!.external_reference = 'foreign'
+    w.pay('winner')
+    expect((await reconcile()).body.confirmed).toBe(false)
+    expect(w.db.business(BIZ_A).subscription_status).toBe('trialing')
+    expect(w.mp.callsTo('PUT', '/preapproval/mismatch')).toHaveLength(0)
+  })
+  it('a different pending checkout is cancelled in MP before its local label is expired', async () => {
+    await w.openCheckout(OWNER_A, BIZ_A, 'basico', 'monthly', 'unused')
+    await w.openCheckout(OWNER_A, BIZ_A, 'pro', 'monthly', 'winner')
+    w.pay('winner')
+    expect((await reconcile()).body.confirmed).toBe(true)
+    expect(w.mp.preapprovals.get('unused')!.status).toBe('cancelled')
+    expect(w.sessionOf('unused').status).toBe('expired')
+    await reconcile()
+    expect(w.mp.callsTo('PUT', '/preapproval/unused')).toHaveLength(1)
+  })
+  it('two paid unbound checkouts converge to the newest known intent, with both fees booked and the older contract cancelled', async () => {
+    await w.openCheckout(OWNER_A, BIZ_A, 'basico', 'monthly', 'one')
+    await w.openCheckout(OWNER_A, BIZ_A, 'pro', 'monthly', 'two')
+    w.pay('one'); w.pay('two')
+    const otherTenant = w.snapshot(BIZ_B)
+    const r = await reconcile()
+    expect(r.body).toMatchObject({ confirmed: true, plan: 'pro' })
+    expect(w.db.business(BIZ_A).mp_preapproval_id).toBe('two')
+    expect(w.mp.preapprovals.get('one')!.status).toBe('cancelled')
+    expect(w.mp.preapprovals.get('two')!.status).toBe('authorized')
+    expect(w.db.tables.payments).toHaveLength(2)
+    await reconcile()
+    expect(w.mp.callsTo('PUT', '/preapproval/one')).toHaveLength(1)
+    expect(w.snapshot(BIZ_B)).toEqual(otherTenant)
+  })
+  it('an ignored cancellation of an unused known checkout blocks first activation and is retryable', async () => {
+    await w.openCheckout(OWNER_A, BIZ_A, 'basico', 'monthly', 'unused')
+    await w.openCheckout(OWNER_A, BIZ_A, 'pro', 'monthly', 'winner')
+    w.pay('winner'); w.mp.cancelIsIgnored = true
+    expect((await reconcile()).body.confirmed).toBe(false)
+    expect(w.db.business(BIZ_A).subscription_status).toBe('trialing')
+    w.mp.cancelIsIgnored = false
+    expect((await reconcile()).body.confirmed).toBe(true)
+    expect(w.mp.preapprovals.get('unused')!.status).toBe('cancelled')
+  })
   it.each(['cancelIsIgnored', 'cancelFails'] as const)('preserves the old plan on %s and finishes once cancellation is confirmed', async flag => {
     await w.subscribe(OWNER_A, BIZ_A, 'basico', 'old')
     await w.openCheckout(OWNER_A, BIZ_A, 'pro', 'monthly', 'new')
