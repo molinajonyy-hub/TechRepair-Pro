@@ -439,8 +439,10 @@ describe('A1 · CTAs del embudo con --text-on-accent (inmunes al remapeo light)'
     expect(cta.className).toContain('btn-fill-indigo')
     const estilo = cta.getAttribute('style') ?? ''
     expect(patrones.some(p => estilo.includes(p))).toBe(false)
-    // …y la clase declara blanco en una regla que no depende del tema.
-    expect(css).toMatch(/\n\.btn-fill-indigo\s*\{[^}]*color:\s*#fff;/)
+    // …y la clase declara el blanco (el token invariante) en una regla que no
+    // depende del tema. BUTTON-SYSTEM-1A: `.btn-fill-indigo` dejó de tener su
+    // propio gradiente y es un alias de `.btn-primary`, en la misma regla.
+    expect(css).toMatch(/\n\.btn-primary,\n\.btn-indigo,\n\.btn-fill-indigo \{\s*color: var\(--text-on-accent\);\s*background: var\(--indigo-600\);/)
     expect(css).not.toMatch(/\[data-theme="light"\][^{]*\.btn-fill-indigo/)
   })
 

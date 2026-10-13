@@ -417,8 +417,8 @@ export function Offers() {
           </div>
         </div>
         <div className="page-hdr-right">
-          <button className="btn btn-primary btn-lift" onClick={() => { setEditing(null); setShowModal(true) }}>
-            <Plus size={15} /> Nueva oferta
+          <button className="btn btn-primary btn-page-action" onClick={() => { setEditing(null); setShowModal(true) }}>
+            <Plus size={16} /> Nueva oferta
           </button>
         </div>
       </div>

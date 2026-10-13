@@ -556,22 +556,32 @@ describe('BETA-UX-1F · acciones del encabezado por capacidad', () => {
     await montarListo()
     const botones = within(screen.getByTestId('dashboard-actions')).getAllByRole('button').map(b => b.textContent || b.getAttribute('aria-label'))
     expect(botones).toEqual(['Nueva Orden', 'Nuevo Comprobante', 'Gestionar Caja', 'Registrar gasto', 'Actualizar datos'])
-    const principal = screen.getByRole('button', { name: 'Nueva Orden' })
-    // Clases exactas, no substrings: `btn-primary-aa` contiene `btn-primary`.
-    expect([...principal.classList]).toEqual(expect.arrayContaining(['btn-primary', 'btn-primary-aa', 'dash-action--primary']))
-    expect([...screen.getByRole('button', { name: 'Nuevo Comprobante' }).classList])
-      .toEqual(expect.arrayContaining(['btn-fill-indigo', 'btn-indigo-aa']))
-    expect([...screen.getByRole('button', { name: 'Gestionar Caja' }).classList]).toContain('btn-secondary')
-    // Una sola principal en la fila.
-    expect(screen.getByTestId('dashboard-actions').querySelectorAll('.dash-action--primary')).toHaveLength(1)
+    const fila = screen.getByTestId('dashboard-actions')
+    const clasesDe = (nombre: string) => [...screen.getByRole('button', { name: nombre }).classList]
+    // Clases exactas, no substrings. BUTTON-SYSTEM-1A: la jerarquía la da la
+    // variante —una primaria, dos secundarias, un `danger`—, no un color propio.
+    expect(clasesDe('Nueva Orden')).toEqual(expect.arrayContaining(['btn-primary', 'dash-action--primary']))
+    expect(clasesDe('Nuevo Comprobante')).toContain('btn-secondary')
+    expect(clasesDe('Gestionar Caja')).toContain('btn-secondary')
+    expect(clasesDe('Registrar gasto')).toContain('btn-danger')
+    // Una sola principal en la fila, y ningún índigo «alternativo».
+    expect(fila.querySelectorAll('.dash-action--primary')).toHaveLength(1)
+    expect(fila.querySelectorAll('.btn-primary, .btn-indigo, .btn-fill-indigo')).toHaveLength(1)
+    // Las cuatro comparten el tamaño de acción de página: ninguna es compacta
+    // y ninguna lleva una variante `-aa` retirada.
+    for (const nombre of ['Nueva Orden', 'Nuevo Comprobante', 'Gestionar Caja', 'Registrar gasto']) {
+      expect(clasesDe(nombre), nombre).toContain('btn-page-action')
+      expect(clasesDe(nombre).filter(c => /^btn-(sm|xs|lg|xl)$|-aa$/.test(c)), nombre).toEqual([])
+    }
   })
 
   it('«Registrar gasto» usa la variante `danger` y dejó de llamarse «Gasto»', async () => {
     await montarListo()
     const gasto = screen.getByRole('button', { name: 'Registrar gasto' })
-    // La clase de la variante, exacta: `btn-danger-aa` sola no es la variante.
+    // La clase de la variante, exacta. `btn-danger-aa` se retiró: el rojo AA ya
+    // es el de `.btn-danger`.
     expect([...gasto.classList]).toContain('btn-danger')
-    expect([...gasto.classList]).toContain('btn-danger-aa')
+    expect([...gasto.classList]).not.toContain('btn-danger-aa')
     expect(boton(/^Gasto$/)).toBeNull()
     fireEvent.click(gasto)
     expect(h.navigate).toHaveBeenCalledWith('/expenses')
@@ -1515,8 +1525,10 @@ describe('BETA-UX-1F · CSS: contrato responsive', () => {
 
   it('mobile: la principal ocupa el ancho y todo lo tocable mide 44px', () => {
     const movil = media(767)
-    expect(movil).toMatch(/\.dash-action--primary \{ flex: 1 1 100%; min-height: 48px; \}/)
-    expect(movil).toMatch(/\.dash-action \{ min-height: 44px; \}/)
+    expect(movil).toMatch(/\.dash-action--primary \{ flex: 1 1 100%; \}/)
+    // El alto no se redefine acá: es el de la acción de página, en todo ancho.
+    expect(bloque).not.toMatch(/\.dash-action(--primary|--secondary)? \{[^}]*min-height/)
+    expect(sinComentarios(css)).toMatch(/\n\.btn-page-action \{\s*min-height: 44px;/)
     // Las secundarias comparten alto: con `center` (la regla de escritorio) el
     // rótulo que entra en una línea quedaba más bajo que el vecino en dos. Lo
     // encontró el E2E en CI, con las fuentes de Linux.
@@ -1571,29 +1583,30 @@ const BLANCO = hex('#ffffff')
 describe('BETA-UX-1F · CSS: los pares de color elegidos llegan a 4,5:1', () => {
   const TEMAS = [['oscuro', OSCURO], ['claro', CLARO]] as const
 
-  it('`.btn-indigo-aa`: blanco sobre índigo plano, en reposo y en hover', () => {
-    expect(regla('.btn-fill-indigo.btn-indigo-aa')).toMatch(/color: var\(--text-on-accent\);\s*background: var\(--indigo-600\);/)
-    expect(regla('.btn-fill-indigo.btn-indigo-aa:hover:not(:disabled)')).toMatch(/color: var\(--text-on-accent\);\s*background: var\(--indigo-700\);/)
-    expect(contraste(BLANCO, paleta('--indigo-600'))).toBeGreaterThanOrEqual(AA)
-    expect(contraste(BLANCO, paleta('--indigo-700'))).toBeGreaterThanOrEqual(AA)
-    // Por qué existe: el extremo del gradiente de `.btn-fill-indigo` no llega.
-    expect(contraste(BLANCO, hex('#6366f1'))).toBeLessThan(AA)
+  // BUTTON-SYSTEM-1A: las variantes locales `-aa` de este lote se retiraron. Lo
+  // que arreglaban lo trae ahora la regla base de cada variante; el contrato
+  // completo está en `buttonSystem1a.test.tsx`.
+  it('las variantes `-aa` de 1F ya no tienen regla, e Inicio dejó de usarlas', () => {
+    expect(limpio).not.toMatch(/\.btn-indigo-aa\b[^{}]*\{|\.btn-danger-aa\b[^{}]*\{/)
+    // «Nuevo Comprobante» ya no es un segundo índigo: es una secundaria.
+    expect(leerCodigo('src/pages/Dashboard.tsx')).not.toMatch(/btn-indigo-aa|btn-danger-aa|btn-primary-aa|variant="indigo"/)
+    expect(leerCodigo('src/components/tasks/DashboardTasks.tsx')).not.toMatch(/btn-primary-aa/)
   })
 
-  it.each(TEMAS)('`.btn-danger-aa` (%s): el rojo de «Registrar gasto» se lee en reposo y en hover', (_tema, vars) => {
-    expect(regla('.btn-danger.btn-danger-aa')).toMatch(/color: var\(--order-badge-pending-fg\)/)
-    expect(regla('.btn-danger.btn-danger-aa:hover:not(:disabled)')).toMatch(/color: var\(--order-badge-pending-fg\)/)
+  it.each(TEMAS)('`.btn-danger` (%s): el rojo de «Registrar gasto» se lee en reposo y en hover', (_tema, vars) => {
+    expect(limpio).toMatch(/\n\.btn-danger,\n\.btn-danger:focus-visible \{\s*color: var\(--order-badge-pending-fg\);\s*background: var\(--error-subtle\);/)
+    expect(limpio).toMatch(/\n\.btn-danger:hover:not\(:disabled\),\n\.btn-danger:active:not\(:disabled\) \{\s*color: var\(--order-badge-pending-fg\);\s*background: var\(--error-light\);/)
     const pagina = hex(token(vars, '--bg-primary'))
     const texto = hex(token(vars, '--order-badge-pending-fg'))
     expect(contraste(texto, sobre(token(vars, '--error-subtle'), pagina))).toBeGreaterThanOrEqual(AA)
     expect(contraste(texto, sobre(token(vars, '--error-light'), pagina))).toBeGreaterThanOrEqual(AA)
   })
 
-  it('por qué no alcanza `.btn-danger` a secas: `--error` en claro queda bajo 4,5', () => {
+  it('por qué `.btn-danger` no usa `--error`: en claro queda bajo 4,5', () => {
     const pagina = hex(token(CLARO, '--bg-primary'))
     expect(contraste(hex(token(CLARO, '--error')), sobre(token(CLARO, '--error-subtle'), pagina))).toBeLessThan(AA)
-    // La regla global no se tocó.
-    expect(limpio).toMatch(/\n\.btn-danger \{\s*color: var\(--error\);\s*background: var\(--error-subtle\);/)
+    // En oscuro los dos rojos valen lo mismo: el cambio sólo se ve en claro.
+    expect(token(OSCURO, '--order-badge-pending-fg')).toBe(token(OSCURO, '--error'))
   })
 
   it.each(TEMAS)('acento y peligro sobre la tarjeta (%s), también con hover', (tema, vars) => {

@@ -18,7 +18,7 @@ OK    14 «Listas para entregar» con el alias legacy `ready` → rojo (1 tests)
 OK    15 «nuevas hoy» cortado en la medianoche UTC → rojo (1 tests), incluido «cuenta desde las 00:00 de Argentina»
 OK    16 una página llama al reprecio por su cuenta, sin pasar por el hook → rojo (3 tests), incluido «sólo Inicio la monta»
 OK    17 dos lecturas de la cotización (cada chip pide la suya) → rojo (6 tests), incluido «comparten la misma lectura»
-OK    18 «Registrar gasto» pierde la variante danger → rojo (1 tests), incluido «usa la variante `danger`»
+OK    18 «Registrar gasto» pierde la variante danger → rojo (3 tests), incluido «usa la variante `danger`»
 OK    19 Tareas queda debajo de las órdenes recientes → rojo (1 tests), incluido «después de «Hoy» y antes de las órdenes recientes»
 OK    20 la bienvenida duplicada vuelve junto a Primeros pasos → rojo (4 tests), incluido «sin la bienvenida duplicada»
 OK    21 el shell vuelve a repreciar: `MainLayout` monta la sincronización → rojo (1 tests), incluido «`MainLayout` NO monta la sincronización de inventario»
@@ -33,6 +33,30 @@ OK    29 el gate de Tareas mira sólo la capacidad (sin la feature `tasks`) → 
 OK    30 el bloque se abre mientras el plan se está leyendo → rojo (3 tests), incluido «mientras el plan se está leyendo no se abre a ciegas»
 OK    31 el gate de Tareas cambia de contrato (otra capacidad) → rojo (3 tests), incluido «la misma decisión que la ruta y que el menú»
 OK    32 la fila de acciones mobile vuelve a centrarse (alto desparejo) → rojo (1 tests), incluido «mobile: la principal ocupa el ancho»
+OK    33 reintroducir el gradiente en `.btn-primary` → rojo (8 tests), incluido «`.btn-primary` no contiene un gradiente en ningún estado»
+OK    34 `.btn-fill-indigo` vuelve a tener su propio gradiente → rojo (3 tests), incluido «`.btn-fill-indigo` (AppButton `indigo`) no contiene un gradiente»
+OK    35 el primario vuelve a tener resplandor → rojo (2 tests), incluido «sin resplandor y sin elevación»
+OK    36 el fondo del primario vuelve al índigo que no llega a AA → rojo (2 tests), incluido «el blanco llega a AA sobre el fondo, en reposo y en hover»
+OK    37 la acción de página deja de medir 44px → rojo (3 tests), incluido «`.btn-page-action`: 44px»
+OK    38 una acción de Inicio vuelve a ser compacta → rojo (3 tests), incluido «las cuatro acciones comparten tamaño»
+OK    39 «Nueva Orden» de Órdenes vuelve a su tamaño propio → rojo (2 tests), incluido ««Nueva Orden» es el mismo botón en Inicio y en Órdenes»
+OK    40 «Ver todas» de Tareas vuelve a ser más baja que «Nueva tarea» → rojo (1 tests), incluido ««Nueva tarea» y «Ver todas» comparten el tamaño de acción»
+OK    41 «Nuevo Comprobante» vuelve a ser un segundo índigo → rojo (4 tests), incluido «hay UNA sola primaria»
+OK    42 el foco de `danger` queda otra vez a merced de Bootstrap → rojo (3 tests), incluido «.btn-danger: el foco conserva los colores de la variante»
+OK    43 un CTA en línea vuelve a un gradiente → rojo (1 tests), incluido «el segundo gradiente de 1E se retiró»
+OK    44 uniformar TODO a 44px (también los compactos) → rojo (1 tests), incluido «los tamaños compactos NO se tocaron»
+OK    45 Clientes · «Plantilla» vuelve a ser compacta (`btn-ghost btn-sm`) → rojo (2 tests), incluido ««Plantilla»: secondary + acción de página»
+OK    46 Clientes · una secundaria con otro tamaño de ícono → rojo (1 tests), incluido «las cuatro comparten tamaño»
+OK    47 Clientes · «Exportar» pasa a ser otra primaria → rojo (2 tests), incluido «sigue habiendo UNA sola primaria»
+OK    48 Clientes · las secundarias dejan de ocultarse en mobile → rojo (1 tests), incluido «mobile conserva BETA-UX-1D»
+OK    49 Clientes · el menú de mobile pierde una acción → rojo (2 tests), incluido «mobile conserva BETA-UX-1D»
+OK    50 Filtros · el hover deja de estar acotado a los inactivos → rojo (1 tests), incluido «ninguna regla de estado le cambia el fondo»
+OK    51 Filtros · el activo deja de declarar su hover y su foco → rojo (1 tests), incluido «low activo: con el puntero, con el foco y presionado es la MISMA regla»
+OK    52 Filtros · «Ver stock bajo» activo vuelve al texto blanco → rojo (1 tests), incluido «low activo: el color semántico sólido»
+OK    53 Filtros · el rojo activo pasa a depender del tema → rojo (1 tests), incluido «out activo: el color semántico sólido»
+OK    54 Filtros · un estado vuelve al estilo en línea → rojo (2 tests), incluido «low: `.is-active` y `aria-pressed` salen del mismo estado»
+OK    55 Filtros · se promueven a variantes de botón → rojo (1 tests), incluido «no son `.btn` ni se promovieron»
+OK    56 Filtros · el texto del inactivo vuelve a un gris fijo → rojo (1 tests), incluido «la base es neutra y del tema»
 
 árbol idéntico al de antes de mutar: sí
-CONTROLES NEGATIVOS: 35/35 detectados
+CONTROLES NEGATIVOS: 59/59 detectados

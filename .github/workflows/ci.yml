@@ -242,17 +242,17 @@ jobs:
       # superficie clara); y que «Cifrado · interno» ya no es un `.badge` a
       # secas (Bootstrap lo dejaba blanco sobre blanco) sino una superficie
       # propia hecha sólo con tokens definidos en los dos temas.
-      # MICROFIX: `.btn-primary` global (blanco sobre índigo → cyan) tampoco
-      # llega a AA y NO se toca en este lote: es deuda del sistema de diseño.
-      # Los primarios de clase que viven en estas superficies («Invitar
-      # Usuario», «Nuevo Producto», «Generar Comprobante», «Agregar ítem»…)
-      # llevan además una variante local, `btn-primary-aa`. La suite fija que
-      # el gradiente tiene UNA fuente (`--gradient-primary-aa`, que también lee
-      # `accentCta.background`), que el blanco llega a 4,5:1 en reposo y en
-      # hover, que el hover está declarado aparte (sin eso vuelve el cyan), que
-      # la regla global y `--gradient-primary` no cambiaron, y que en los
-      # archivos de estas superficies ningún primario depende sólo de
-      # `.btn-primary`.
+      # MICROFIX de 1E, y lo que BUTTON-SYSTEM-1A cambió después: en 1E
+      # `.btn-primary` global (blanco sobre índigo → cyan) no llegaba a AA y no
+      # se tocó; los primarios de estas superficies («Invitar Usuario», «Nuevo
+      # Producto», «Generar Comprobante», «Agregar ítem»…) llevaban una variante
+      # local, `btn-primary-aa`, con OTRO gradiente. BUTTON-SYSTEM-1A hizo
+      # sólido al primario global, así que la variante quedó sin regla (la
+      # clase sigue en el marcado como alias sin efecto) y `accentCta.background`
+      # pasó a ser ese mismo índigo sólido. La suite fija hoy que el fondo de
+      # acento tiene UNA fuente y es sólido, que el blanco llega a 4,5:1 en
+      # reposo y en hover, que la variante ya no tiene regla, y que
+      # `--gradient-primary` no cambió.
       # Corre con las suites vecinas que montan estas pantallas. El contraste
       # sobre píxeles pintados, en claro y en oscuro, a 375 y 1440 px, vive en
       # `m7/cta-contrast.spec.ts` (job `e2e-local`).
@@ -308,7 +308,7 @@ jobs:
       # bloque (sólo `max-width`, sólo tokens, tabla desde 768 px y tarjetas por
       # debajo, fila de utilidades sólo en el shell mobile, acciones secundarias
       # de mobile del mismo alto) y aritmética WCAG de
-      # los pares elegidos —incluido por qué `.btn-danger` a secas no alcanza en
+      # los pares elegidos —incluido por qué `.btn-danger` no usa `--error` en
       # tema claro—. Corre con las suites vecinas que montan estas pantallas, ya
       # con el contrato nuevo (`cajaCapabilityGate`, `rbacCapabilities`,
       # `prebeta3a0Guardrails`, Tareas, primeros pasos). La geometría a 375 /
@@ -317,6 +317,33 @@ jobs:
       # vendedor) viven en `m7/dashboard-day-one.spec.ts` (job `e2e-local`).
       - name: BETA-UX-1F — operational day-one home
         run: npm run test:beta-ux-1f
+
+      # BUTTON-SYSTEM-1A: contrato del sistema de botones. La misma jerarquía de
+      # acción («Nueva Orden» en Inicio y en Órdenes, «Nueva tarea» en Inicio y
+      # en Tareas) tenía colores, gradientes, altos, paddings e íconos distintos
+      # según la pantalla, y dos índigos (`primary` con un gradiente índigo →
+      # cyan, `indigo` con otro). Fija: que `.btn-primary` y `.btn-fill-indigo`
+      # no contienen un gradiente en ningún estado, ni las demás variantes del
+      # contrato (secondary, ghost, danger, success); que primary es índigo
+      # sólido (`--indigo-600` en reposo, `--indigo-700` en hover y presionado),
+      # sin resplandor ni elevación, y que el blanco llega a AA sobre los dos;
+      # que `.btn-indigo` y `.btn-fill-indigo` son ALIAS de primary —la misma
+      # regla, no una copia—; que cada variante declara su foco de teclado, su
+      # presionado y (primary) su deshabilitado, porque Bootstrap entra por CDN
+      # y define esos estados con más especificidad que la regla base (medido:
+      # con el foco un secundario se pintaba gris y un `danger`, rojo sobre
+      # rojo); que secondary y danger llegan a AA en los dos temas; que
+      # `.btn-page-action` es 44px / 16px de padding / 8px de espacio / 14px 600
+      # / ícono de 16px, no fija el ancho, y que los tamaños compactos
+      # (`.btn-sm`, `.btn-xs`) NO se tocaron: la uniformidad es por categoría;
+      # y que las acciones migradas (Inicio ×4, «Nueva tarea» y «Ver todas»,
+      # Órdenes, Clientes, Tareas, Comprobantes, Garantías, Ofertas) usan ese
+      # contrato, con «Nueva Orden» y «Nueva tarea» iguales en sus dos
+      # pantallas. `--gradient-primary` no se tocó: sigue para lo que no es un
+      # botón. El alto real, los estados con Bootstrap cargado y el contraste
+      # pintado se miden en `m7/button-system.spec.ts` (job `e2e-local`).
+      - name: BUTTON-SYSTEM-1A — button contract
+        run: npm run test:button-system-1a
 
       # BETA-MP: Billing SaaS por Mercado Pago. El frontend propone, Mercado Pago
       # confirma, el backend decide. Corre el código REAL de las Edge Functions

@@ -371,13 +371,13 @@ test.describe('@beta-ux-1f A · dueño con datos · escritorio', () => {
       const nombres = await page.getByTestId('dashboard-actions').getByRole('button')
         .evaluateAll(bs => bs.map(b => (b.textContent || b.getAttribute('aria-label') || '').trim()))
       expect(nombres).toEqual(['Nueva Orden', 'Nuevo Comprobante', 'Gestionar Caja', 'Registrar gasto', 'Actualizar datos'])
-      // La principal es la más alta de la fila y llega a 44 px.
+      // BUTTON-SYSTEM-1A: las cuatro son acciones de página — el mismo alto, 44 px.
       const principal = await caja(accion(page, 'Nueva Orden'))
       expect(principal.height).toBeGreaterThanOrEqual(TOUCH_TARGET - TOUCH_EPSILON)
       for (const nombre of ['Nuevo Comprobante', 'Gestionar Caja', 'Registrar gasto']) {
-        expect((await caja(accion(page, nombre))).height, `«${nombre}» no puede ser más alta que la principal`).toBeLessThanOrEqual(principal.height + TOL)
+        expect(Math.abs((await caja(accion(page, nombre))).height - principal.height), `«${nombre}» no mide lo mismo que la principal`).toBeLessThanOrEqual(TOL)
       }
-      // La clase de la variante, exacta: `btn-danger-aa` sola no es la variante.
+      // La clase de la variante, exacta.
       await expect(accion(page, 'Registrar gasto')).toHaveClass(/(^|\s)btn-danger(\s|$)/)
 
       // ── Orden de los bloques: Hoy → Mis tareas → Órdenes recientes ──────
@@ -646,7 +646,9 @@ test.describe('@beta-ux-1f A · dueño con datos · mobile', () => {
       const contenido = await caja(page.getByTestId('dashboard-today'))
       const principal = await caja(accion(page, 'Nueva Orden'))
       expect(Math.abs(principal.width - contenido.width), '«Nueva Orden» no ocupa el ancho').toBeLessThanOrEqual(TOL)
-      expect(principal.height).toBeGreaterThanOrEqual(48 - TOUCH_EPSILON)
+      // BUTTON-SYSTEM-1A: la principal es una acción de página (44 px) también en
+      // mobile; ya no tiene un alto propio de 48.
+      expect(principal.height).toBeGreaterThanOrEqual(TOUCH_TARGET - TOUCH_EPSILON)
       await filaDeSecundarias(page, principal)
       // Ningún texto de botón se corta.
       for (const nombre of ['Nueva Orden', 'Nuevo Comprobante', 'Gestionar Caja', 'Registrar gasto']) {

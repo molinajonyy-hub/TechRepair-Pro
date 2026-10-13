@@ -14,6 +14,15 @@ rediseñó Finanzas. No se implementó CRM ni ORDERS-HISTORY-1.
 > Inicio); y la fila de acciones de mobile quedaba despareja. El detalle está en §17; las secciones
 > de abajo ya describen el estado corregido.
 
+> **BUTTON-SYSTEM-1A (después del merge de #175, `main` `6ef066d`).** Decisión de sistema de diseño
+> que nació mirando Inicio: los botones no llevan gradientes, `primary` es índigo sólido y las
+> acciones de página comparten un tamaño. Como #175 ya estaba mergeado, se entrega en un PR propio
+> desde `main`. Es §18; las secciones 6, 9 y 10 ya describen los botones como quedaron.
+
+> **Microfix de BUTTON-SYSTEM-1A sobre `da711d5` (mismo PR #177).** El E2E de GitHub dio dos rojos.
+> Uno era del instrumento de contraste, no del producto (midió píxeles que no eran del botón); el
+> otro, real: el encabezado de Clientes quedó con dos altos. Es §19.
+
 ---
 
 ## 1. Decisión de producto
@@ -208,13 +217,15 @@ en las pantallas de trabajo (recepción, POS, listas) el alto es del contenido. 
 
 Cada acción usa la capacidad canónica de su destino, nunca el nombre del rol:
 
-| Acción | Capacidad | Estilo |
+| Acción | Capacidad | Variante (BUTTON-SYSTEM-1A) |
 |---|---|---|
-| Nueva Orden | `orders_create` | Principal: gradiente AA, 44 px (48 en mobile) |
-| Nuevo Comprobante | `comprobantes` | Índigo plano (`btn-indigo-aa`) · `state: { openNew: true }` |
-| Gestionar Caja | `canUseCaja` (`finance`) | Contorno |
-| Registrar gasto | `finance` | Rojo semántico, variante `danger` (`btn-danger-aa`) |
+| Nueva Orden | `orders_create` | `primary` — índigo sólido; la única primaria de la fila |
+| Nuevo Comprobante | `comprobantes` | `secondary` · `state: { openNew: true }` |
+| Gestionar Caja | `canUseCaja` (`finance`) | `secondary` |
+| Registrar gasto | `finance` | `danger` — rojo semántico, suave |
 | Actualizar | — | Sólo ícono |
+
+Las cuatro son acciones de página: mismo alto (44 px), radio, padding, tipografía e ícono (§18).
 
 | Actor | Acciones | Caja en la barra | Importes en Inicio |
 |---|---|---|---|
@@ -290,20 +301,22 @@ Todo lo nuevo usa tokens de tema. Regla del bloque: el texto es `--text-primary`
 `--text-secondary`. `--text-tertiary` y `--text-subtle` quedan fuera: sobre el fondo de la página y
 sobre cualquier hover no llegan a 4,5:1 en tema claro.
 
-Dos variantes locales de botón, con el mismo criterio que `btn-primary-aa` en 1E (las reglas
-globales **no se tocan**):
+El lote original resolvió dos botones con variantes locales (`btn-indigo-aa`, `btn-danger-aa`),
+porque las reglas globales no llegaban a AA y no se tocaban. **BUTTON-SYSTEM-1A las retiró**: el
+arreglo pasó a la regla base de cada variante (§18).
 
-| Variante | Por qué | Reposo | Hover |
+| Botón | Regla | Reposo | Hover |
 |---|---|---|---|
-| `.btn-fill-indigo.btn-indigo-aa` | el extremo `#6366f1` del gradiente mide 4,47 con blanco | 6,29 | 7,90 |
-| `.btn-danger.btn-danger-aa` | `--error` sobre `--error-subtle` mide ~4,1 en claro | 5,46 claro · 6,4 oscuro | 5,00 · 5,9 |
+| Nueva Orden · Nueva tarea | `.btn-primary`: blanco sobre `--indigo-600` / `--indigo-700` | 6,29 | 7,90 |
+| Nuevo Comprobante · Gestionar Caja | `.btn-secondary` | 9,5 claro · 12,1 oscuro | 15,3 · 16,4 |
+| Registrar gasto | `.btn-danger`, con `--order-badge-pending-fg` | 5,46 claro · 6,55 oscuro | 5,00 · 5,87 |
 
-`btn-danger-aa` no inventa un rojo: usa `--order-badge-pending-fg`, el par por tema que ya existía
-para los badges de cobro.
+`.btn-danger` no inventa un rojo: usa `--order-badge-pending-fg`, el par por tema que ya existía
+para los badges de cobro (en oscuro vale lo mismo que `--error`).
 
-Medido en Chromium sobre píxeles pintados (`paintedContrastOf`), con backend simulado: **281
-medidas** entre claro y oscuro, escritorio y 375 px, reposo y hover. Ninguna por debajo de 4,5:1.
-Detalle en `evidence-1f/capture-report.txt`.
+Medido en Chromium sobre píxeles pintados (`paintedContrastOf`), con backend simulado: **288
+medidas** entre claro y oscuro, escritorio y 375 px, reposo y hover. Ninguna por debajo de 4,5:1 (la
+menor, 5,00). Detalle en `evidence-1f/capture-report.txt`.
 
 ## 10. Estructura mobile (375 × 812)
 
@@ -312,7 +325,7 @@ Detalle en `evidence-1f/capture-report.txt`.
 [● Caja abierta desde 09:20] [USD $1.556 ↻]  ← fila de utilidades, sólo en Inicio
 [▦] Inicio                           [↻]
     Tu taller hoy
-[          + Nueva Orden               ]     ← 48 px, todo el ancho
+[          + Nueva Orden               ]     ← 44 px, todo el ancho
 [ Nuevo      ] [ Gestionar ] [ Registrar ]   ← un tercio cada una
 [ Comprobante] [ Caja      ] [ gasto     ]
 [  9 activas |  2 listas  |  1 esperando ]   ← una fila de tres
@@ -466,8 +479,8 @@ hacerse con backend simulado (§15) y el E2E queda a cargo de GitHub (§13).
 | Guards estáticos | 21 en verde: los 19 del lote (ui-governance, no-real-data, credenciales, finance-writes, ci-e2e, first-steps, dollar-functions, order-payment-status, prebeta-p1, charts-l1, stock ×2, mobile-session, pwa, onboarding, customer-core, edge-cors, support-contact, tenant-isolation) más product-search y visual-evidence. `guard:realtime-notifications`, que se probó de más, ya falla en la base por un conteo de `.single()` que este lote no cambia, y no corre en CI |
 | Controles negativos | 35 / 35 detectados (23 del lote + 12 del microfix); árbol idéntico al terminar |
 | Verificación en navegador (backend simulado) | lote: 19 escenarios · 281 medidas de contraste · 0 desbordes — microfix: 70 comprobaciones en verde (fila de acciones en 11 anchos, 6 combinaciones de actor y plan, recorrido del dólar) |
-| **E2E `@beta-ux-1f`** (23 tests) | corrió en GitHub sobre `a528eee`: 20 / 22, con 2 rojos reales (§13). Sobre el microfix: **lo valida CI** |
-| **`m7-local` vecinos** | corrió en GitHub sobre `a528eee`: 351 pasaron, 8 rojos en `tab-contrast` (§13). Sobre el microfix: **lo valida CI** |
+| **E2E `@beta-ux-1f`** (23 tests) | corrió en GitHub sobre `a528eee`: 20 / 22, con 2 rojos reales (§13). Sobre el microfix (`b6cb8b8`): **verde en GitHub** |
+| **`m7-local` vecinos** | corrió en GitHub sobre `a528eee`: 351 pasaron, 8 rojos en `tab-contrast` (§13). Sobre el microfix (`b6cb8b8`): **verde en GitHub** (los 16 checks del PR) |
 
 **Un test intermitente, ajeno al lote.** `orderIntakeMobile › scanner cross-browser ›
 enumerateDevices vacío pero getUserMedia OK` falló en 3 de las 4 corridas completas de la suite en
@@ -616,3 +629,575 @@ reproduce la fila despareja en 390, 412, 430 y 480 px con las fuentes de esta m�
   recorre `/orders` → Inicio → `/orders` y cuenta las lecturas de `inventory?…linked_to_dolar=eq.true`
   y las escrituras de inventario. **No se pudo ejecutar en local**: lo valida GitHub.
 - E2E `tab-contrast`: 26 → 18 (sin las ocho de Inicio).
+
+## 18. BUTTON SYSTEM DECISION · BUTTON-SYSTEM-1A
+
+Base: `main` `6ef066d` (merge de #175). Exclusivamente sistema de diseño y presentación: no cambia
+lógica de Inicio, permisos, navegación, Tareas, órdenes, dólar, caja, inventario, RPC ni backend. Sin
+migraciones, sin Edge Functions, sin `db push`, sin deploy.
+
+### 18.1 El problema
+
+La misma jerarquía de acción no se veía igual en dos pantallas. «Nueva Orden» en Inicio, «Nueva
+tarea» en el bloque de Tareas y «Nueva Orden» en Órdenes tenían colores, gradientes, altos, paddings
+y tamaños de ícono distintos; unos usaban `AppButton` y otros clases `.btn` a mano. Y había **tres
+índigos**:
+
+| Clase | Qué pintaba | Problema |
+|---|---|---|
+| `.btn-primary` | gradiente índigo → cyan, con resplandor y elevación | el blanco medía 2,67–4,08:1 en oscuro |
+| `.btn-fill-indigo` (`AppButton variant="indigo"`) | otro gradiente, `#6366f1 → #4f46e5` | 4,47:1 en un extremo |
+| `.btn-indigo` | `--accent-primary` sólido, con resplandor | en oscuro es `#6366f1`: 4,47:1 |
+
+Más dos variantes locales que les ponían un parche encima (`btn-primary-aa` de 1E, con un tercer
+gradiente índigo → violeta; `btn-indigo-aa` de 1F).
+
+### 18.2 La decisión
+
+> **Los botones normales no llevan gradientes. Misma jerarquía, mismo lenguaje visual en todo
+> TechRepair.**
+
+| Variante | Uso | Cómo se ve |
+|---|---|---|
+| `primary` | crear / guardar / confirmar: la acción principal | índigo **sólido**, texto `--text-on-accent`, borde transparente, sin resplandor; hover con un índigo más oscuro |
+| `secondary` | acciones secundarias | fondo transparente, borde, texto del tema |
+| `danger` | rojo semántico | suave (fondo y borde tenues); distinto de primary a simple vista |
+| `success` | sólo cuando la semántica es éxito / cobro / completar | verde suave |
+| `ghost` | baja jerarquía, ícono solo | sin fondo ni borde |
+
+La jerarquía la dan la **semántica y la posición**, no un color distinto para que se vea más lindo.
+
+### 18.3 CSS final de primary
+
+```css
+.btn-primary,
+.btn-indigo,
+.btn-fill-indigo {
+  color: var(--text-on-accent);     /* #ffffff */
+  background: var(--indigo-600);    /* #4f46e5 */
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.btn-primary:hover:not(:disabled),  /* + los alias, + :active */
+.btn-primary:active:not(:disabled) {
+  color: var(--text-on-accent);
+  background: var(--indigo-700);    /* #4338ca */
+  border-color: transparent;
+  box-shadow: none;
+}
+```
+
+- **Por qué `--indigo-600` y no `--accent-primary`.** Se midió: `--accent-primary` vale `#6366f1`
+  en oscuro y el blanco queda en 4,47:1. `--indigo-600` y `--indigo-700` son tokens de `:root` que ya
+  existían: valen igual en los dos temas y el blanco mide **6,29:1** y **7,90:1**.
+- Sin resplandor y sin elevación (`box-shadow: none`, sin `transform`). El hover es sólo el cambio a
+  un sólido más oscuro.
+- `--gradient-primary` **no se tocó**: lo siguen usando superficies que no son botones. Se retiró
+  `--gradient-primary-aa` (1E), que sólo usaban botones.
+
+### 18.4 primary e indigo
+
+Después del cambio `indigo` no tiene ninguna diferencia semántica ni visual con `primary`.
+`.btn-indigo` y `.btn-fill-indigo` quedaron como **alias**: están en la misma regla que
+`.btn-primary` —no una copia—, así que no pueden volver a divergir. `AppButton variant="indigo"`
+sigue existiendo y pinta idéntico.
+
+No se hizo la migración de sus usos (10 `variant="indigo"`, 3 `btn-fill-indigo`, 2 `btn-indigo`) ni
+la de la clase `btn-primary-aa`, que sigue escrita en diez primarios de las superficies de 1E como
+alias sin efecto —con el comentario que la explicaba, hoy desactualizado—: es limpieza de marcado,
+y es BUTTON-SYSTEM-1B.
+
+Un efecto que conviene saber: el CTA del embudo de acceso (`AuthFlowPrimaryButton`, que es
+`variant="indigo"`) también pasó a índigo sólido.
+
+### 18.5 Tamaño estándar: la acción de página
+
+```css
+.btn-page-action {
+  min-height: 44px;
+  padding: 0.5rem 1rem;      /* 16px a cada lado */
+  gap: 0.5rem;               /* 8px entre ícono y texto */
+  font-size: 0.875rem;       /* 14px */
+  font-weight: 600;
+  line-height: 1.25;
+  border-radius: var(--radius-md);
+}
+.btn-page-action svg { width: 1rem; height: 1rem; }   /* ícono de 16px */
+```
+
+Es el tamaño del CTA de un encabezado de página o de un bloque protagonista, sea cual sea su
+variante. No fija el ancho. En `AppButton` es `size="page"`.
+
+**No se uniformó todo a 44 px.** `.btn-sm` y `.btn-xs` no se tocaron: tablas, menús, botones de
+ícono, acciones secundarias de un modal y controles chicos de escritorio conservan su tamaño. La
+uniformidad es por categoría.
+
+En mobile la composición de Inicio no cambió (principal a todo el ancho, tres secundarias en una
+fila): la principal mide 44 px —antes tenía un alto propio de 48— y las tres secundarias siguen
+compartiendo alto entre sí.
+
+### 18.6 Estados: lo que Bootstrap pintaba por debajo
+
+Hallazgo de la medición, no del pedido. Bootstrap entra por CDN (`index.html`) y define color,
+fondo y borde de `.btn:hover`, `:focus-visible`, `:active` y `:disabled` con más especificidad que la
+regla base de cada variante. Con el gradiente (una imagen) eso quedaba tapado; con un fondo sólido
+se habría visto. Medido sobre `main` antes de cambiar nada:
+
+| Botón | Estado | Lo que se veía |
+|---|---|---|
+| secondary («Gestionar Caja») | foco de teclado | fondo gris `#5c636a` con texto blanco |
+| danger («Registrar gasto») | foco de teclado | fondo rojo de Bootstrap con el texto rojo del sistema: rojo sobre rojo |
+| «Nuevo Comprobante» (`btn-indigo-aa`, de 1F) | foco de teclado | **ningún indicador de foco** |
+| primary | hover, presionado, foco | borde azul de Bootstrap (`#0a58ca`) |
+
+Por eso el contrato declara los estados, no sólo reposo y hover:
+
+- `.btn:focus-visible` usa el anillo del sistema (`outline: 2px solid var(--accent-primary)`), no el
+  halo de color de Bootstrap;
+- primary, secondary, danger y success conservan sus colores con el foco, y el presionado pinta lo
+  mismo que el hover (también al tocar, sin puntero encima);
+- un primario deshabilitado sigue siendo índigo (no el azul de Bootstrap).
+
+Esto alcanza a todos los `.btn` de esas cuatro variantes, no sólo a los de Inicio.
+
+### 18.7 Botones llevados al contrato
+
+| Pantalla | Acción | Antes | Ahora |
+|---|---|---|---|
+| Inicio | Nueva Orden | `AppButton primary` + `btn-primary-aa`, alto y tipografía propios | `primary` · `size="page"` |
+| Inicio | Nuevo Comprobante | `AppButton indigo` `sm` + `btn-indigo-aa` | `secondary` · `size="page"` |
+| Inicio | Gestionar Caja | `AppButton secondary` `sm` | `secondary` · `size="page"` |
+| Inicio | Registrar gasto | `AppButton danger` `sm` + `btn-danger-aa` | `danger` · `size="page"` |
+| Inicio · Tareas | Nueva tarea | `AppButton primary` `sm` + `btn-primary-aa` | `primary` · `size="page"` |
+| Inicio · Tareas | Ver todas | `.btn-secondary.btn-sm` | `.btn-secondary.btn-page-action` |
+| Inicio · Órdenes recientes | Ver todas | `.btn-secondary.btn-sm` | `.btn-secondary.btn-page-action` |
+| Órdenes | Nueva Orden | `.btn-primary.btn-sm.btn-lift`, ícono `+` | `.btn-primary.btn-page-action`, el mismo ícono que en Inicio |
+| Clientes | Nuevo Cliente | `.btn-primary.btn-sm.btn-lift` | `.btn-primary.btn-page-action` |
+| Clientes | Plantilla · Exportar · Importar | `.btn-ghost.btn-sm`, ícono de 15 px | `.btn-secondary.btn-page-action`, ícono de 16 px (microfix, §19.4) |
+| Tareas | Nueva tarea | `AppButton indigo` `sm` | `primary` · `size="page"` |
+| Comprobantes | Nuevo Comprobante | `.btn-primary` (tamaño por defecto) | `.btn-primary.btn-page-action` |
+| Garantías | Nueva garantía | `.btn-primary.btn-sm.btn-lift` | `.btn-primary.btn-page-action` |
+| Ofertas | Nueva oferta | `.btn-primary.btn-lift` | `.btn-primary.btn-page-action` |
+
+«Nuevo Comprobante» en Inicio quedó `secondary`: la fila tiene una sola primaria (Nueva Orden) y un
+segundo botón índigo competía con ella sin una diferencia semántica que lo justificara. En su propia
+pantalla (Comprobantes) es la primaria.
+
+Medido en Chromium: las 13 acciones miden 44 px de alto, 16 px de padding, 8 px de espacio, radio de
+8 px, 14 px / 600 e ícono de 16 px; las 8 primarias pintan idéntico (`rgb(79, 70, 229)`, texto
+blanco, sin sombra).
+
+Los CTA con estilos en línea que leían `accentCta.background` (Inventario, Usuarios, notas de la
+orden, «Agregar ítem») pasaron a ese mismo índigo sólido sin tocar su marcado: cambió el valor del
+token.
+
+### 18.8 Contraste (mínimo 4,5:1)
+
+Medido sobre píxeles pintados (`paintedContrastOf`), no calculado desde los tokens:
+
+| Botón | Claro · reposo | Claro · hover | Oscuro · reposo | Oscuro · hover |
+|---|---|---|---|---|
+| primary sólido (Nueva Orden, Nueva tarea, Nueva Orden en Órdenes) | 6,29 | 7,90 | 6,29 | 7,90 |
+| secondary (Nuevo Comprobante) | 9,53 | 15,25 | 12,09 | 16,40 |
+| secondary (Gestionar Caja) | 9,61 | 15,38 | 12,27 | 16,69 |
+| secondary (Ver todas) | 10,35 | 16,60 | 10,52 – 10,97 | 14,08 – 14,74 |
+| danger (Registrar gasto) | 5,42 | 4,96 | 6,55 | 5,87 |
+
+Salida completa en `evidence-1f/verify-buttons.txt`.
+
+### 18.9 Inventario de botones legacy · BUTTON-SYSTEM-1B
+
+Lo que **no** se migró, clasificado. El color ya es consistente en todo lo que usa `.btn-primary` o
+sus alias (cambia la regla, no el marcado); lo pendiente es tamaño, marcado y las variantes que 1A
+no tocó.
+
+**A · ya usan `AppButton`, con otro tamaño o variante**
+
+| Pantalla | Acción | Estado |
+|---|---|---|
+| Cuentas Corrientes | Nueva cuenta | `variant="indigo"` `size="sm"`, junto a un `ghost sm` |
+| Gastos | Nuevo Gasto | `variant="red"` `sm` (rojo sólido **con gradiente**), junto a `secondary sm` y `ghost sm` |
+| Tareas | Actualizar | `ghost sm`; queda compacto al lado de «Nueva tarea» (44 px) |
+
+**B · usan `.btn btn-primary` a mano, en encabezados con más de una acción**
+
+| Pantalla | Acción | Por qué no entró |
+|---|---|---|
+| Inventario | Nuevo Producto | botón partido (dos mitades, radios y borde en línea) y tres `ghost sm`; además hay un PR abierto sobre Inventario (#176) |
+| Usuarios | Invitar Usuario | convive con «Invitaciones (n)», que es un botón de estilos en línea |
+| Proveedores | Nuevo proveedor | convive con «Nueva factura», con su propio flujo |
+| Mayorista | Generar precios masivos (`primary sm`) · Nuevo Comprobante (`success sm`) | dos acciones, y hay que decidir si «Nuevo Comprobante» es `success` |
+| Caja | Movimiento (`btn-indigo sm`) · Cerrar Caja (`danger sm`) | pantalla financiera, tres acciones en fila |
+| `Users.tsx`, `DashboardNew.tsx` | Nuevo Usuario · Nueva Orden | páginas legacy; no se verificó que tengan ruta |
+
+**C · estilos en línea o propios**
+
+- Gradientes índigo escritos en línea (`linear-gradient(135deg, #6366f1…)`): 30 apariciones en 21
+  archivos. No todas son botones (logo, banners, pantallas de plan); entre las que sí:
+  `ProductFormModal` (4), `ComprobanteProModal` (4), `ModalCrearComprobante` (2), `Settings` (2),
+  los modales de garantías y `ModalGenerarComprobante`.
+- «Invitaciones (n)» en Usuarios y «Actualizar» en Suscripciones (admin).
+
+**D · mismo color, tamaño propio**
+
+`.btn-primary` sin clase de tamaño (≈38 px) o con `btn-sm`, fuera de un encabezado: guardar de
+Moneda, Configuración, Proveedores, Suscripción, etc. En total hay 89 usos de primary o de sus alias
+en 55 archivos; 8 son ya acciones de página.
+
+**Variantes que 1A no tocó, medidas** (`verify-buttons.mjs`, parte L):
+
+| Variante | Texto · claro | Texto · oscuro | Fondo | Resplandor | Deshabilitado |
+|---|---|---|---|---|---|
+| `green` | 2,40 | 2,40 | **gradiente** | sí | — |
+| `amber` (y `warning`) | 2,28 | 2,28 | **gradiente** | sí | — |
+| `red` | 3,94 | 3,94 | **gradiente** | sí | — |
+| `teal` | 2,68 | 2,68 | **gradiente** | sí | — |
+| `cyan` | 3,68 | 2,43 | sólido | sí | — |
+| `success` | 3,26 | 9,09 | suave | no | lo pinta Bootstrap (verde `#198754`) |
+| `ghost` | 4,25 | 6,37 | sin fondo | no | — |
+| `secondary` | 9,32 | 11,98 | — | no | lo pinta Bootstrap (gris `#6c757d`) |
+| `danger` | 5,47 | 6,49 | suave | no | lo pinta Bootstrap (rojo `#dc3545`) |
+
+Texto blanco sobre `green`, `amber`, `red` y `teal` no llega a 4,5:1 en ningún tema, y `success` y
+`ghost` quedan por debajo en claro. Ninguna se tocó: `green` y `red` están en flujos de cobro y de
+anulación y necesitan una decisión de color propia. El estado deshabilitado de `secondary`,
+`danger` y `success` sigue siendo el de Bootstrap (un relleno al 45 % de opacidad); 1A sólo lo
+corrigió en primary, que es la variante que cambió de fondo.
+
+**Limpieza de marcado:** quitar la clase `btn-primary-aa` y su comentario (10 usos en 7 archivos) y
+reemplazar `variant="indigo"` / `btn-fill-indigo` / `btn-indigo` por primary (15 usos).
+
+**E · encabezados con un compañero compacto junto a la acción de 44 px** (hallazgos del microfix,
+§19; documentados, **sin tocar**)
+
+La regla que fijó el owner para Clientes —las acciones visibles de un mismo encabezado son una
+categoría y comparten tamaño— todavía no se cumple en dos encabezados que 1A migró a medias:
+
+| Pantalla | Fila | Estado |
+|---|---|---|
+| Tareas | «Actualizar» (`AppButton ghost sm`, ícono de 14 px) + «Nueva tarea» (`primary`, 44 px) | dos altos en la misma fila |
+| Comprobantes | «Actualizar» (`.btn-ghost.btn-sm`, ícono de 14 px) + «Nuevo Comprobante» (`.btn-primary.btn-page-action`) | dos altos en la misma fila |
+
+Y uno de Inventario que no es de botones `.btn`:
+
+| Pantalla | Control | Estado |
+|---|---|---|
+| Inventario | «Ver stock bajo» · «Ver agotados» · «Ver todos» | miden 40 px de alto en mobile (objetivo táctil: 44). El microfix les dio clases propias y no les cambió el tamaño |
+
+### 18.10 Tests y gates
+
+- `tests/components/buttonSystem1a.test.tsx` (nuevo, 55 tests): sin gradientes en ningún estado
+  de primary, de `.btn-fill-indigo` ni de las demás variantes del contrato; primary sólido y sin
+  resplandor; los alias comparten la regla; estados declarados; AA de primary, secondary y danger en
+  los dos temas; `.btn-page-action` con sus medidas y sin ancho fijo; los tamaños compactos intactos;
+  y cada acción migrada con su variante y su tamaño.
+- Contratos que cambiaron por decisión del owner y se llevaron al nuevo: seis tests de
+  `betaUx1eAccentContrast` («NO se tocó el `.btn-primary` global ni su gradiente» pasó a ser lo
+  contrario), siete de `betaUx1fDashboard` y uno de `prebeta3a0Guardrails`.
+- E2E nuevo, `tests/e2e/m7/button-system.spec.ts` (`@button-system-1a`, 7 tests): geometría y fondo
+  iguales entre pantallas, contraste pintado, estados sin colores de Bootstrap, objetivo táctil en
+  375 px. En `dashboard-day-one` la principal de mobile pasó de 48 a 44 px y las cuatro acciones de
+  escritorio miden lo mismo. En `cta-contrast` (1E) un assert comparaba el `background-image` en
+  reposo y en hover: con fondos sólidos los dos son `none`, así que ahora compara color e imagen.
+  **Ninguno de los tres se pudo ejecutar en local**: los valida GitHub.
+
+| Gate | Resultado |
+|---|---|
+| `tsc --noEmit` · `eslint src --quiet` | 0 · 0 |
+| Suite completa de componentes | 137 archivos · 3.101 / 3.102. El único rojo es `orderIntakeMobile › scanner … getUserMedia OK`, el intermitente ya documentado en §14: jsdom no aplica CSS, así que este lote no puede alcanzarlo. Aislado pasó 4 de 5 veces; la que falló fue inmediatamente después de la corrida completa |
+| `test:unit` | 1.215 / 1.215 |
+| `vite build` | OK |
+| Guards estáticos | 21 en verde |
+| Controles negativos | 47 / 47 detectados (35 anteriores + 12 de botones); árbol idéntico al terminar |
+| Navegador con backend simulado | 149 comprobaciones en verde (estados en los dos temas, geometría de 13 acciones en 7 pantallas, contraste pintado) · 288 medidas de contraste en 19 escenarios de Inicio, la menor 5,00:1 |
+| E2E (`@button-system-1a`, `@beta-ux-1f`, `@beta-ux-1e`) | **→ GitHub** |
+
+`C:` tenía 11,9 GB libres: por debajo de 15 no se levantó Docker ni se corrió ningún E2E en local.
+
+### 18.11 Evidencia
+
+Las seis capturas de `evidence-1f/` se regrabaron con los botones nuevos (mismo arnés de backend
+simulado). `verify-buttons.mjs` y su salida `verify-buttons.txt` documentan estados, geometría,
+contraste y el inventario medido de las variantes pendientes.
+
+---
+
+## 19. Microfix de BUTTON-SYSTEM-1A sobre `da711d5`
+
+Mismo PR (#177). El E2E de GitHub sobre `da711d5` dio 359 verdes y **2 rojos**. No eran el mismo
+tipo de problema: uno era del instrumento de medida y el otro, una regresión real de 1A.
+
+| Rojo de CI | Qué era |
+|---|---|
+| `cta-contrast.spec.ts` · Inventario · «Ver stock bajo» · dark mobile · activo: «texto rgb(15, 23, 42) sobre rgb(31, 27, 27) = 1.05:1» | El **instrumento** midió píxeles que no eran del botón. El producto pintaba bien (§19.1) |
+| `mobile-orders.spec.ts` · Clientes · escritorio: «los botones del encabezado se partieron en más de una fila» | **Regresión de 1A**: «Nuevo Cliente» pasó a 44 px y sus tres compañeras siguieron en `btn-sm` (§19.3) |
+
+Ningún spec se modificó para que dejara de fallar: las expectativas que dieron rojo siguen iguales,
+y se sumaron otras más estrictas.
+
+### 19.1 Inventario: qué midió CI
+
+**El producto estaba bien.** Medido en Chromium con el CSS servido, antes de tocar nada:
+
+| Filtro activo | Fondo | Tinta | Contraste |
+|---|---|---|---|
+| «Ver stock bajo» | `rgb(245, 158, 11)` | `#0f172a` | 8,31:1 |
+| «Ver agotados» | `rgb(239, 68, 68)` | `#0f172a` | 4,74:1 |
+
+Igual en claro y en oscuro, a 375 y a 1440, en reposo, con el puntero y con el foco del teclado.
+Ninguna regla pisa el fondo activo: los filtros no eran `.btn` y no hay reglas globales de `button`
+que toquen el color.
+
+**Lo que pasó en la medida.** `paintedContrastOf` toma dos capturas del mismo recorte de pantalla
+(con los glifos y sin ellos) y el recorte se calcula antes, en coordenadas del viewport. El clic de
+un filtro de stock hace `scrollIntoView({ behavior: 'smooth' })` hacia la tabla
+(`applyStockStatusFilter`). La traza de la corrida de CI muestra:
+
+- la página en movimiento durante la medida (`scrollTop` 2 → 616 → 637 → 18 en unos 450 ms después
+  del clic);
+- el botón **en ámbar con texto oscuro** en el cuadro de la primera captura;
+- como fondo reportado, `rgb(31, 27, 27)`: el de la caja de alerta que rodea a los filtros (ámbar al
+  10 % sobre la página oscura), no un estado del botón.
+
+**Reproducido.** Con el instrumento anterior y la pantalla real, correr la página 18 px entre las
+dos capturas devuelve exactamente lo de CI: `1.05:1 sobre rgb(31, 27, 27)`
+(`evidence-1f/verify-buttons-race-before.txt`). El recorte mide unos 17 px de alto: con 18 px de
+corrimiento, la captura sin glifos ya incluye la caja de alerta.
+
+Lo que **no** quedó demostrado es qué corrió la página esos píxeles en CI. La hipótesis es la cola
+del scroll suave después del scroll instantáneo del propio instrumento; en esta máquina, con un
+scroll suave en curso, el instrumento anterior no falló (cuatro retardos probados). Por eso la
+reproducción mueve la página a mano y no depende de los tiempos.
+
+**El mismo error da verde.** En tema claro el fondo de la caja de alerta es claro: la tinta oscura
+contra él da más de 14:1 y la medida habría pasado sin haber medido el botón. En CI, «mobile light»
+pasó con la misma secuencia; no se puede saber si esa medida fue buena. El arreglo cierra los dos
+casos, porque son el mismo.
+
+### 19.2 El instrumento: geometría quieta o no hay medida
+
+`tests/e2e/helpers/contrast.ts`. El mínimo (4,5:1) no cambió; cambió qué se acepta como medida.
+
+1. Espera a que el elemento esté **quieto**: 4 cuadros seguidos con la misma caja (`x`, `y`, ancho,
+   alto) y el mismo scroll de la página, con una tolerancia de 0,5 px y un tope de 2 s.
+2. Lo lleva al centro sin animar y vuelve a esperar.
+3. Lee la caja y calcula el recorte.
+4. Captura con texto y **vuelve a leer la caja** (un cuadro después).
+5. Captura sin texto y vuelve a leerla.
+6. Si la caja o el scroll cambiaron más que la tolerancia, la medida se **descarta entera** y se
+   repite desde el paso 1.
+7. Hasta 4 intentos (`MEASURE_ATTEMPTS`). Si ninguno queda quieto, lanza
+   `paintedContrastOf: element moved during contrast measurement — «…» no se pudo medir quieto en 4
+   intentos: …`, con el corrimiento de cada intento.
+
+Nunca devuelve un contraste tomado de otro lugar, ni un verde por no haber podido medir. El
+resultado suma `attempts` (1 si nada se movió).
+
+Medido con la página moviéndose bajo la medida (`verify-buttons.mjs`, parte R):
+
+| Caso | Instrumento anterior | Ahora |
+|---|---|---|
+| Página quieta | 8,31:1 | 8,31:1 en 1 intento |
+| Se corre 18 px entre las dos capturas, una vez (oscuro) | **1,05:1 sobre `rgb(31, 27, 27)`** | descarta y repite: 8,31:1 en 2 intentos |
+| Lo mismo en tema claro | un contraste alto, contra la caja de alerta | descarta y repite: 8,31:1 sobre el ámbar |
+| Se corre antes de la primera captura | — | descarta y repite: 8,31:1 en 2 intentos |
+| Se corre en **cada** medida | un número de otro fondo | falla, sin número, tras 4 intentos |
+| Scroll en curso al empezar (suave del navegador, o cuadro a cuadro) | depende de los tiempos | espera a que termine: 8,31:1 |
+| La página no se queda quieta nunca | un número cualquiera | falla con `element moved during contrast measurement` |
+
+### 19.3 Inventario: filtros con clases propias
+
+Los tres botones tenían sus estados en un ternario en línea. Pasaron a clases de Inventario
+(`src/index.css`, antes del bloque de 1F), con cada estado declarado:
+
+```css
+.inventory-stock-filters { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+.inventory-stock-filter {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.inventory-stock-filter--low { border-color: var(--warning-border); }
+.inventory-stock-filter--out { border-color: var(--error-border); }
+.inventory-stock-filter--reset { color: var(--text-secondary); }
+
+.inventory-stock-filter:not(.is-active):hover { background: var(--bg-hover); }
+.inventory-stock-filter:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+
+.inventory-stock-filter--low.is-active,
+.inventory-stock-filter--low.is-active:hover,
+.inventory-stock-filter--low.is-active:focus-visible,
+.inventory-stock-filter--low.is-active:active {
+  background: #f59e0b;
+  border-color: #f59e0b;
+  color: var(--text-on-bright);
+}
+.inventory-stock-filter--out.is-active,
+.inventory-stock-filter--out.is-active:hover,
+.inventory-stock-filter--out.is-active:focus-visible,
+.inventory-stock-filter--out.is-active:active {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: var(--text-on-bright);
+}
+```
+
+- **Contrato de BETA-UX-1E, intacto:** activo = color semántico sólido con `--text-on-bright`. El
+  fondo activo es un valor fijo y no `--warning-soft` / `--error-soft`, porque esos tokens cambian
+  con el tema y el par medido (8,31 y 4,74) tiene que valer en los dos.
+- **Un activo no pierde su fondo:** hover, foco y presionado están en la misma regla que el reposo,
+  y el hover del inactivo está acotado con `:not(.is-active)`.
+- **Inactivo:** fondo transparente (se ve la caja de alerta), texto `--text-primary`
+  (`--text-secondary` en «Ver todos») y el anillo de foco del sistema. El borde conserva el tinte
+  ámbar o rojo que ya tenía, ahora con los tokens `--warning-border` / `--error-border`.
+- **No son variantes de botón:** no son `.btn`, no existe `.btn-warning`, y sólo Inventario usa
+  estas clases. `green`, `amber`, `red`, `teal`, `success` y `ghost` no se tocaron.
+- En el marcado, `.is-active` y `aria-pressed` salen del mismo estado.
+- El tamaño no cambió (ver §18.9 E: 40 px en mobile, anotado para 1B).
+
+Medido (`verify-buttons.mjs`, parte F), en los cuatro casos claro/oscuro × 375/1440:
+
+| Estado | «Ver stock bajo» | «Ver agotados» |
+|---|---|---|
+| Inactivo · reposo | 14,35 – 15,60 | 15,05 – 15,58 |
+| Inactivo · hover | 13,39 – 14,57 | 14,03 – 14,57 |
+| Activo · reposo | 8,31 | 4,74 |
+| Activo · hover | 8,31 (mismo fondo) | 4,74 (mismo fondo) |
+| Activo · foco de teclado | 8,31 (mismo fondo, anillo del sistema) | 4,74 (mismo fondo, anillo del sistema) |
+
+«Ver todos»: 8,52 – 10,91.
+
+### 19.4 Clientes: las acciones visibles del encabezado son una categoría
+
+1A había migrado sólo la primaria. Con `align-items: center`, un botón de 44 px al lado de tres
+compactos (`btn-ghost btn-sm`) da dos coordenadas Y en la misma fila: eso es lo que midió el test.
+
+**Decisión del owner:** los botones visibles de un mismo encabezado pertenecen a la misma categoría
+y comparten alto, radio, padding, tamaño de ícono, tipografía y alineación. No hace falta que midan
+lo mismo de ancho.
+
+| Ancho | Composición |
+|---|---|
+| ≥ 768 px | `Plantilla` · `Exportar` · `Importar` (`.btn-secondary.btn-page-action`) + `Nuevo Cliente` (`.btn-primary.btn-page-action`), en una fila |
+| < 768 px | `Nuevo Cliente` de lado a lado + el menú «Más acciones de clientes» con Plantilla, Exportar e Importar. **Sin cambios respecto de BETA-UX-1D** |
+
+Medido (`verify-buttons.mjs`, parte K) a 1440, 1280, 1024, 900 y 768: las cuatro miden 44 px, comparten
+la coordenada Y, el radio (8 px), el padding (16 px), la tipografía (14 px / 600) y el ícono
+(16 px); anchos 111 / 116 / 116 / 153 px; sin desborde. Contraste de las secundarias: 9,55 – 9,61
+en claro y 12,19 – 12,27 en oscuro (15,28 – 16,69 con hover). A 320, 375, 430 y 767: «Nuevo
+Cliente» (44 px de alto) y el menú (44 × 44) en la misma fila; las otras tres no están en la fila y
+el menú las ofrece en su orden.
+
+### 19.5 Tests
+
+- `buttonSystem1a.test.tsx`: 55 → **72**. Clientes (las tres secundarias con su clase, una sola
+  primaria, un solo tamaño de ícono, la fila por construcción, el corte de mobile de 1D) e
+  Inventario (la base, cada activo con su par y su aritmética WCAG, hover/foco/presionado en la
+  misma regla, ninguna regla de estado alcanza a un activo, inactivo legible en los dos temas,
+  marcado sin estilo en línea, no son `.btn`).
+- `betaUx1eAccentContrast.test.tsx`: el test de los filtros leía el ternario en línea; ahora lee la
+  regla CSS. Mismo contrato (tinta invariante sobre el sólido, texto del tema en el inactivo).
+- E2E, `cta-contrast.spec.ts`:
+  - «El instrumento de medida» suma seis tests sobre una página armada a mano que se mueve entre
+    las dos capturas, en oscuro y en claro: descarta y repite; falla si se mueve siempre; espera a
+    un scroll en curso; falla si no se queda quieta nunca.
+  - Inventario conserva sus medidas de siempre y suma inactivo + hover, y cada filtro activo con el
+    puntero y con el foco del teclado: el color computado es el semántico, lo pintado detrás del
+    texto es un solo color y el contraste llega a 4,5.
+- E2E, `mobile-orders.spec.ts`: el test que dio rojo conserva su expectativa y suma alto (44, 44,
+  44, 44), misma Y, radio, padding, tipografía e ícono; el del corte de 768 comprueba a 767 que sólo
+  quedan la primaria y el menú, y a 768 las cuatro en una fila.
+- E2E, `button-system.spec.ts`: las tres secundarias de Clientes entran en la medida de geometría.
+- Controles negativos: 12 nuevos sobre el contrato (5 de Clientes, 7 de los filtros) y
+  `evidence-1f/instrument-controls.mjs`, que corre el bloque del instrumento del spec real (no
+  necesita ni la app ni la base) y después rompe el helper: 4 mutaciones, las 4 detectadas. La
+  primera es el instrumento anterior.
+
+### 19.6 Gates
+
+| Gate | Resultado |
+|---|---|
+| `tsc --noEmit` · `eslint src --quiet` | 0 · 0 |
+| `buttonSystem1a` | 72 / 72 |
+| Contratos de BETA-UX-1D · 1E · 1F (las listas de archivos de `test:beta-ux-1d`, `-1e` y `-1f`) | 163 / 163 · 243 / 243 · 409 / 409 |
+| Suite completa de componentes | 137 archivos · 3.118 / 3.119. El único rojo es `orderIntakeMobile › scanner … getUserMedia OK`, el intermitente de §14; esta vez corrió con el arnés de navegador en paralelo. Aislado después pasó 3 de 3 |
+| `test:unit` | 1.215 / 1.215 |
+| `vite build` | OK |
+| Guards estáticos de CI | 23 en verde |
+| Controles negativos (`negative-controls.mjs`) | 59 / 59 detectados (47 anteriores + 12 del microfix); árbol idéntico al terminar |
+| Instrumento (`instrument-controls.mjs`) | 7 / 7 con el helper real · 4 / 4 mutaciones detectadas |
+| Navegador con backend simulado (`verify-buttons.mjs`, las siete partes) | 277 comprobaciones en verde |
+| E2E (`cta-contrast`, `mobile-orders`, `button-system` y el resto de `m7-local`) | **→ GitHub** |
+
+Evidencia nueva en `evidence-1f/`: `verify-buttons.txt` (partes F, R y K), `verify-buttons-race-before.txt`
+(la medida de CI reproducida con el instrumento anterior), `instrument-controls.mjs` / `.txt` y
+`negative-controls.txt`.
+
+Los E2E **no se corrieron en local**: `C:` tenía 10,6 GB libres, por debajo del umbral de 15. Sí se
+ejecutó en Chromium el bloque «El instrumento de medida» del spec real (7/7), que no necesita el
+stack. El resto lo valida GitHub.
+
+En este worktree `npm run test:…` de vitest falla con `Invalid Chai property` (doble instancia por
+la junction de `node_modules`): las suites se corrieron por ruta, con la misma lista de archivos que
+el script.
+
+### 19.7 Hallazgos anotados para BUTTON-SYSTEM-1B (sin tocar)
+
+Están en §18.9 E:
+
+1. Los filtros de stock de Inventario miden 40 px de alto en mobile.
+2. Tareas: «Actualizar» (`ghost sm`) junto a «Nueva tarea» (44 px).
+3. Comprobantes: «Actualizar» (`btn-ghost btn-sm`) junto a «Nuevo Comprobante» (44 px).
+
+Los dos últimos son el mismo patrón que se corrigió en Clientes; quedaron fuera por decisión del
+owner («no ampliar 1A»).
+
+### 19.8 Segundo ajuste: el setup de `button-system.spec.ts` en mobile
+
+El E2E de GitHub sobre `2f163af` dio **366 de 367**, con todos los demás jobs en verde. El único
+rojo fue del spec, no del producto:
+
+```
+button-system.spec.ts:255 › 375×812 · las acciones de página son un objetivo táctil de 44 px
+expect(locator).toBeEnabled() failed
+Locator: locator('.page-hdr-right').getByRole('button', { name: 'Plantilla', exact: true })
+```
+
+Al sumar Plantilla / Exportar / Importar a las acciones de Clientes (§19.5), el `abrir()` del spec
+pasó a exigirles `toBeEnabled()` a cualquier ancho. A 375 px BETA-UX-1D las saca del encabezado y
+las ofrece en el menú; `getByRole` no encuentra un botón oculto, así que la aserción esperó sus 30 s
+y falló antes de llegar al `isVisible()` que las iba a saltear. Fue un error del commit anterior:
+se había supuesto que `toBeEnabled` pasaba sobre un elemento oculto, sin poder correrlo.
+
+Cambio, **sólo en el spec**:
+
+- Una acción puede declarar dónde vive en mobile cuando no es un botón del encabezado (`enMobile`:
+  el menú y su rótulo).
+- `abrir(page, pantalla, ancho)`: toda acción que corresponde a ese ancho tiene que estar **a la
+  vista y habilitada**. En escritorio, las cuatro de Clientes. Ya no hay un `isVisible()` que
+  saltee nada.
+- En mobile, a las tres secundarias se les exige **no** ser un botón del encabezado y que su menú
+  esté. El test abre el menú y comprueba que las ofrece —las tres, en su orden, habilitadas y de
+  44 px— y que el disparador mide 44 × 44. Al final exige que lo comprobado dentro del menú sean
+  exactamente esas tres: si alguien les quita `enMobile`, falla en vez de dejarlas sin medir.
+- «Nuevo Cliente» sigue midiéndose en mobile: visible, habilitado y de al menos 44 px.
+- Los tests de geometría, de contraste y de estados no cambiaron.
+
+Verificación en local, sin Docker: el spec real corrido contra la app con el backend simulado de
+`verify-buttons.mjs` (se copia el spec cambiando sólo de dónde importa `test`).
+
+| Corrida | Resultado |
+|---|---|
+| Spec de `2f163af`, test de 375 px | el rojo de CI: mismo locator, misma línea, `element(s) not found` |
+| Spec corregido, completo | 7 / 7 |
+| Producto roto a propósito, spec corregido | 7 / 7 mutaciones en rojo, cada una en su aserción: el menú pierde un ítem · las secundarias se ven en el encabezado mobile · «Nuevo Cliente» baja de 44 px · «Nuevo Cliente» desaparece en mobile · falta «Importar» en escritorio · «Exportar» deshabilitada en escritorio · «Plantilla» compacta en escritorio |
+
+El stack local compartido estaba levantado pero atrasado respecto de `main`; prepararlo lo habría
+modificado para otras sesiones, así que el E2E contra la base lo valida GitHub.

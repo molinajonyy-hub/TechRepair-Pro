@@ -1860,23 +1860,15 @@ export function Inventory() {
               Los productos con 1 unidad quedan en stock bajo y con 0 se marcan como agotados
             </p>
           </div>
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {/* BETA-UX-1E / BUTTON-SYSTEM-1A: los estados viven en `index.css`
+              (`.inventory-stock-filter`). Activo = ámbar o rojo sólido con
+              `--text-on-bright`; el blanco no llega a AA sobre ninguno. */}
+          <div className="inventory-stock-filters">
             {effectiveLowStockItems.length > 0 && (
               <button
                 onClick={() => applyStockStatusFilter('low')}
-                style={{
-                  padding: '0.5rem 0.75rem',
-                  backgroundColor: stockStatusFilter === 'low' ? '#f59e0b' : 'rgba(255,255,255,0.05)',
-                  border: '1px solid rgba(245, 158, 11, 0.35)',
-                  borderRadius: '0.5rem',
-                  // BETA-UX-1E: activo, el blanco mide 2,15:1 sobre el ámbar
-                  // (3,76:1 sobre el rojo de «Ver agotados»). Tinta oscura para el
-                  // activo y texto del tema para el inactivo, en los dos temas.
-                  color: stockStatusFilter === 'low' ? accentCta.textOnBright : 'var(--text-primary)',
-                  cursor: 'pointer',
-                  fontSize: '0.875rem',
-                  fontWeight: 500
-                }}
+                className={`inventory-stock-filter inventory-stock-filter--low${stockStatusFilter === 'low' ? ' is-active' : ''}`}
+                aria-pressed={stockStatusFilter === 'low'}
               >
                 Ver stock bajo
               </button>
@@ -1884,16 +1876,8 @@ export function Inventory() {
             {effectiveOutOfStockItems.length > 0 && (
               <button
                 onClick={() => applyStockStatusFilter('out')}
-                style={{
-                  padding: '0.5rem 0.75rem',
-                  backgroundColor: stockStatusFilter === 'out' ? '#ef4444' : 'rgba(255,255,255,0.05)',
-                  border: '1px solid rgba(239, 68, 68, 0.35)',
-                  borderRadius: '0.5rem',
-                  color: stockStatusFilter === 'out' ? accentCta.textOnBright : 'var(--text-primary)',
-                  cursor: 'pointer',
-                  fontSize: '0.875rem',
-                  fontWeight: 500
-                }}
+                className={`inventory-stock-filter inventory-stock-filter--out${stockStatusFilter === 'out' ? ' is-active' : ''}`}
+                aria-pressed={stockStatusFilter === 'out'}
               >
                 Ver agotados
               </button>
@@ -1901,16 +1885,7 @@ export function Inventory() {
             {stockStatusFilter !== 'all' && (
               <button
                 onClick={() => applyStockStatusFilter('all')}
-                style={{
-                  padding: '0.5rem 0.75rem',
-                  backgroundColor: 'rgba(255,255,255,0.05)',
-                  border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '0.5rem',
-                  color: '#94a3b8',
-                  cursor: 'pointer',
-                  fontSize: '0.875rem',
-                  fontWeight: 500
-                }}
+                className="inventory-stock-filter inventory-stock-filter--reset"
               >
                 Ver todos
               </button>

@@ -279,7 +279,7 @@ export function Warranties() {
           </div>
         </div>
         <div className="page-hdr-right">
-          <button onClick={openCreate} className="btn btn-primary btn-sm btn-lift">
+          <button onClick={openCreate} className="btn btn-primary btn-page-action">
             <Plus size={16} />
             Nueva garantía
           </button>

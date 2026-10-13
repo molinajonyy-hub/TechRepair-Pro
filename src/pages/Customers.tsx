@@ -455,13 +455,15 @@ export function Customers() {
         <div className="page-hdr-right">
           {/* BETA-UX-1D — escritorio: las tres secundarias son hijas directas de
               la fila, como antes (`display: contents`). Mobile: se ocultan y
-              pasan, con los mismos handlers, al menú de al lado de la primaria. */}
+              pasan, con los mismos handlers, al menú de al lado de la primaria.
+              BUTTON-SYSTEM-1A — las cuatro acciones visibles del encabezado son
+              la misma categoría: acción de página (44px), no `btn-sm`. */}
           <div className="list-hdr-secondary">
-            <button onClick={handleDownloadTemplate} className="btn btn-ghost btn-sm"><Download size={15} />Plantilla</button>
-            <button onClick={handleExportCustomers} className="btn btn-ghost btn-sm"><Download size={15} />Exportar</button>
-            <button onClick={() => setShowImportModal(true)} className="btn btn-ghost btn-sm"><Upload size={15} />Importar</button>
+            <button onClick={handleDownloadTemplate} className="btn btn-secondary btn-page-action"><Download size={16} />Plantilla</button>
+            <button onClick={handleExportCustomers} className="btn btn-secondary btn-page-action"><Download size={16} />Exportar</button>
+            <button onClick={() => setShowImportModal(true)} className="btn btn-secondary btn-page-action"><Upload size={16} />Importar</button>
           </div>
-          <Link to="/customers/new" data-testid="customers-new-button" className="btn btn-primary btn-sm btn-lift" style={{ textDecoration: 'none' }}>
+          <Link to="/customers/new" data-testid="customers-new-button" className="btn btn-primary btn-page-action" style={{ textDecoration: 'none' }}>
             <Plus size={16} />Nuevo Cliente
           </Link>
           <div className="list-hdr-overflow">
