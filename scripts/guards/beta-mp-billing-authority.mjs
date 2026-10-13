@@ -80,6 +80,7 @@ function inspectEdge(s) {
   if (proceso < 0) f.push('mp-webhook no AWAIT-ea el procesamiento (fire-and-forget)')
   else if (firma < 0 || firma > proceso) f.push('mp-webhook procesa antes de validar la firma')
   if (/createClient[\s\S]{0,400}verifySignature\(/.test(hook.slice(hook.indexOf('serve(')))) f.push('mp-webhook crea el cliente service_role antes de validar la firma')
+  if (!/verifySignature\(req, urlDataId \?\? undefined\)/.test(hook)) f.push('mp-webhook firma un id del body en lugar del recurso de la URL')
 
   // Autorizacion uniforme: antes de cualquier lectura, escritura o llamada a MP.
   const router = tramo(actions, 'export async function handleBillingAction', 'switch (action as BillingAction)')
@@ -207,6 +208,7 @@ function inspectEdge(s) {
     f.push('se dejo de comparar lo que cobra Mercado Pago con las condiciones de la sesion')
   } else if (otorgar >= 0 && condicionesOk > otorgar) f.push('el plan se otorga antes de comparar las condiciones')
   if (!/if \(mpState !== 'authorized'\) \{/.test(unbound) || unbound.indexOf("if (mpState !== 'authorized') {") > otorgar) f.push('un preapproval que no esta authorized puede activar')
+  if (!/if \(!approved \|\|/.test(unbound) || unbound.indexOf('if (!approved ||') > otorgar) f.push('la activacion no exige un primer pago aprobado')
   if (!/\.eq\('mp_preapproval_id', preapprovalId\)\.maybeSingle\(\)/.test(tramo(store, 'async findCheckoutSessionByPreapprovalId', 'async findCheckoutSessionByReference'))) {
     f.push('la sesion dejo de buscarse por el id exacto del preapproval (maybeSingle)')
   }
@@ -259,8 +261,9 @@ function inspectFrontend(s) {
   const pending = codigo(s.pendingPage)
   if (/useSearchParams|location\.search|URLSearchParams/.test(pending)) f.push('PaymentPending lee parametros de la URL de retorno')
   if (/isActive/.test(pending)) f.push('PaymentPending decide por isActive (un plan anterior tambien es active)')
-  if (!/const isPaid\s+= status === 'paid'\n/.test(pending)) f.push('PaymentPending no confirma por el estado del checkout que informa el servidor')
+  if (!/const isPaid\s+= status === 'paid' && checkout\?\.payment_confirmed === true\n/.test(pending)) f.push('PaymentPending no confirma por el estado del checkout y el pago aprobado que informa el servidor')
   if (!/confirmed = isActive && subscription\?\.access_source === 'mercado_pago'/.test(codigo(s.successPage))) f.push('SubscriptionSuccess afirma «activada» sin una suscripcion de Mercado Pago')
+  if (!/subscription\.last_payment_status === 'approved' && verifiedCheckout/.test(codigo(s.successPage))) f.push('SubscriptionSuccess no exige el pago aprobado y su checkout verificado')
   const service = codigo(s.service)
   const reconcile = tramo(service, 'export async function reconcilePayment', '\n}\n')
   if (/catch|getSubscription\(/.test(reconcile)) f.push('reconcilePayment vuelve a tapar el error con una lectura local')
@@ -464,7 +467,10 @@ if (process.argv.includes('--self-test')) {
     ['frontend: ids de plan en el navegador', conSrc('src/types/subscription.ts', '\nexport const y = import.meta.env.VITE_MP_PLAN_FULL_MONTHLY\n'), 'ids de plan'],
     ['frontend: se autoactiva', conSrc('src/pages/Plans.tsx', "\nexport const z = () => supabase.from('businesses').update({ subscription_status: 'active' })\n"), 'columnas de suscripcion'],
     ['PaymentPending: confia en la URL', con('pendingPage', "import { useNavigate } from 'react-router-dom'", "import { useNavigate, useSearchParams } from 'react-router-dom'"), 'URL de retorno'],
-    ['PaymentPending: confirma por isActive', con('pendingPage', "const isPaid     = status === 'paid'\n", "const isPaid     = status === 'paid' || isActive\n"), 'isActive'],
+    ['PaymentPending: confirma por isActive', con('pendingPage', "const isPaid     = status === 'paid' && checkout?.payment_confirmed === true\n", "const isPaid     = status === 'paid' || isActive\n"), 'isActive'],
+    ['PaymentPending: paid sin prueba de cobro', con('pendingPage', "const isPaid     = status === 'paid' && checkout?.payment_confirmed === true\n", "const isPaid     = status === 'paid'\n"), 'pago aprobado'],
+    ['webhook: fallback firmado desde body', con('hookIndex', 'verifySignature(req, urlDataId ?? undefined)', 'verifySignature(req, resourceId)'), 'id del body'],
+    ['activacion: authorized sin approved', con('preapproval', 'if (!approved || (latest &&', 'if (false || (latest &&'), 'primer pago aprobado'],
     ['SubscriptionSuccess: active alcanza', con('successPage', "const confirmed = isActive && subscription?.access_source === 'mercado_pago'", 'const confirmed = isActive'), 'activada'],
     ['servicio: traga el error', con('service', "  const result = await callEdge<Partial<ReconcileResult>>('reconcile', { business_id: businessId })", "  let result: Partial<ReconcileResult> = {}\n  try { result = await callEdge<Partial<ReconcileResult>>('reconcile', { business_id: businessId }) } catch { result = { activated: true } }"), 'tapar el error'],
     ['config: mp-webhook sin verify_jwt=false', con('config', /\[functions\.mp-webhook\]\s*\nverify_jwt = false/, '[functions.mp-webhook]\nverify_jwt = true'), 'mp-webhook'],

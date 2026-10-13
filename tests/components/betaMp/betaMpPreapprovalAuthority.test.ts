@@ -55,7 +55,7 @@ describe('authorized activa el negocio correcto, con el plan de SU intención', 
 
     expect(biz()).toMatchObject({
       subscription_status: 'active', subscription_plan: 'pro', mp_preapproval_id: preapprovalId,
-      mp_payer_email: 'aaaaaaaa@invalid.test', grace_until: null, last_payment_status: null,
+      mp_payer_email: 'aaaaaaaa@invalid.test', grace_until: null, last_payment_status: 'approved',
     })
     // El período es el que informa Mercado Pago.
     expect(new Date(String(biz().current_period_end)).getTime()).toBe(new Date(String(pre.next_payment_date)).getTime())
@@ -504,23 +504,24 @@ describe('cambio de plan y reactivación', () => {
   it('la suscripción reemplazada, si sigue authorized, no vuelve a vincularse', async () => {
     await w.subscribe(OWNER_A, BIZ_A, 'basico', 'pre_1')
     await w.openCheckout(OWNER_A, BIZ_A, 'full', 'monthly', 'pre_2')
-    w.mp.cancelFails = true                                // la anterior no se pudo cancelar
     w.pay('pre_2')
     await notify('pre_2')
+    // An anomalous external reauthorization cannot relink a consumed old session.
+    mpRow('pre_1').status = 'authorized'
 
     const out = await notify('pre_1')
     expect(out.detail).toBe('not_applied:superseded_preapproval')
     expect(biz()).toMatchObject({ subscription_plan: 'full', mp_preapproval_id: 'pre_2' })
   })
 
-  it('si Mercado Pago no deja cancelar la anterior, la nueva queda activa y hay un evento SIN procesar', async () => {
+  it('si Mercado Pago no deja cancelar la anterior, conserva el plan anterior y deja un reemplazo recuperable', async () => {
     await w.subscribe(OWNER_A, BIZ_A, 'basico', 'pre_1')
     await w.openCheckout(OWNER_A, BIZ_A, 'full', 'monthly', 'pre_2')
     w.pay('pre_2')
     w.mp.cancelFails = true
 
     await notify('pre_2')
-    expect(biz()).toMatchObject({ subscription_plan: 'full', mp_preapproval_id: 'pre_2' })
+    expect(biz()).toMatchObject({ subscription_plan: 'basico', mp_preapproval_id: 'pre_1' })
     expect(mpRow('pre_1').status).toBe('authorized')
     expect(w.db.events('preapproval_superseded')[0]).toMatchObject({ processed: false, error_message: 'supersede_cancel_failed' })
   })

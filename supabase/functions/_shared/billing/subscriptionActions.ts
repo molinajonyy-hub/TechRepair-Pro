@@ -37,6 +37,7 @@ import {
 } from './preapproval.ts'
 import type { BillingContext, EvidenceOutcome } from './preapproval.ts'
 import { BillingStoreError } from './store.ts'
+import { approvedLedgerMatchesSession } from './paymentEvidence.ts'
 import type { BillingAuthorizer, BusinessBillingRow, CheckoutSessionRow, CheckoutSessionStatus } from './store.ts'
 
 export const BILLING_ACTIONS = ['create', 'cancel', 'status', 'reconcile', 'update_payment_method'] as const
@@ -217,10 +218,10 @@ async function createCheckout(ctx: ActionContext, req: ActionRequest, businessId
   // 1. ¿Ya hay un checkout abierto para este plan y ciclo?
   const open = await findOpenCheckout(ctx, intent)
   if (open.kind === 'in_progress') return IN_PROGRESS()
-  if (open.kind === 'already_paid') {
+  if (open.kind === 'already_authorized') {
     // Abrir otro checkout cobraría dos veces. La activación no ocurre acá: la
     // hacen el webhook y `reconcile`, por el camino canónico.
-    return fail(409, 'checkout_already_paid', 'Mercado Pago ya registró el pago de este plan. Tocá «Verificar pago» en Mi Suscripción para activarlo.')
+    return fail(409, 'checkout_already_authorized', 'Ya existe una suscripción en Mercado Pago para este checkout. Tocá «Verificar pago» para comprobar el cobro. No hace falta volver a contratar.')
   }
   if (open.kind === 'reuse') {
     ctx.log({ event: 'checkout_reused', business_id: businessId, session_id: open.session.id, plan, billing_cycle: billingCycle })
@@ -327,7 +328,7 @@ type OpenCheckout =
   | { kind: 'none' }
   | { kind: 'reuse'; session: CheckoutSessionRow; checkoutUrl: string }
   | { kind: 'in_progress' }
-  | { kind: 'already_paid' }
+  | { kind: 'already_authorized' }
 
 /**
  * Una sesión `pending` por (negocio, plan, ciclo): pedir dos veces el mismo
@@ -354,7 +355,7 @@ async function findOpenCheckout(ctx: ActionContext, intent: CheckoutIntent): Pro
   const pre = await ctx.mp.getPreapproval(pending.mp_preapproval_id)
   const state = pre ? preapprovalState(pre.status) : 'unknown'
 
-  if (pre && state === 'authorized' && !referenceConflicts(pre, pending)) return { kind: 'already_paid' }
+  if (pre && state === 'authorized' && !referenceConflicts(pre, pending)) return { kind: 'already_authorized' }
 
   const sameIntent = reference !== null && isWithinTtl(pending, now) && pending.payer_email === intent.payerEmail
   if (sameIntent && pre) {
@@ -427,15 +428,19 @@ function resolveBackUrl(ctx: ActionContext, req: ActionRequest): string {
 
 // ── status ──────────────────────────────────────────────────────────────────
 
-function checkoutSummary(session: CheckoutSessionRow | undefined, now: Date): Record<string, unknown> | null {
+async function checkoutSummary(ctx: ActionContext, session: CheckoutSessionRow | undefined, now: Date): Promise<Record<string, unknown> | null> {
   if (!session) return null
-  const status = session.status === 'pending' && !isWithinTtl(session, now) ? 'expired' : session.status
+  const approved = session.mp_preapproval_id ? await ctx.store.getApprovedPaymentByPreapprovalId(session.mp_preapproval_id) : null
+  const paymentConfirmed = approvedLedgerMatchesSession(approved, session)
+  const status = session.status === 'paid' && !paymentConfirmed ? 'pending'
+    : session.status === 'pending' && !isWithinTtl(session, now) ? 'expired' : session.status
   return {
     status,
     plan: session.plan_id,
     billing_cycle: session.billing_cycle,
     created_at: session.created_at,
     confirmed_at: session.confirmed_at,
+    payment_confirmed: paymentConfirmed,
   }
 }
 
@@ -460,7 +465,7 @@ async function readStatus(ctx: ActionContext, businessId: string): Promise<Actio
   const [latest] = await ctx.store.listCheckoutSessions(businessId, 1)
   return {
     status: 200,
-    body: { source: 'database', ...subscriptionSummary(business), checkout: checkoutSummary(latest, ctx.now()) },
+    body: { source: 'database', ...subscriptionSummary(business), checkout: await checkoutSummary(ctx, latest, ctx.now()) },
   }
 }
 
@@ -518,21 +523,28 @@ async function reconcile(ctx: ActionContext, businessId: string): Promise<Action
   const [latest] = await ctx.store.listCheckoutSessions(businessId, 1)
   const hadOpenCheckout = sessions.some((s) => s.status === 'pending' && isWithinTtl(s, now))
 
-  const paidByMp = after.subscription_status === 'active'
-    && after.access_source === 'mercado_pago' && after.mp_preapproval_id !== null
+  const origin = after.mp_preapproval_id ? await ctx.store.findCheckoutSessionByPreapprovalId(after.mp_preapproval_id) : null
+  const paid = after.mp_preapproval_id ? await ctx.store.getApprovedPaymentByPreapprovalId(after.mp_preapproval_id) : null
+  const paidByMp = after.subscription_status === 'active' && after.access_source === 'mercado_pago'
+    && after.last_payment_status === 'approved' && origin !== null && origin.business_id === after.id
+    && approvedLedgerMatchesSession(paid, origin)
   const result = describeReconcile({ outcomes, sawPending, openMismatch, hadOpenCheckout, after, paidByMp })
+  const checkout = await checkoutSummary(ctx, latest, ctx.now())
+  if (checkout && outcomes.some(o => o.sessionId === latest?.id
+    && ['first_payment_pending', 'replacement_pending', 'concurrent_change'].includes(o.reason ?? ''))) checkout.status = 'pending'
 
   return {
     status: 200,
     body: {
       // `activated` y `confirmed` sólo son true con una suscripción de MP activa.
       activated: paidByMp,
-      confirmed: paidByMp,
+      confirmed: paidByMp && checkout?.status === 'paid' && checkout.payment_confirmed === true
+        && latest?.mp_preapproval_id === after.mp_preapproval_id,
       outcome: result.outcome,
       message: result.message,
       status: after.subscription_status,
       plan: after.subscription_plan,
-      checkout: checkoutSummary(latest, ctx.now()),
+      checkout,
     },
   }
 }
@@ -557,6 +569,15 @@ function describeReconcile(facts: ReconcileFacts): { outcome: string; message: s
   }
   if (facts.openMismatch) {
     return { outcome: 'mismatch', message: 'Mercado Pago informó datos que no coinciden con tu checkout, así que no activamos nada. Escribinos desde Ayuda y lo resolvemos.' }
+  }
+  if (has('replacement_pending') || has('concurrent_change')) {
+    return { outcome: 'replacement_pending', message: 'El pago fue registrado, pero todavía no pudimos confirmar el reemplazo de tu suscripción anterior. Tu plan actual se conserva. Volvé a verificar o contactanos desde Ayuda.' }
+  }
+  if (has('payment_terms_mismatch') || has('payment_link_mismatch') || has('payment_missing_approval_date')) {
+    return { outcome: 'mismatch', message: 'No pudimos verificar los datos del cobro. Tu acceso no cambia. Contactanos desde Ayuda.' }
+  }
+  if (has('first_payment_pending')) {
+    return { outcome: 'pending', message: 'Mercado Pago está procesando la primera cuota. Tu plan se activará cuando el pago se apruebe. Mientras tanto tu acceso no cambia.' }
   }
   if (has('awaiting_payment')) {
     return { outcome: 'payment_rejected', message: 'El último cobro fue rechazado. Actualizá tu medio de pago en Mercado Pago: cuando el cobro se apruebe, el acceso se restablece solo.' }

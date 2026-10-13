@@ -86,6 +86,11 @@ export interface MpPayment {
   date_created?: string | null
 }
 
+export interface MpInvoicePage {
+  paging: { offset: number; limit: number; total: number }
+  results: MpAuthorizedPayment[]
+}
+
 export interface MpClient {
   /**
    * Crea un preapproval `pending`. Devuelve lo que respondió Mercado Pago, sin
@@ -96,6 +101,8 @@ export interface MpClient {
   getPreapproval(id: string): Promise<MpPreapproval | null>
   cancelPreapproval(id: string): Promise<void>
   getAuthorizedPayment(id: string): Promise<MpAuthorizedPayment | null>
+  /** Only invoices of a preapproval already identified by the server. */
+  listAuthorizedPayments(preapprovalId: string, offset: number, limit: number): Promise<MpInvoicePage>
   getPayment(id: string): Promise<MpPayment | null>
 }
 
@@ -244,6 +251,15 @@ export function createMpClient(deps: MpClientDeps): MpClient {
     },
 
     getAuthorizedPayment: (id) => getJson<MpAuthorizedPayment>('GET authorized_payment', `/authorized_payments/${seg(id)}`),
+    async listAuthorizedPayments(preapprovalId, offset, limit) {
+      const query = new URLSearchParams({ preapproval_id: preapprovalId, offset: String(offset), limit: String(limit) })
+      const page = await getJson<MpInvoicePage>('GET authorized_payments by preapproval', `/authorized_payments/search?${query}`)
+      if (!page || !Array.isArray(page.results) || !page.paging
+        || page.paging.offset !== offset || page.paging.limit !== limit
+        || !Number.isSafeInteger(page.paging.total) || page.paging.total < 0
+        || page.results.length > limit) throw new MpApiError('GET authorized_payments (invalid page)', 502)
+      return page
+    },
     getPayment: (id) => getJson<MpPayment>('GET payment', `/v1/payments/${seg(id)}`),
   }
 }

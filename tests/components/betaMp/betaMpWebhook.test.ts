@@ -14,6 +14,7 @@ let w: World
 beforeEach(() => { w = new World() })
 
 const biz = (id = BIZ_A) => w.db.business(id)
+const ledger = (id: string) => w.db.tables.payments.find(p => p.external_payment_id === id)!
 
 /** Un cobro recurrente de la suscripción, tal como lo expone Mercado Pago. */
 function cobro(id: string, preapprovalId: string, estado: string, opts: { aprobadoEn?: Date; monto?: number } = {}) {
@@ -156,8 +157,8 @@ describe('cobros recurrentes (subscription_authorized_payment)', () => {
     cobro('inv_1', 'pre_1', 'approved')
     await w.notify('subscription_authorized_payment', 'inv_1')
 
-    expect(w.db.tables.payments).toHaveLength(1)
-    expect(w.db.tables.payments[0]).toMatchObject({
+    expect(w.db.tables.payments).toHaveLength(2) // initial approved payment + renewal
+    expect(ledger('inv_1')).toMatchObject({
       business_id: BIZ_A, provider: 'mercadopago', external_payment_id: 'inv_1', type: 'recurring',
       amount: 25000, currency: 'ARS', status: 'approved', subscription_plan: 'pro',
     })
@@ -168,27 +169,27 @@ describe('cobros recurrentes (subscription_authorized_payment)', () => {
   it('el ledger guarda un recorte: nunca el documento ni la tarjeta del pagador', async () => {
     cobro('inv_1', 'pre_1', 'approved')
     await w.notify('subscription_authorized_payment', 'inv_1')
-    const crudo = JSON.stringify(w.db.tables.payments[0].raw_payload)
+    const crudo = JSON.stringify(ledger('inv_1').raw_payload)
     expect(crudo).not.toMatch(/identification|00000000|last_four|TITULAR|pagador@/)
-    expect(w.db.tables.payments[0].raw_payload).toMatchObject({ preapproval_id: 'pre_1', payment_status: 'approved' })
+    expect(ledger('inv_1').raw_payload).toMatchObject({ preapproval_id: 'pre_1', payment_status: 'approved' })
   })
 
   it('el mismo cobro notificado dos veces (scheduled → processed) deja UNA fila actualizada', async () => {
     cobro('inv_1', 'pre_1', 'pending')
     await w.notify('subscription_authorized_payment', 'inv_1', 8001)
-    expect(w.db.tables.payments[0].status).toBe('pending')
+    expect(ledger('inv_1').status).toBe('pending')
 
     cobro('inv_1', 'pre_1', 'approved')
     await w.notify('subscription_authorized_payment', 'inv_1', 8002)   // mismo data.id, otra notificación
-    expect(w.db.tables.payments).toHaveLength(1)
-    expect(w.db.tables.payments[0].status).toBe('approved')
+    expect(w.db.tables.payments).toHaveLength(2)
+    expect(ledger('inv_1').status).toBe('approved')
   })
 
   it('«aprobado» sale sólo del pago consultado: un cobro `processed` sin pago queda pending', async () => {
-    w.mp.authorizedPayments.set('inv_1', { id: 'inv_1', preapproval_id: 'pre_1', status: 'processed', transaction_amount: 25000 })
+    w.mp.authorizedPayments.set('inv_1', { id: 'inv_1', preapproval_id: 'pre_1', status: 'processed', transaction_amount: 25000, currency_id: 'ARS' })
     await w.notify('subscription_authorized_payment', 'inv_1')
-    expect(w.db.tables.payments[0].status).toBe('pending')
-    expect(biz().last_payment_status).toBeNull()
+    expect(ledger('inv_1').status).toBe('pending')
+    expect(biz().last_payment_status).toBe('approved') // previous payment remains authoritative
   })
 
   it('cobro rechazado → past_due + gracia; un segundo rechazo NO renueva la gracia', async () => {
@@ -237,7 +238,7 @@ describe('cobros recurrentes (subscription_authorized_payment)', () => {
     cobro('inv_tarde', 'pre_1', 'approved')
     await w.notify('subscription_authorized_payment', 'inv_tarde')
     expect(biz().subscription_status).toBe('canceled')
-    expect(w.db.tables.payments).toHaveLength(1)        // el cobro existió: queda en el ledger
+    expect(w.db.tables.payments).toHaveLength(2)        // first payment + late charge, without reviving access
   })
 
   it('un cobro viejo rechazado, notificado tarde, no manda a mora a una cuenta que ya pagó', async () => {
@@ -248,7 +249,8 @@ describe('cobros recurrentes (subscription_authorized_payment)', () => {
 
     cobro('inv_viejo', 'pre_1', 'rejected', { aprobadoEn: haceUnMes })
     const out = await w.notify('subscription_authorized_payment', 'inv_viejo')
-    expect(out.detail).toBe('ledger_only:older_than_current_period')
+    expect(out.detail).toBeNull()
+    expect(ledger('inv_viejo').status).toBe('rejected')
     expect(biz()).toMatchObject({ subscription_status: 'active', last_payment_status: 'approved' })
   })
 
@@ -259,7 +261,7 @@ describe('cobros recurrentes (subscription_authorized_payment)', () => {
     await w.notify('subscription_authorized_payment', 'inv_b')
 
     expect(biz(BIZ_B)).toMatchObject({ subscription_status: 'active', subscription_plan: 'full', mp_preapproval_id: 'pre_b', last_payment_status: 'approved' })
-    expect(w.db.tables.payments[0]).toMatchObject({ business_id: BIZ_B, subscription_plan: 'full', amount: 45000 })
+    expect(ledger('inv_b')).toMatchObject({ business_id: BIZ_B, subscription_plan: 'full', amount: 45000 })
   })
 
   it('si el ledger no se puede escribir, la notificación NO se da por procesada (Mercado Pago reintenta)', async () => {
@@ -269,12 +271,12 @@ describe('cobros recurrentes (subscription_authorized_payment)', () => {
     cobro('inv_1', 'pre_1', 'approved')
     await expect(w.notify('subscription_authorized_payment', 'inv_1', 8100)).rejects.toThrow(/ledger/)
     expect(w.db.events('subscription_authorized_payment')[0]).toMatchObject({ processed: false })
-    expect(biz().last_payment_status).toBeNull()
+    expect(biz().last_payment_status).toBe('approved') // failed renewal cannot erase the first payment
 
     w.db.preMigration = false
     const reintento = await w.notify('subscription_authorized_payment', 'inv_1', 8100)
     expect(reintento.result).toBe('processed')
-    expect(w.db.tables.payments).toHaveLength(1)
+    expect(w.db.tables.payments).toHaveLength(2)
   })
 
   it('un cobro de una suscripción que el servidor no creó no escribe nada', async () => {
@@ -284,7 +286,7 @@ describe('cobros recurrentes (subscription_authorized_payment)', () => {
     const antesDelCobro = w.db.writesTo('businesses').length
     const out = await w.notify('subscription_authorized_payment', 'inv_x')
     expect(out.detail).toBe('not_applied:unknown_preapproval')
-    expect(w.db.tables.payments).toHaveLength(0)
+    expect(w.db.tables.payments).toHaveLength(1) // unknown resource did not add to the initial payment
     expect(w.db.writesTo('businesses').length).toBe(antesDelCobro)
   })
 

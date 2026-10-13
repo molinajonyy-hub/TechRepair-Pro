@@ -124,7 +124,7 @@ class Query implements PromiseLike<PgResult> {
   private payload: Row | Row[] | null = null
   private filters: [string, unknown][] = []
   private returning: string | null = null
-  private orderBy: { col: string; ascending: boolean } | null = null
+  private orderBy: { col: string; ascending: boolean }[] = []
   private max: number | null = null
   private onConflict: string | null = null
   private mode: 'many' | 'single' | 'maybe' = 'many'
@@ -136,7 +136,8 @@ class Query implements PromiseLike<PgResult> {
   update(patch: Row) { this.op = 'update'; this.payload = patch; return this }
   upsert(row: Row, opts: { onConflict: string }) { this.op = 'upsert'; this.payload = row; this.onConflict = opts.onConflict; return this }
   eq(col: string, val: unknown) { this.filters.push([col, val]); return this }
-  order(col: string, opts: { ascending: boolean }) { this.orderBy = { col, ascending: opts.ascending }; return this }
+  is(col: string, val: unknown) { this.filters.push([col, val]); return this }
+  order(col: string, opts: { ascending: boolean }) { this.orderBy.push({ col, ascending: opts.ascending }); return this }
   limit(n: number) { this.max = n; return this }
   single() { this.mode = 'single'; return this }
   maybeSingle() { this.mode = 'maybe'; return this }
@@ -157,11 +158,14 @@ class Query implements PromiseLike<PgResult> {
 
     const badColumn = (cols: string[]) => cols.find((c) => !known.includes(c))
     const selected = this.returning && this.returning !== '*' ? this.returning.split(',').map((c) => c.trim()) : null
-    const unknown = badColumn([...(selected ?? []), ...this.filters.map(([c]) => c), ...(this.orderBy ? [this.orderBy.col] : [])])
+    const unknown = badColumn([...(selected ?? []), ...this.filters.map(([c]) => c.split('->>')[0]), ...this.orderBy.map(o => o.col)])
     if (unknown) return fail('42703', `column "${unknown}" does not exist`)
 
     const rows = db.tables[table]
-    const matches = (row: Row) => this.filters.every(([c, v]) => row[c] === v)
+    const matches = (row: Row) => this.filters.every(([c, v]) => {
+      const [column, jsonKey] = c.split('->>')
+      return (jsonKey ? (row[column] as Row | null)?.[jsonKey] : row[column]) === v
+    })
     const project = (row: Row): Row => {
       if (!selected) return { ...row }
       const out: Row = {}
@@ -186,7 +190,7 @@ class Query implements PromiseLike<PgResult> {
         affected = rows.filter(matches)
         const patch = payloads[0]
         const conflict = this.uniqueViolation(patch, affected)
-        if (conflict) return fail('23505', conflict)
+        if (affected.length > 0 && conflict) return fail('23505', conflict)
         for (const row of affected) Object.assign(row, patch)
       } else if (this.op === 'insert') {
         affected = []
@@ -207,6 +211,8 @@ class Query implements PromiseLike<PgResult> {
         const p = payloads[0]
         const keys = (this.onConflict ?? '').split(',').map((k) => k.trim())
         const existing = rows.find((r) => keys.every((k) => r[k] === (p[k] ?? this.withDefaults(p)[k])))
+        const conflict = this.uniqueViolation(p, existing ? [existing] : [])
+        if (conflict) return fail('23505', conflict)
         if (existing) { Object.assign(existing, p); affected = [existing] }
         else { const row = this.withDefaults(p); rows.push(row); affected = [row] }
       }
@@ -214,9 +220,14 @@ class Query implements PromiseLike<PgResult> {
       if (!this.returning) return { data: null, error: null }
     }
 
-    if (this.orderBy) {
-      const { col, ascending } = this.orderBy
-      affected = [...affected].sort((a, b) => String(a[col]).localeCompare(String(b[col])) * (ascending ? 1 : -1))
+    if (this.orderBy.length) {
+      affected = [...affected].sort((a, b) => {
+        for (const { col, ascending } of this.orderBy) {
+          const cmp = String(a[col]).localeCompare(String(b[col])) * (ascending ? 1 : -1)
+          if (cmp) return cmp
+        }
+        return 0
+      })
     }
     if (this.max !== null) affected = affected.slice(0, this.max)
 
@@ -287,6 +298,12 @@ class Query implements PromiseLike<PgResult> {
     if (this.table === 'subscription_events' && next.external_id && next.notification_id) {
       if (others.some((r) => r.provider === next.provider && r.event_type === next.event_type
           && r.external_id === next.external_id && r.notification_id === next.notification_id)) return 'uq_subscription_events_notification'
+    }
+    if (this.table === 'payments') {
+      const paymentId = (next.raw_payload as Row | undefined)?.payment_id
+      if (paymentId && others.some(r => r.provider === next.provider && (r.raw_payload as Row)?.payment_id === paymentId)) {
+        return 'uq_payments_mp_payment_id'
+      }
     }
     return null
   }
@@ -428,7 +445,9 @@ export class World {
 
   /** Quien abrió el checkout paga: Mercado Pago deja ESE preapproval `authorized`. */
   pay(preapprovalId: string, patch: Row = {}): Row {
-    return this.mp.authorize(preapprovalId, patch)
+    const pre = this.mp.authorize(preapprovalId, patch)
+    this.mp.approveFirstPayment(preapprovalId)
+    return pre
   }
 
   /** Atajo: checkout abierto + pago en MP + webhook procesado. */

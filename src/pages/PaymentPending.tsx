@@ -44,7 +44,7 @@ export function PaymentPending() {
       setError('')
       setCheckout(result.checkout)
       setMessage(result.message)
-      if (result.checkout?.status === 'paid') await refresh()
+      if (result.checkout?.status === 'paid' && result.checkout.payment_confirmed === true) await refresh()
     } catch (e) {
       // Un error de red o del servicio no es «pago rechazado»: se muestra y se sigue.
       setError(e instanceof Error ? e.message : 'No pudimos verificar el pago.')
@@ -55,7 +55,7 @@ export function PaymentPending() {
   }, [businessId, refresh])
 
   const status     = checkout?.status
-  const isPaid     = status === 'paid'
+  const isPaid     = status === 'paid' && checkout?.payment_confirmed === true
   const isFailed   = status === 'failed' || status === 'canceled' || status === 'expired'
   const noCheckout = checkout === null
   const isTimeout  = checks >= MAX_CHECKS && !isPaid && !isFailed && !noCheckout

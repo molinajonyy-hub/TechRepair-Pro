@@ -138,6 +138,7 @@ export interface BillingStore {
   getBusinessBilling(businessId: string): Promise<BusinessBillingRow | null>
   findBusinessByPreapprovalId(preapprovalId: string): Promise<BusinessBillingRow | null>
   updateBusinessBilling(businessId: string, patch: BusinessBillingPatch, nowIso: string): Promise<void>
+  compareBusinessBilling(before: BusinessBillingRow, patch: BusinessBillingPatch, nowIso: string): Promise<boolean>
 
   /**
    * La sesión que originó un preapproval. El vínculo lo escribe `create`, con el
@@ -160,6 +161,9 @@ export interface BillingStore {
   updateEvent(eventId: string, patch: BillingEventPatch): Promise<void>
 
   upsertPayment(row: PaymentLedgerRow): Promise<void>
+  getPaymentByInvoiceId(invoiceId: string): Promise<PaymentLedgerRow | null>
+  getPaymentByPaymentId(paymentId: string): Promise<PaymentLedgerRow | null>
+  getApprovedPaymentByPreapprovalId(preapprovalId: string): Promise<PaymentLedgerRow | null>
 }
 
 export interface BillingAuthorizer {
@@ -237,6 +241,16 @@ export function createSupabaseBillingStore(client: SupabaseLike): BillingStore {
         .from('businesses').update({ ...patch, updated_at: nowIso }).eq('id', businessId))
     },
 
+    async compareBusinessBilling(before, patch, nowIso) {
+      let query = client.from('businesses').update({ ...patch, updated_at: nowIso }).eq('id', before.id)
+      for (const field of ['mp_preapproval_id', 'mp_last_modified', 'last_payment_id', 'last_payment_status',
+        'subscription_status', 'subscription_plan', 'access_source'] as const) {
+        query = before[field] === null ? query.is(field, null) : query.eq(field, before[field])
+      }
+      const rows = unwrap<{ id: string }[]>('comparar billing del negocio', await query.select('id'))
+      return rows.length === 1
+    },
+
     async findCheckoutSessionByPreapprovalId(preapprovalId) {
       return unwrap<CheckoutSessionRow | null>('buscar sesión de checkout por preapproval', await client
         .from('subscription_checkout_sessions').select(SESSION_COLUMNS)
@@ -252,7 +266,7 @@ export function createSupabaseBillingStore(client: SupabaseLike): BillingStore {
     async listCheckoutSessions(businessId, limit) {
       return unwrap<CheckoutSessionRow[] | null>('listar sesiones de checkout', await client
         .from('subscription_checkout_sessions').select(SESSION_COLUMNS)
-        .eq('business_id', businessId).order('created_at', { ascending: false }).limit(limit)) ?? []
+        .eq('business_id', businessId).order('created_at', { ascending: false }).order('id', { ascending: false }).limit(limit)) ?? []
     },
 
     async insertCheckoutSession(row) {
@@ -295,6 +309,19 @@ export function createSupabaseBillingStore(client: SupabaseLike): BillingStore {
     async upsertPayment(row) {
       unwrap('registrar pago en el ledger', await client
         .from('payments').upsert({ provider: PROVIDER, ...row }, { onConflict: 'provider,external_payment_id' }))
+    },
+    async getPaymentByInvoiceId(invoiceId) {
+      return unwrap<PaymentLedgerRow | null>('leer ledger por factura', await client.from('payments')
+        .select('*').eq('provider', PROVIDER).eq('external_payment_id', invoiceId).maybeSingle())
+    },
+    async getPaymentByPaymentId(paymentId) {
+      return unwrap<PaymentLedgerRow | null>('leer ledger por pago', await client.from('payments')
+        .select('*').eq('provider', PROVIDER).eq('raw_payload->>payment_id', paymentId).maybeSingle())
+    },
+    async getApprovedPaymentByPreapprovalId(preapprovalId) {
+      return unwrap<PaymentLedgerRow | null>('leer pago aprobado de suscripcion', await client.from('payments')
+        .select('*').eq('provider', PROVIDER).eq('raw_payload->>preapproval_id', preapprovalId)
+        .eq('status', 'approved').order('paid_at', { ascending: false }).limit(1).maybeSingle())
     },
   }
 }

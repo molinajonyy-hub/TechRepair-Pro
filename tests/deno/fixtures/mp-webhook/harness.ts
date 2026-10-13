@@ -37,7 +37,7 @@ async function sign(dataId: string, secret = SECRET): Promise<string> {
 const notification = (id: string) => JSON.stringify({ id: 4242, type: 'subscription_preapproval', action: 'updated', data: { id } })
 const post = (body: string, headers: Record<string, string> = {}, query = '') =>
   new Request(`${URL_BASE}${query}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body })
-const signed = async (bodyId: string, signedId: string, query = '', secret = SECRET) =>
+const signed = async (bodyId: string, signedId: string, query = `?data.id=${encodeURIComponent(bodyId)}`, secret = SECRET) =>
   post(notification(bodyId), { 'x-signature': `ts=${TS},v1=${await sign(signedId, secret)}`, 'x-request-id': REQUEST_ID }, query)
 
 interface Scenario { secret: boolean; make: () => Request | Promise<Request> }
@@ -56,7 +56,11 @@ const scenarios: Record<string, Scenario> = {
   valid: { secret: true, make: () => signed('pre_1', 'pre_1') },
   valid_with_url_id: { secret: true, make: () => signed('pre_1', 'pre_1', '?data.id=pre_1&type=subscription_preapproval') },
   // Mercado Pago firma el id en minúsculas.
-  valid_uppercase_id: { secret: true, make: () => signed('PRE_ABC', 'pre_abc') },
+  valid_uppercase_id: { secret: true, make: () => signed('PREABC', 'preabc') },
+  body_fallback_forbidden: { secret: true, make: () => signed('pre_1', 'pre_1', '') },
+  duplicate_url_id: { secret: true, make: () => signed('pre_1', 'pre_1', '?data.id=pre_1&data.id=pre_2') },
+  topic_mismatch: { secret: true, make: () => signed('pre_1', 'pre_1', '?data.id=pre_1&type=payment') },
+  encoded_url_id: { secret: true, make: () => signed('pre_1', 'pre_1', '?data%2Eid=pre%5F1&type=subscription_preapproval&extra=ignored') },
   get_method: { secret: true, make: () => new Request(URL_BASE, { method: 'GET' }) },
   invalid_json: { secret: true, make: () => post('{no es json') },
   json_array: { secret: true, make: () => post('[1,2,3]') },

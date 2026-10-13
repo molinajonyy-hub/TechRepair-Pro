@@ -160,6 +160,8 @@ export interface CheckoutSummary {
   billing_cycle: BillingCycle
   created_at: string
   confirmed_at: string | null
+  /** Backend verified an approved payment belonging to this checkout. */
+  payment_confirmed: boolean
 }
 
 /**

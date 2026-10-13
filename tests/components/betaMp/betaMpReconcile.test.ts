@@ -44,14 +44,17 @@ describe('reconcile sin webhook recupera la compra', () => {
     expect(w.db.events('billing_state_applied')[0].raw_payload).toMatchObject({ source: 'reconcile', linked_by: 'preapproval_id' })
   })
 
-  it('lee el preapproval DIRECTO por el id guardado en la sesión: una sola lectura, ninguna búsqueda', async () => {
+  it('lee la suscripción por id y busca sólo sus facturas por ese mismo id del servidor', async () => {
     const { preapprovalId } = await w.openCheckout(OWNER_A, BIZ_A, 'pro')
     w.pay(preapprovalId)
     w.mp.calls.length = 0
     await reconcile()
 
-    expect(w.mp.calls.map((c) => `${c.method} ${c.path}`)).toEqual([`GET /preapproval/${preapprovalId}`])
-    expect(w.mp.calls.some((c) => c.path.includes('search') || c.path.includes('payer_email'))).toBe(false)
+    expect(w.mp.calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      `GET /preapproval/${preapprovalId}`, `GET /authorized_payments/search?preapproval_id=${preapprovalId}&offset=0&limit=20`,
+      `GET /authorized_payments/first_${preapprovalId}`, `GET /v1/payments/pay_first_${preapprovalId}`,
+    ])
+    expect(w.mp.calls.some(c => c.path.includes('/preapproval/search') || c.path.includes('payer_email'))).toBe(false)
   })
 
   it('Mercado Pago no devuelve la referencia (smoke real): reconcile recupera igual, por id', async () => {
@@ -152,6 +155,8 @@ describe('doble reconcile idempotente', () => {
     const { preapprovalId } = await w.openCheckout(OWNER_A, BIZ_A, 'pro')
     w.pay(preapprovalId)
     const [a, b] = await Promise.all([reconcile(), reconcile()])
+    expect(a.status, JSON.stringify([a, b])).toBe(200)
+    expect(b.status, JSON.stringify([a, b])).toBe(200)
 
     expect(a.body.activated).toBe(true)
     expect(b.body.activated).toBe(true)

@@ -45,7 +45,7 @@ Deno.test('sin MP_WEBHOOK_SECRET: 500 y no procesa nada, ni con una firma bien c
   assertEquals(r.backendCalls, [])
 })
 
-for (const scenario of ['no_signature', 'empty_signature', 'malformed_signature', 'wrong_signature', 'wrong_secret', 'signed_for_other_resource']) {
+for (const scenario of ['no_signature', 'empty_signature', 'malformed_signature', 'wrong_signature', 'wrong_secret', 'signed_for_other_resource', 'body_fallback_forbidden', 'duplicate_url_id', 'topic_mismatch']) {
   Deno.test(`firma inválida (${scenario}): 401 sin crear el cliente service_role ni llamar a Mercado Pago`, async () => {
     const r = (await run())[scenario]
     assertEquals(r.status, 401, r.body)
@@ -59,7 +59,7 @@ Deno.test('lo firmado y lo procesado no pueden diferir: id de la URL ≠ id del 
   assertEquals(r.backendCalls, [])
 })
 
-for (const scenario of ['valid', 'valid_with_url_id', 'valid_uppercase_id']) {
+for (const scenario of ['valid', 'valid_with_url_id', 'valid_uppercase_id', 'encoded_url_id']) {
   Deno.test(`firma válida (${scenario}): pasa el borde y reclama el evento antes de cualquier otra cosa`, async () => {
     const r = (await run())[scenario]
     assert(r.status !== 401, `rechazó una firma válida: ${r.body}`)

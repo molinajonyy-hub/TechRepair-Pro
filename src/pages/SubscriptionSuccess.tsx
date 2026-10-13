@@ -1,14 +1,29 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { CheckCircle, Clock } from 'lucide-react'
 import { useSubscription } from '../hooks/useSubscription'
 import { PLAN_DISPLAY } from '../config/planFeatures'
+import { useAuth } from '../contexts/AuthContext'
+import { getCheckoutStatus } from '../services/subscriptionService'
 
 export function SubscriptionSuccess() {
   const navigate = useNavigate()
   const { subscription, currentPlan, isActive, refresh } = useSubscription()
+  const { businessId } = useAuth()
+  const [checkoutProof, setCheckoutProof] = useState<{ businessId: string; verified: boolean } | null>(null)
+  const verifiedCheckout = checkoutProof?.businessId === businessId && checkoutProof?.verified === true
 
   useEffect(() => { refresh() }, [refresh])
+  useEffect(() => {
+    let current = true
+    setCheckoutProof(null)
+    if (businessId) {
+      void getCheckoutStatus(businessId).then(checkout => {
+        if (current) setCheckoutProof({ businessId, verified: checkout?.status === 'paid' && checkout.payment_confirmed === true })
+      }).catch(() => { if (current) setCheckoutProof(null) })
+    }
+    return () => { current = false }
+  }, [businessId])
 
   const planInfo = currentPlan ? PLAN_DISPLAY[currentPlan] : null
 
@@ -17,6 +32,7 @@ export function SubscriptionSuccess() {
   // payment. `active` alone is not enough: a manual grant or a previous plan is
   // also `active`, and neither is "tu pago se confirmó".
   const confirmed = isActive && subscription?.access_source === 'mercado_pago'
+    && subscription.last_payment_status === 'approved' && verifiedCheckout
 
   return (
     <div style={{
