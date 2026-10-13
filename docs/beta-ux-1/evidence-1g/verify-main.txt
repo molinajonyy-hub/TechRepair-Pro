@@ -1,0 +1,117 @@
+
+G · áreas táctiles (390×844, tema claro) — mínimo exigido 44 px de alto
+  no    Volver al inicio: 112.2×20.8 px
+  no    modo «Iniciar sesión»: 135×42.4 px
+  no    modo «Crear cuenta»: 135×42.4 px
+  OK    campo email: 284×55.6 px
+  OK    campo contraseña: 284×55.6 px
+  no    mostrar contraseña: 17×17 px
+  OK    Iniciar sesión (enviar): 284×54 px
+  OK    Continuar con Google: 284×54 px
+  no    ¿Olvidaste tu contraseña?: 163.4×20.8 px
+  no    recuperar · Volver al inicio de sesión: 284×28.8 px
+  OK    reset · Volver al inicio de sesión: 284×44 px
+  OK    reset · Pedir un enlace nuevo: 284×54 px
+  no    invitación · acción principal: 292×39 px
+  no    invitación · volver: 114.6×32.7 px
+
+O · sin desborde horizontal
+  OK    320 px: 7 pantallas sin desborde
+  OK    375 px: 7 pantallas sin desborde
+  OK    390 px: 7 pantallas sin desborde
+  OK    768 px: 7 pantallas sin desborde
+  OK    1440 px: 7 pantallas sin desborde
+
+C · contraste PINTADO (texto contra el fondo real) — mínimo 4,5:1; 3:1 en texto grande
+  — claro —
+  no    bajada de la marca: 2.54:1 (rgb(148, 163, 184) sobre rgb(254, 254, 255), 14px/400)
+  ·     «Pro» de la marca: texto con relleno transparente (gradiente) — no medible por color
+  no    modo elegido: 4.27:1 (rgb(255, 255, 255) sobre rgb(131, 95, 245), 14px/600)
+  OK    modo no elegido: 4.76:1 (rgb(100, 116, 139) sobre rgb(255, 255, 255), 14px/600)
+  OK    etiqueta de campo: 4.72:1 (rgb(100, 116, 139) sobre rgb(254, 254, 255), 13px/600)
+  no    botón primario: 4.30:1 (rgb(255, 255, 255) sobre rgb(126, 96, 245), 15px/700)
+  OK    Continuar con Google: 10.35:1 (rgb(51, 65, 85) sobre rgb(255, 255, 255), 15px/600)
+  no    ¿Olvidaste tu contraseña?: 2.00:1 (rgb(129, 140, 248) sobre rgb(204, 209, 252), 13px/600)
+  ·     «¿No tenés cuenta?» (sobre el fondo de página): no existe
+  no    «Probalo 14 días gratis» (sobre el fondo de página): 2.09:1 (rgb(121, 132, 235) sobre rgb(202, 218, 231), 12.48px/700)
+  no    pie legal: 2.55:1 computado (rgb(148, 163, 184) sobre rgb(254, 254, 255))
+  no    enlace a la política: no se pudo medir (locator.evaluate: Error: paintedContrastOf: «Política de privacidad» está tapado)
+  no    alerta de error: 2.54:1 (rgb(108, 90, 81) sobre rgb(253, 243, 244), 14px/400)
+  ·     aviso de invitación · detalle: no existe
+  ·     aviso de invitación · título: no existe
+  ·     requisito sin cumplir: no existe
+  ·     requisito cumplido: no existe
+  OK    error de campo: 4.82:1 (rgb(220, 38, 38) sobre rgb(254, 255, 255), 12px/400)
+  OK    Volver al inicio de sesión: 7.50:1 (rgb(71, 85, 105) sobre rgb(253, 254, 255), 13px/500)
+  OK    título de estado: 17.71:1 (rgb(15, 23, 42) sobre rgb(254, 254, 255), 22px/800)
+  OK    detalle de estado: 10.27:1 (rgb(51, 65, 85) sobre rgb(254, 254, 255), 14px/400)
+  no    callback · título: 2.77:1 (rgb(248, 113, 113) sobre rgb(255, 255, 255), 17.6px/700)
+  OK    callback · detalle: 10.35:1 (rgb(51, 65, 85) sobre rgb(255, 255, 255), 14px/400)
+  OK    invitación · título: 17.85:1 (rgb(15, 23, 42) sobre rgb(255, 255, 255), 24px/700)
+  OK    invitación · detalle: 4.76:1 (rgb(100, 116, 139) sobre rgb(255, 255, 255), 16px/400)
+  no    invitación · etiqueta del campo: 2.56:1 (rgb(148, 163, 184) sobre rgb(255, 255, 255), 10.4px/700)
+  — oscuro —
+  no    bajada de la marca: 2.53:1 (rgb(78, 90, 115) sobre rgb(13, 25, 47), 14px/400)
+  ·     «Pro» de la marca: texto con relleno transparente (gradiente) — no medible por color
+  no    modo elegido: 4.27:1 (rgb(255, 255, 255) sobre rgb(131, 95, 245), 14px/600)
+  OK    modo no elegido: 5.96:1 (rgb(136, 150, 179) sobre rgb(17, 24, 39), 14px/600)
+  OK    etiqueta de campo: 5.95:1 (rgb(136, 150, 179) sobre rgb(13, 24, 46), 13px/600)
+  no    botón primario: 4.30:1 (rgb(255, 255, 255) sobre rgb(126, 96, 245), 15px/700)
+  OK    Continuar con Google: 11.19:1 (rgb(196, 205, 232) sobre rgb(17, 24, 39), 15px/600)
+  no    ¿Olvidaste tu contraseña?: 2.99:1 (rgb(129, 140, 248) sobre rgb(59, 70, 125), 13px/600)
+  ·     «¿No tenés cuenta?» (sobre el fondo de página): no existe
+  OK    «Probalo 14 días gratis» (sobre el fondo de página): 6.10:1 (rgb(98, 106, 188) sobre rgb(13, 22, 33), 12.48px/700)
+  no    pie legal: 2.56:1 computado (rgb(78, 90, 115) sobre rgb(12, 24, 45))
+  no    enlace a la política: no se pudo medir (locator.evaluate: Error: paintedContrastOf: «Política de privacidad» está tapado)
+  OK    alerta de error: 5.83:1 (rgb(255, 211, 88) sobre rgb(31, 31, 51), 14px/400)
+  ·     aviso de invitación · detalle: no existe
+  ·     aviso de invitación · título: no existe
+  ·     requisito sin cumplir: no existe
+  ·     requisito cumplido: no existe
+  OK    error de campo: 6.41:1 (rgb(248, 113, 113) sobre rgb(12, 24, 45), 12px/400)
+  no    Volver al inicio de sesión: 2.34:1 (rgb(71, 85, 105) sobre rgb(12, 24, 45), 13px/500)
+  OK    título de estado: 16.08:1 (rgb(240, 244, 255) sobre rgb(13, 24, 46), 22px/800)
+  OK    detalle de estado: 11.16:1 (rgb(196, 205, 232) sobre rgb(13, 24, 46), 14px/400)
+  OK    callback · título: 6.42:1 (rgb(248, 113, 113) sobre rgb(15, 24, 41), 17.6px/700)
+  no    callback · detalle: 3.73:1 (rgb(100, 116, 139) sobre rgb(15, 24, 41), 14px/400)
+  OK    invitación · título: 14.39:1 (rgb(240, 244, 255) sobre rgb(17, 34, 64), 24px/700)
+  OK    invitación · detalle: 5.32:1 (rgb(136, 150, 179) sobre rgb(17, 34, 64), 16px/400)
+  no    invitación · etiqueta del campo: 2.29:1 (rgb(78, 90, 115) sobre rgb(17, 34, 64), 10.4px/700)
+  OK    espera (claro): 4.76:1 (rgb(100, 116, 139) sobre rgb(255, 255, 255), 16px/400)
+  OK    espera (oscuro): 5.32:1 (rgb(136, 150, 179) sobre rgb(17, 34, 64), 16px/400)
+
+K · teclado en /login (1440×900)
+  ·     orden: Volver al inicio → Iniciar sesión → login-tab-register → login-email → login-password → Mostrar contraseña → login-submit → Continuar con Google → login-forgot-link → login-link-privacidad → Probalo 14 días gratis →
+  OK    foco visible en las 11 paradas
+  OK    el orden sigue la lectura: email → contraseña → enviar
+  no    el selector de modo es una sola parada de Tab (2)
+  no    el selector de modo no es un tablist (sin flechas)
+  no    Enter envía; el campo que falla queda con foco y aria-invalid (login-email, 0 inválidos)
+
+A · nombres accesibles y errores asociados
+  OK    login-email se llama «Email»
+  OK    login-password se llama «Contraseña»
+  OK    login-confirm-password se llama «Confirmar contraseña»
+  no    mostrar contraseña expone su estado (aria-pressed=null)
+  no    el error de contraseña queda asociado al control (aria-invalid=null, descripción=«null»)
+  no    el foco va al campo que falla
+  no    la alerta es role=alert, con ícono y sin emoji (role=alert, emoji=true, svg=false)
+  OK    la pantalla tiene un h1 (1)
+  no    /auth/callback: h1=0, main=0, campos sin etiqueta=0
+  no    /accept-invite: h1=0, main=0, campos sin etiqueta=1
+  no    /reset-password: h1=1, main=0, campos sin etiqueta=0
+
+F · flujos (backend simulado)
+  no    F1 invitación pendiente + ingreso: /login → /dashboard → /no-business
+  no    F2 destino guardado + ingreso: /dashboard · queda guardado="/onboarding?plan=pro"
+  no    F3 callback con error, a los 4,5 s: /login · explicación visible=false · botón de salida=false
+  no    F4 callback sin sesión: /login · el login lo explica=false
+  no    F5 invitación con fallo transitorio: botón «Reintentar»=false · pide pegar un «token»=true
+  no    F6 invitación para otro correo: «Usar otra cuenta»=false · dice con qué cuenta se entró=false
+  no    F7 reenvío que falla desde el login: la pantalla lo dice=false
+  no    F8 «Crear cuenta» ofrece Google=false
+  no    F8 login desde una invitación: lo dice=false · arranca en «Crear cuenta»=false
+  no    F9 el email escrito sigue en el pedido de recuperación: «»
+  OK    F10 aviso de versión vs. CTA a 320×568: aviso y=12–112.8 · CTA y=256.7–310.7 · se pisan=false
+
+RESULTADO: medición sin gate (referencia)

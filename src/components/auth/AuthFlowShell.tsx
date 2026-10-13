@@ -16,6 +16,11 @@
 //   · campos → `.form-control`;
 //   · colores, radios y sombras → tokens de index.css. `src/css/auth-flow.css`
 //     sólo compone layout con esos tokens.
+//
+// BETA-UX-1G — el shell pasa a ser el de TODO el embudo de acceso: también
+// /login, /reset-password, /auth/callback y /accept-invite, que tenían cada una
+// su fondo, su tarjeta, sus campos y sus botones. Los campos, alertas y el
+// selector de modo viven en `AuthFlowFields.tsx`.
 // ─────────────────────────────────────────────────────────────────────────────
 import { useEffect, useId, useRef, type ReactNode } from 'react'
 import { Check, ChevronLeft, Loader2 } from 'lucide-react'
@@ -24,7 +29,17 @@ import { S } from './authCardStyles'
 import logoSvg from '../../assets/logo.svg'
 import '../../css/auth-flow.css'
 
-export type AuthFlowTone = 'accent' | 'success' | 'warning'
+export type AuthFlowTone = 'accent' | 'success' | 'warning' | 'danger'
+
+/**
+ * Dónde va la marca:
+ *   · `compact` → chica, sobre la tarjeta. Es la de los pasos del embudo.
+ *   · `hero`    → grande, dentro de la tarjeta, y es el título de la página. Es
+ *     la puerta de entrada (/login): la cara que el usuario ya conoce.
+ *   · `none`    → sin marca: el callback de auth también se sirve en el dominio
+ *     del portal mayorista, que es del comercio y no de TechRepair Pro.
+ */
+export type AuthFlowBrand = 'compact' | 'hero' | 'none'
 
 export interface AuthFlowBackAction {
   label: string
@@ -49,12 +64,18 @@ export interface AuthFlowShellProps {
   back?: AuthFlowBackAction
   /** Progreso del flujo, sobre la tarjeta. */
   progress?: AuthFlowProgressModel
+  /** Marca. Con `hero` la marca es el título: `icon` y `title` no se usan. */
+  brand?: AuthFlowBrand
   /** Encabezado de la tarjeta. Todo opcional. */
   icon?: ReactNode
   tone?: AuthFlowTone
   eyebrow?: ReactNode
   title?: ReactNode
   description?: ReactNode
+  /** Contenido bajo la tarjeta (p. ej. el acceso al alta desde el login). */
+  footer?: ReactNode
+  /** Estado de la pantalla, publicado en la raíz como `data-estado`. */
+  estado?: string
   /** `center` para pantallas de estado; `start` para formularios. */
   align?: 'start' | 'center'
   /**
@@ -70,18 +91,29 @@ export interface AuthFlowShellProps {
 
 // ── Marco: fondo, decoración, columna y marca ───────────────────────────────
 
-function AuthFlowFrame({ testId, children }: { testId?: string; children: ReactNode }) {
+interface AuthFlowFrameProps {
+  testId?: string
+  estado?: string
+  brand?: AuthFlowBrand
+  footer?: ReactNode
+  children: ReactNode
+}
+
+function AuthFlowFrame({ testId, estado, brand = 'compact', footer, children }: AuthFlowFrameProps) {
   return (
-    <div className="auth-flow" data-auth-flow-shell="" data-testid={testId}>
+    <div className="auth-flow" data-auth-flow-shell="" data-testid={testId} data-estado={estado}>
       <div aria-hidden="true" style={S.blob1} />
       <div aria-hidden="true" style={S.blob2} />
       <div aria-hidden="true" style={S.blob3} />
       <main className="auth-flow__column">
-        <div className="auth-flow__brand" role="img" aria-label="TechRepair Pro">
-          <img src={logoSvg} alt="" width={32} height={32} />
-          <span className="auth-flow__wordmark" aria-hidden="true">TechRepair<span>Pro</span></span>
-        </div>
+        {brand === 'compact' && (
+          <div className="auth-flow__brand" role="img" aria-label="TechRepair Pro">
+            <img src={logoSvg} alt="" width={32} height={32} />
+            <span className="auth-flow__wordmark" aria-hidden="true">TechRepair<span>Pro</span></span>
+          </div>
+        )}
         {children}
+        {footer && <div className="auth-flow__footer">{footer}</div>}
       </main>
     </div>
   )
@@ -107,8 +139,8 @@ function AuthFlowProgressBar({ total, current, testId }: AuthFlowProgressModel) 
 }
 
 export function AuthFlowShell({
-  children, back, progress, icon, tone = 'accent', eyebrow, title, description,
-  align = 'start', contentKey, testId, cardTestId,
+  children, back, progress, brand = 'compact', icon, tone = 'accent', eyebrow, title, description,
+  footer, estado, align = 'start', contentKey, testId, cardTestId,
 }: AuthFlowShellProps) {
   const titleId = useId()
   const titleRef = useRef<HTMLHeadingElement>(null)
@@ -123,10 +155,11 @@ export function AuthFlowShell({
     titleRef.current?.focus()
   }, [contentKey])
 
-  const hayEncabezado = Boolean(icon || eyebrow || title || description)
+  const esHero = brand === 'hero'
+  const hayEncabezado = Boolean(esHero || icon || eyebrow || title || description)
 
   return (
-    <AuthFlowFrame testId={testId}>
+    <AuthFlowFrame testId={testId} estado={estado} brand={brand} footer={footer}>
       {(back || progress) && (
         <div className="auth-flow__top">
           <div className={`auth-flow__top-row${back ? ' auth-flow__top-row--with-back' : ''}`}>
@@ -156,15 +189,30 @@ export function AuthFlowShell({
         className={`auth-flow__card auth-flow__card--${align}`}
         style={S.card}
         data-testid={cardTestId}
-        aria-labelledby={title ? titleId : undefined}
+        aria-labelledby={esHero || title ? titleId : undefined}
       >
         <div aria-hidden="true" style={S.cardTopGlow} />
         <div key={contentKey} className="auth-flow__body">
           {hayEncabezado && (
-            <header className="auth-flow__header">
-              {icon && <div className={`auth-flow__icon auth-flow__icon--${tone}`} aria-hidden="true">{icon}</div>}
-              {eyebrow && <p className="auth-flow__eyebrow">{eyebrow}</p>}
-              {title && <h1 id={titleId} ref={titleRef} tabIndex={-1} className="auth-flow__title">{title}</h1>}
+            <header className={`auth-flow__header${esHero ? ' auth-flow__header--hero' : ''}`}>
+              {esHero ? (
+                <>
+                  <img className="auth-flow__hero-logo" src={logoSvg} alt="" width={64} height={64} />
+                  <h1
+                    id={titleId} ref={titleRef} tabIndex={-1}
+                    className="auth-flow__wordmark auth-flow__wordmark--hero"
+                    aria-label="TechRepair Pro"
+                  >
+                    TechRepair<span>Pro</span>
+                  </h1>
+                </>
+              ) : (
+                <>
+                  {icon && <div className={`auth-flow__icon auth-flow__icon--${tone}`} aria-hidden="true">{icon}</div>}
+                  {eyebrow && <p className="auth-flow__eyebrow">{eyebrow}</p>}
+                  {title && <h1 id={titleId} ref={titleRef} tabIndex={-1} className="auth-flow__title">{title}</h1>}
+                </>
+              )}
               {description && <div className="auth-flow__description">{description}</div>}
             </header>
           )}
@@ -175,10 +223,21 @@ export function AuthFlowShell({
   )
 }
 
+export interface AuthFlowLoadingProps {
+  label?: string
+  testId?: string
+  /** `data-testid` de la raíz de la página (el mismo de la pantalla ya resuelta). */
+  pageTestId?: string
+  /** Estado de la pantalla, publicado en la raíz como `data-estado`. */
+  estado?: string
+  /** Sólo `compact` (por defecto) o `none`: una espera no tiene tarjeta. */
+  brand?: Exclude<AuthFlowBrand, 'hero'>
+}
+
 /** Espera antes de poder decidir qué mostrar. Mismo marco, sin tarjeta. */
-export function AuthFlowLoading({ label = 'Cargando…', testId }: { label?: string; testId?: string }) {
+export function AuthFlowLoading({ label = 'Cargando…', testId, pageTestId, estado, brand }: AuthFlowLoadingProps) {
   return (
-    <AuthFlowFrame>
+    <AuthFlowFrame testId={pageTestId} estado={estado} brand={brand}>
       <div className="auth-flow__loading" role="status" aria-live="polite" data-testid={testId}>
         <Loader2 size={30} className="animate-spin" aria-hidden="true" />
         <p>{label}</p>
@@ -263,8 +322,8 @@ export function AuthFlowError({ children, testId }: { children: ReactNode; testI
   return <p className="auth-flow__error" role="alert" data-testid={testId}>{children}</p>
 }
 
-export function AuthFlowNote({ children, testId }: { children: ReactNode; testId?: string }) {
-  return <p className="auth-flow__note" data-testid={testId}>{children}</p>
+export function AuthFlowNote({ children, testId, center }: { children: ReactNode; testId?: string; center?: boolean }) {
+  return <p className={`auth-flow__note${center ? ' auth-flow__note--center' : ''}`} data-testid={testId}>{children}</p>
 }
 
 /**

@@ -133,6 +133,17 @@ export function classifyResendResult(error: unknown): ResendOutcome {
   return isRateLimited(shape(error)) ? 'rate_limited' : 'error'
 }
 
+/**
+ * BETA-UX-1G — texto del reenvío, uno por resultado. Lo comparten el login y
+ * /verificar-email: antes cada pantalla tenía su versión, y el login no decía
+ * nada cuando el reenvío fallaba (el botón volvía a su estado inicial).
+ */
+export const RESEND_MESSAGE: Record<ResendOutcome, string> = {
+  sent: 'Te reenviamos el correo de confirmación. Revisá tu bandeja de entrada y la carpeta de spam.',
+  rate_limited: 'Ya enviamos varios correos en poco tiempo. Esperá unos minutos antes de pedir otro.',
+  error: 'No pudimos reenviar el correo. Probá de nuevo en unos minutos.',
+}
+
 // ── Errores que vuelven por la URL (OAuth / GoTrue) ───────────────────────────
 //
 // `?error_description=` lo escribe cualquiera que arme un link: NO es UI
@@ -146,6 +157,23 @@ export const AUTH_URL_ERROR_MESSAGE: Record<AuthUrlErrorKind, string> = {
   link_expired: 'El enlace venció o ya se usó. Pedí uno nuevo.',
   failed: 'No pudimos completar el inicio de sesión. Intentá nuevamente.',
 }
+
+/**
+ * BETA-UX-1G — título de la pantalla de `/auth/callback` para cada error. Antes
+ * decía «Error al iniciar sesión» también cuando el usuario había cancelado.
+ */
+export const AUTH_URL_ERROR_TITLE: Record<AuthUrlErrorKind, string> = {
+  oauth_cancelled: 'No iniciaste sesión',
+  link_expired: 'El enlace ya no es válido',
+  failed: 'No pudimos iniciar tu sesión',
+}
+
+/**
+ * BETA-UX-1G — `/auth/callback` volvía al login en silencio cuando la sesión no
+ * quedaba creada (Google que no completa, el callback abierto a mano, la espera
+ * que vence). El login lo explica con un `?motivo=` de su enum cerrado.
+ */
+export const AUTH_CALLBACK_NO_SESSION_PATH = '/login?motivo=sesion_no_iniciada'
 
 /**
  * `null` si la URL no trae error. Los valores no reconocidos caen en `failed`.

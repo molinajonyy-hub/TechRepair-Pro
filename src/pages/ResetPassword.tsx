@@ -1,11 +1,15 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type FocusEvent, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertTriangle, ArrowLeft, CheckCircle, Eye, EyeOff, Loader2, Lock } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, CheckCircle2, Lock } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import { S, blurOn, focusOn } from '../components/auth/authCardStyles'
-import { colors } from '../lib/tokens'
 import { PORTAL_DOMAINS } from '../portal/portalDomains'
-import { PASSWORD_PLACEHOLDER } from '../lib/passwordPolicy'
+import {
+  PASSWORD_MATCH_MESSAGE,
+  PASSWORD_PLACEHOLDER,
+  PASSWORD_REQUIREMENT,
+  checkPasswordPolicy,
+  validateTypedPasswordPair,
+} from '../lib/passwordPolicy'
 import { canalSoporte } from '../config/contacto'
 import { SupportContactLink } from '../components/ui/SupportContactButton'
 import {
@@ -17,6 +21,13 @@ import {
   validateNewPassword,
   type PasswordFieldErrors,
 } from '../lib/passwordRecovery'
+import {
+  AuthFlowShell, AuthFlowLoading, AuthFlowActions, AuthFlowNote,
+  AuthFlowPrimaryButton, AuthFlowTextButton,
+} from '../components/auth/AuthFlowShell'
+import {
+  AuthFlowAlert, AuthFlowPasswordField, AuthFlowRequirement, focusLeftField,
+} from '../components/auth/AuthFlowFields'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // BETA-GATE-1 · Lote B — «Nueva contraseña».
@@ -25,6 +36,11 @@ import {
 // para ese mismo usuario (ver src/lib/passwordRecovery.ts). Una sesión normal,
 // un enlace vencido o usado, o no tener sesión muestran «enlace no válido» con
 // la salida para pedir otro. Nunca se redirige al Dashboard sin pasar por acá.
+//
+// BETA-UX-1G — sólo cambió la capa visual: marco, tarjeta, campos y botones son
+// los del embudo (AuthFlowShell / AuthFlowFields). Los estados, la condición
+// para mostrar el formulario, el guardado y los `data-testid` son los mismos.
+// Se sumó el aviso de lo ya escrito al salir de un campo.
 // ─────────────────────────────────────────────────────────────────────────────
 
 type Vista =
@@ -68,8 +84,6 @@ export function ResetPassword() {
 
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
-  const [showPwd, setShowPwd] = useState(false)
-  const [showCfm, setShowCfm] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<PasswordFieldErrors>({})
   const [formError, setFormError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -125,7 +139,15 @@ export function ResetPassword() {
     return () => clearTimeout(t)
   }, [vista, navigate])
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  // Mientras se completa: se avisa de lo YA escrito al salir del campo. Pasar al
+  // botón de mostrar la contraseña no cuenta como salir.
+  const handleBlur = (e: FocusEvent<HTMLInputElement>) => {
+    if (!focusLeftField(e)) return
+    const fallas = validateTypedPasswordPair(password, confirm)
+    if (fallas.password || fallas.confirm) setFieldErrors(f => ({ ...f, ...fallas }))
+  }
+
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     if (vista.tipo !== 'formulario' || savingRef.current) return
 
@@ -167,223 +189,140 @@ export function ResetPassword() {
   }
 
   const estado = vista.tipo === 'invalido' ? `invalido:${vista.motivo}` : vista.tipo
-  // BETA-UX-1A — canal canónico (WhatsApp), no la casilla institucional.
-  const soporte = canalSoporte('recuperarContrasena')
+
+  if (vista.tipo === 'verificando') {
+    return (
+      <AuthFlowLoading
+        pageTestId="reset-password-page"
+        estado={estado}
+        testId="reset-password-checking"
+        label="Verificando el enlace…"
+      />
+    )
+  }
+
+  if (vista.tipo === 'invalido') {
+    // BETA-UX-1A — canal canónico (WhatsApp), no la casilla institucional.
+    const soporte = canalSoporte('recuperarContrasena')
+    return (
+      <AuthFlowShell
+        testId="reset-password-page"
+        estado={estado}
+        cardTestId="reset-password-invalid"
+        contentKey={estado}
+        align="center"
+        tone="warning"
+        icon={<AlertTriangle size={26} />}
+        title={TEXTO_INVALIDO[vista.motivo].titulo}
+        description={TEXTO_INVALIDO[vista.motivo].detalle}
+      >
+        <AuthFlowActions layout="stack">
+          <AuthFlowPrimaryButton
+            data-testid="reset-password-request-new"
+            onClick={() => navigate('/login?modo=recuperar', { replace: true })}
+          >
+            Pedir un enlace nuevo
+          </AuthFlowPrimaryButton>
+          <AuthFlowTextButton
+            data-testid="reset-password-back-login"
+            onClick={() => navigate('/login', { replace: true })}
+            leftIcon={<ArrowLeft aria-hidden="true" />}
+          >
+            Volver al inicio de sesión
+          </AuthFlowTextButton>
+        </AuthFlowActions>
+        {soporte.tipo === 'whatsapp' && (
+          <AuthFlowNote testId="reset-password-soporte">
+            ¿No te llega el correo?{' '}
+            <SupportContactLink canal={soporte}>Escribinos por WhatsApp</SupportContactLink>.
+          </AuthFlowNote>
+        )}
+      </AuthFlowShell>
+    )
+  }
+
+  if (vista.tipo === 'listo') {
+    const aLogin = vista.destino === '/login'
+    return (
+      <AuthFlowShell
+        testId="reset-password-page"
+        estado={estado}
+        cardTestId="reset-password-done"
+        contentKey={estado}
+        align="center"
+        tone="success"
+        icon={<CheckCircle2 size={26} />}
+        title="Contraseña actualizada"
+        description={aLogin
+          ? 'Ya podés iniciar sesión con tu nueva contraseña.'
+          : 'Listo. Te llevamos a tu cuenta en unos segundos.'}
+      >
+        <AuthFlowPrimaryButton
+          data-testid="reset-password-continue"
+          onClick={() => navigate(vista.destino, { replace: true })}
+        >
+          {aLogin ? 'Ir a iniciar sesión' : 'Continuar'}
+        </AuthFlowPrimaryButton>
+      </AuthFlowShell>
+    )
+  }
 
   return (
-    <div style={S.page} data-testid="reset-password-page" data-estado={estado}>
-      <div style={S.blob1} />
-      <div style={S.blob2} />
-      <div style={S.blob3} />
+    <AuthFlowShell
+      testId="reset-password-page"
+      estado={estado}
+      contentKey={estado}
+      icon={<Lock size={24} />}
+      title="Nueva contraseña"
+      description="Elegí una contraseña nueva para tu cuenta."
+    >
+      <form onSubmit={handleSubmit} noValidate className="auth-flow__form">
+        {formError && <AuthFlowAlert tone="error" testId="reset-password-error">{formError}</AuthFlowAlert>}
 
-      <div style={S.shell}>
-        <div style={S.card}>
-          <div style={S.cardTopGlow} />
+        <AuthFlowPasswordField
+          id="reset-password-new"
+          data-testid="reset-password-new"
+          errorTestId="reset-password-new-error"
+          toggleTestId="reset-password-toggle-new"
+          ref={passwordRef}
+          label="Nueva contraseña"
+          icon={<Lock />}
+          autoComplete="new-password"
+          placeholder={PASSWORD_PLACEHOLDER}
+          value={password}
+          disabled={saving}
+          error={fieldErrors.password}
+          hint={password
+            ? <AuthFlowRequirement met={checkPasswordPolicy(password) === null}>{PASSWORD_REQUIREMENT}</AuthFlowRequirement>
+            : undefined}
+          onChange={e => { setPassword(e.target.value); setFieldErrors(f => ({ ...f, password: undefined })); setFormError('') }}
+          onBlur={handleBlur}
+        />
 
-          {vista.tipo === 'verificando' && (
-            <div style={{ textAlign: 'center', padding: '1.5rem 0' }} role="status" data-testid="reset-password-checking">
-              <Loader2 size={36} style={{ color: colors.indigo, animation: 'tr-spin 1s linear infinite', margin: '0 auto 1rem' }} />
-              <p style={{ color: colors.text.secondary, fontSize: '0.9375rem', margin: 0 }}>
-                Verificando el enlace…
-              </p>
-            </div>
-          )}
+        <AuthFlowPasswordField
+          id="reset-password-confirm"
+          data-testid="reset-password-confirm"
+          errorTestId="reset-password-confirm-error"
+          toggleTestId="reset-password-toggle-confirm"
+          ref={confirmRef}
+          label="Confirmar contraseña"
+          icon={<Lock />}
+          autoComplete="new-password"
+          placeholder="Repetí la contraseña"
+          value={confirm}
+          disabled={saving}
+          error={fieldErrors.confirm}
+          hint={confirm && confirm === password
+            ? <AuthFlowRequirement met>{PASSWORD_MATCH_MESSAGE}</AuthFlowRequirement>
+            : undefined}
+          onChange={e => { setConfirm(e.target.value); setFieldErrors(f => ({ ...f, confirm: undefined })); setFormError('') }}
+          onBlur={handleBlur}
+        />
 
-          {vista.tipo === 'invalido' && (
-            <div data-testid="reset-password-invalid" style={{ textAlign: 'center' }}>
-              <div style={badge(colors.warningBg, colors.warningBorder)}>
-                <AlertTriangle size={26} style={{ color: colors.warning }} />
-              </div>
-              <h1 style={titulo}>{TEXTO_INVALIDO[vista.motivo].titulo}</h1>
-              <p style={{ ...subtitulo, marginBottom: '1.75rem' }}>{TEXTO_INVALIDO[vista.motivo].detalle}</p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                <button
-                  type="button"
-                  data-testid="reset-password-request-new"
-                  style={S.btnPrimary(false)}
-                  onClick={() => navigate('/login?modo=recuperar', { replace: true })}
-                >
-                  Pedir un enlace nuevo
-                </button>
-                <button
-                  type="button"
-                  data-testid="reset-password-back-login"
-                  style={linkButton}
-                  onClick={() => navigate('/login', { replace: true })}
-                >
-                  <ArrowLeft size={14} /> Volver al inicio de sesión
-                </button>
-              </div>
-              {soporte.tipo === 'whatsapp' && (
-                <p style={{ ...subtitulo, fontSize: '0.8125rem', marginTop: '1.25rem' }} data-testid="reset-password-soporte">
-                  ¿No te llega el correo?{' '}
-                  <SupportContactLink canal={soporte} style={{ color: colors.indigo, fontWeight: 600 }}>Escribinos por WhatsApp</SupportContactLink>.
-                </p>
-              )}
-            </div>
-          )}
-
-          {vista.tipo === 'listo' && (
-            <div data-testid="reset-password-done" style={{ textAlign: 'center' }} role="status">
-              <div style={badge(colors.successBg, colors.successBorder)}>
-                <CheckCircle size={26} style={{ color: colors.success }} />
-              </div>
-              <h1 style={titulo}>Contraseña actualizada</h1>
-              <p style={{ ...subtitulo, marginBottom: '1.75rem' }}>
-                {vista.destino === '/login'
-                  ? 'Ya podés iniciar sesión con tu nueva contraseña.'
-                  : 'Listo. Te llevamos a tu cuenta en unos segundos.'}
-              </p>
-              <button
-                type="button"
-                data-testid="reset-password-continue"
-                style={S.btnPrimary(false)}
-                onClick={() => navigate(vista.destino, { replace: true })}
-              >
-                {vista.destino === '/login' ? 'Ir a iniciar sesión' : 'Continuar'}
-              </button>
-            </div>
-          )}
-
-          {vista.tipo === 'formulario' && (
-            <>
-              <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
-                <div style={badge(colors.indigoBg, colors.indigoBorder)}>
-                  <Lock size={24} style={{ color: colors.indigo }} />
-                </div>
-                <h1 style={titulo}>Nueva contraseña</h1>
-                <p style={subtitulo}>Elegí una contraseña nueva para tu cuenta.</p>
-              </div>
-
-              {formError && (
-                <div role="alert" data-testid="reset-password-error" style={alerta}>
-                  {formError}
-                </div>
-              )}
-
-              <form onSubmit={handleSubmit} noValidate style={{ display: 'flex', flexDirection: 'column', gap: '1.125rem' }}>
-                <div>
-                  <label htmlFor="reset-password-new" style={S.label}>Nueva contraseña</label>
-                  <div style={{ position: 'relative' }}>
-                    <Lock size={17} style={{ ...S.iconLeft, color: fieldErrors.password ? colors.error : colors.text.muted }} />
-                    <input
-                      id="reset-password-new"
-                      data-testid="reset-password-new"
-                      ref={passwordRef}
-                      type={showPwd ? 'text' : 'password'}
-                      value={password}
-                      placeholder={PASSWORD_PLACEHOLDER}
-                      autoComplete="new-password"
-                      disabled={saving}
-                      aria-invalid={Boolean(fieldErrors.password)}
-                      aria-describedby={fieldErrors.password ? 'reset-password-new-error' : undefined}
-                      style={S.inputWithRight(Boolean(fieldErrors.password), saving)}
-                      onChange={e => { setPassword(e.target.value); setFieldErrors(f => ({ ...f, password: undefined })); setFormError('') }}
-                      onFocus={e => focusOn(e, Boolean(fieldErrors.password))}
-                      onBlur={e => blurOn(e, Boolean(fieldErrors.password))}
-                    />
-                    <button
-                      type="button"
-                      data-testid="reset-password-toggle-new"
-                      onClick={() => setShowPwd(v => !v)}
-                      disabled={saving}
-                      aria-label={showPwd ? 'Ocultar contraseña' : 'Mostrar contraseña'}
-                      aria-pressed={showPwd}
-                      style={toggle}
-                    >
-                      {showPwd ? <EyeOff size={17} /> : <Eye size={17} />}
-                    </button>
-                  </div>
-                  {fieldErrors.password && (
-                    <p id="reset-password-new-error" data-testid="reset-password-new-error" style={S.errorText}>{fieldErrors.password}</p>
-                  )}
-                </div>
-
-                <div>
-                  <label htmlFor="reset-password-confirm" style={S.label}>Confirmar contraseña</label>
-                  <div style={{ position: 'relative' }}>
-                    <Lock size={17} style={{ ...S.iconLeft, color: fieldErrors.confirm ? colors.error : colors.text.muted }} />
-                    <input
-                      id="reset-password-confirm"
-                      data-testid="reset-password-confirm"
-                      ref={confirmRef}
-                      type={showCfm ? 'text' : 'password'}
-                      value={confirm}
-                      placeholder="Repetí la contraseña"
-                      autoComplete="new-password"
-                      disabled={saving}
-                      aria-invalid={Boolean(fieldErrors.confirm)}
-                      aria-describedby={fieldErrors.confirm ? 'reset-password-confirm-error' : undefined}
-                      style={S.inputWithRight(Boolean(fieldErrors.confirm), saving)}
-                      onChange={e => { setConfirm(e.target.value); setFieldErrors(f => ({ ...f, confirm: undefined })); setFormError('') }}
-                      onFocus={e => focusOn(e, Boolean(fieldErrors.confirm))}
-                      onBlur={e => blurOn(e, Boolean(fieldErrors.confirm))}
-                    />
-                    <button
-                      type="button"
-                      data-testid="reset-password-toggle-confirm"
-                      onClick={() => setShowCfm(v => !v)}
-                      disabled={saving}
-                      aria-label={showCfm ? 'Ocultar contraseña' : 'Mostrar contraseña'}
-                      aria-pressed={showCfm}
-                      style={toggle}
-                    >
-                      {showCfm ? <EyeOff size={17} /> : <Eye size={17} />}
-                    </button>
-                  </div>
-                  {fieldErrors.confirm && (
-                    <p id="reset-password-confirm-error" data-testid="reset-password-confirm-error" style={S.errorText}>{fieldErrors.confirm}</p>
-                  )}
-                </div>
-
-                <button type="submit" data-testid="reset-password-submit" disabled={saving} style={S.btnPrimary(saving)}>
-                  {saving
-                    ? <><Loader2 size={18} style={{ animation: 'tr-spin 1s linear infinite' }} /> Guardando…</>
-                    : 'Guardar nueva contraseña'}
-                </button>
-              </form>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
+        <AuthFlowPrimaryButton type="submit" data-testid="reset-password-submit" loading={saving}>
+          {saving ? 'Guardando…' : 'Guardar nueva contraseña'}
+        </AuthFlowPrimaryButton>
+      </form>
+    </AuthFlowShell>
   )
-}
-
-// ── Estilos locales (sobre las variables del tema) ────────────────────────────
-
-function badge(background: string, border: string): React.CSSProperties {
-  return {
-    width: '56px', height: '56px', borderRadius: '1rem',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    margin: '0 auto 1rem', background, border: `1px solid ${border}`,
-  }
-}
-
-const titulo: React.CSSProperties = {
-  fontSize: '1.375rem', fontWeight: 800, letterSpacing: '-0.03em',
-  color: colors.text.primary, margin: '0 0 0.375rem',
-}
-
-const subtitulo: React.CSSProperties = {
-  color: colors.text.secondary, fontSize: '0.875rem', lineHeight: 1.55, margin: 0,
-}
-
-const alerta: React.CSSProperties = {
-  padding: '0.875rem 1rem', borderRadius: '0.75rem', marginBottom: '1.25rem',
-  background: colors.errorBg, border: `1px solid ${colors.errorBorder}`,
-  color: colors.error, fontSize: '0.875rem',
-}
-
-const toggle: React.CSSProperties = {
-  position: 'absolute', right: '0.5rem', top: '50%', transform: 'translateY(-50%)',
-  width: '44px', height: '44px',
-  background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-  color: colors.text.muted, display: 'flex', alignItems: 'center', justifyContent: 'center',
-}
-
-const linkButton: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.375rem',
-  minHeight: '44px', background: 'none', border: 'none', cursor: 'pointer',
-  color: colors.text.secondary, fontSize: '0.875rem', fontWeight: 500,
 }

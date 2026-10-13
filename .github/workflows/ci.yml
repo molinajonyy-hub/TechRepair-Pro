@@ -345,6 +345,42 @@ jobs:
       - name: BUTTON-SYSTEM-1A — button contract
         run: npm run test:button-system-1a
 
+      # BETA-UX-1G: el embudo de acceso entero en un solo sistema visual. /login,
+      # /reset-password, /auth/callback y /accept-invite tenían cada una su
+      # fondo, su tarjeta, sus campos y sus botones (gradiente, foco pintado
+      # desde JavaScript, «ojo» de 17 px, emoji como ícono, colores fijos); las
+      # tres post-login ya usaban AuthFlowShell. La suite monta las pantallas
+      # REALES con el AuthProvider real sobre un Supabase simulado y fija: que
+      # las siete componen el mismo shell y las cuatro pre-login no traen un
+      # `style`, un color literal (salvo el logo de Google) ni un botón fuera
+      # del sistema; que el CSS del embudo sólo usa tokens, queda bajo
+      # `.auth-flow`, da foco visible y 44 px a los controles nuevos, y la
+      # aritmética WCAG de los pares elegidos (incluido por qué el texto de una
+      # alerta NO usa el color de su tono); que cada error de campo queda
+      # asociado a su control y el foco va al primero que falla; que la
+      # contraseña nueva se valida con la MISMA política al salir del campo y al
+      # enviar, sin reclamar lo que todavía no se escribió; que el email
+      # sobrevive al cambio de modo; que Google está en «Iniciar sesión» y en
+      # «Crear cuenta»; que el login reconoce una invitación (lo dice, arranca
+      # en «Crear cuenta», no ofrece una prueba) sin tocar la autoridad; que el
+      # reenvío de confirmación informa sus tres resultados; que el destino
+      # posterior al ingreso sale de UNA regla (guardado → pedido → invitación
+      # pendiente → /dashboard), saneada, la misma para el login y para
+      # /auth/callback; que un error en /auth/callback se queda en pantalla con
+      # su salida, que la sesión que no llega vuelve al login con un motivo y
+      # que la que llega tarde no pasa por el login; que el dominio del portal
+      # mayorista no ve la marca de TechRepair Pro; y que /accept-invite ofrece
+      # reintentar ante un fallo que no es del enlace, cambiar de cuenta ante
+      # «es para otro correo» (sin perder el enlace) y pegar el ENLACE del
+      # correo en vez de un token, con una sola RPC y sólo el token. Corre con
+      # las suites vecinas de invitaciones y de routing. La geometría real, el
+      # contraste pintado en los dos temas, el teclado y los flujos se miden en
+      # navegador con docs/beta-ux-1/evidence-1g/verify-auth.mjs; el camino del
+      # invitado nuevo por el correo real, en `m7/p0p2-invitations.spec.ts`
+      # (job `e2e-local`).
+      - name: BETA-UX-1G — auth funnel
+        run: npm run test:beta-ux-1g
+
       # BETA-MP: Billing SaaS por Mercado Pago. El frontend propone, Mercado Pago
       # confirma, el backend decide. Corre el código REAL de las Edge Functions
       # (`supabase/functions/_shared/billing`) contra un PostgREST en memoria que

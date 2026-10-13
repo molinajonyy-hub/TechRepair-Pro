@@ -795,10 +795,17 @@ Estas páginas tienen su propio sistema visual coherente. **No aplicar clases in
 | Páginas / componentes | Sistema | Razón |
 |---|---|---|
 | `src/portal/` (todos) | Light-theme iOS + `PT` tokens | Portal mayorista self-contained |
-| `src/pages/Login.tsx` | Sistema `S.*` glass-morphism | Diseño premium de auth con blobs |
 | `src/pages/LandingPage.tsx` | Sistema propio `const F` | Landing pública con branding propio |
 | `src/components/LoadingDino.tsx` | SVG animado propio | Dinosaurio animado con keyframe propio |
 | `src/components/comprobantes/ComprobanteProModal.tsx` | POS complejo | Sistema de sonido, animaciones, scanner, responsive propio |
+
+> **El Login ya no es una excepción (BETA-UX-1G).** Figuraba acá con un sistema `S.*` propio
+> (campos, botón con gradiente y pestañas inline). Hoy todo el embudo de acceso —`Login`,
+> `ResetPassword`, `AuthCallback`, `AcceptInvite`, `VerifyEmail`, `NoBusiness`, `Onboarding`— usa
+> `AuthFlowShell` + `AuthFlowFields` (`src/components/auth/`): conserva su superficie (tarjeta de
+> vidrio y fondos decorativos), pero los controles son los del sistema (`AppButton`,
+> `.form-control`, `.alert`, tokens). No agregar estilos inline ni botones propios a esas
+> pantallas: si falta un control, va a `AuthFlowFields` + `src/css/auth-flow.css`.
 
 ---
 

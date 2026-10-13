@@ -66,6 +66,29 @@ export function validatePasswordPair(password: string, confirm: string): Passwor
   return errors
 }
 
+// ── Mientras se escribe (BETA-UX-1G) ─────────────────────────────────────────
+//
+// La validación de arriba es la del ENVÍO. Mientras se completa el formulario
+// se usa la misma política, pero sin reclamar lo que todavía no se escribió:
+// un campo vacío no es un error hasta que se intenta enviar.
+
+/** Requisito que se muestra bajo el campo mientras se escribe una contraseña nueva. */
+export const PASSWORD_REQUIREMENT = `${PASSWORD_MIN_LENGTH} caracteres o más`
+
+/** Confirmación que ya coincide con la contraseña. */
+export const PASSWORD_MATCH_MESSAGE = 'Las contraseñas coinciden'
+
+/** Errores de lo YA escrito (al salir de un campo). Devuelve `{}` si no hay ninguno. */
+export function validateTypedPasswordPair(password: string, confirm: string): PasswordFieldErrors {
+  const errors: PasswordFieldErrors = {}
+  if (password) {
+    const issue = checkPasswordPolicy(password)
+    if (issue) errors.password = PASSWORD_POLICY_MESSAGE[issue]
+  }
+  if (confirm && confirm !== password) errors.confirm = PASSWORD_CONFIRM_MESSAGE.mismatch
+  return errors
+}
+
 // ── Contraseña rechazada por el servidor (Leaked Password Protection) ────────
 //
 // GoTrue responde `weak_password` (supabase-js lo convierte en

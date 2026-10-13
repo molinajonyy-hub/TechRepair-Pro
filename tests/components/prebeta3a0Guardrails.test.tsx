@@ -407,10 +407,13 @@ describe('A1 · CTAs del embudo con --text-on-accent (inmunes al remapeo light)'
     expect(cae(conToken)).toBe(false)
   })
 
-  it('authCardStyles: CTA primario y tab activa usan el token', () => {
-    expect(authStyles.btnPrimary(false).color).toBe('var(--text-on-accent)')
-    expect(authStyles.btnPrimary(true).color).toBe('var(--text-on-accent)')
-    expect(authStyles.tab(true, false).color).toBe('var(--text-on-accent)')
+  // BETA-UX-1G: authCardStyles definía el CTA primario y la pestaña activa del
+  // Login con un gradiente y el token inline. Login y /reset-password pasaron
+  // al shell del embudo, así que esas piezas se retiraron: el contrato («inmune
+  // al remapeo») se mide sobre los primitivos compartidos, y lo que se fija acá
+  // es que authCardStyles no vuelva a definir controles.
+  it('authCardStyles ya no define controles: sólo la superficie del embudo', () => {
+    expect(Object.keys(authStyles).sort()).toEqual(['blob1', 'blob2', 'blob3', 'card', 'cardTopGlow'])
   })
 
   // PRE-BETA-3A-1a: VerifyEmail, NoBusiness y Onboarding ya no definen sus CTAs
@@ -418,19 +421,34 @@ describe('A1 · CTAs del embudo con --text-on-accent (inmunes al remapeo light)'
   // de la CLASE `.btn-fill-indigo`. El remapeo de light mode sólo matchea el
   // atributo `style`, así que el contrato («inmune al remapeo») se mide ahora
   // sobre el primitivo compartido y sobre su uso, no sobre un literal por página.
+  // BETA-UX-1G suma las cuatro pantallas pre-login y los campos del embudo.
   it.each([
     'src/components/auth/authCardStyles.ts',
     'src/components/auth/AuthFlowShell.tsx',
+    'src/components/auth/AuthFlowFields.tsx',
     'src/pages/VerifyEmail.tsx',
     'src/pages/NoBusiness.tsx',
     'src/pages/Onboarding.tsx',
+    'src/pages/Login.tsx',
+    'src/pages/ResetPassword.tsx',
+    'src/pages/AuthCallback.tsx',
+    'src/pages/AcceptInvite.tsx',
   ])('%s no vuelve a `#fff` inline', (rel) => {
     const src = leer(rel)
     expect(src).not.toMatch(/color:\s*['"](#fff|#ffffff|white)['"]/i)
   })
 
-  it('authCardStyles conserva el token (Login y /reset-password siguen usándolo)', () => {
-    expect(leer('src/components/auth/authCardStyles.ts')).toContain("'var(--text-on-accent)'")
+  it('Login y /reset-password toman el CTA primario del shell, no de un estilo propio', () => {
+    for (const rel of ['src/pages/Login.tsx', 'src/pages/ResetPassword.tsx']) {
+      const src = leer(rel)
+      expect(src, rel).toContain('<AuthFlowPrimaryButton')
+      expect(src, rel).not.toMatch(/authCardStyles|linear-gradient/)
+    }
+    // La opción elegida del selector de modo pinta el blanco por CLASE, con el
+    // token invariante: ningún patrón del remapeo (que mira `style`) la alcanza.
+    expect(leer('src/css/auth-flow.css')).toMatch(
+      /\.auth-flow__segment-option\[aria-selected="true"\] \{\s*background: var\(--indigo-600\);\s*color: var\(--text-on-accent\);/,
+    )
   })
 
   it('el CTA primario del shell pinta el blanco por CLASE: ningún patrón del remapeo lo alcanza', () => {
