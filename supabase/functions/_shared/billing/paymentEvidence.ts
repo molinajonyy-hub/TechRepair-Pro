@@ -9,8 +9,32 @@ export interface VerifiedInvoice {
   chargedAt: string | null
   paymentId: string | null
 }
-export type PaymentEvidenceProblem = 'payment_link_mismatch' | 'payment_terms_mismatch' | 'payment_missing_approval_date'
+export type PaymentEvidenceProblem = 'payment_link_mismatch' | 'payment_terms_mismatch' | 'payment_missing_approval_date' | 'payment_missing_event_date'
 export interface RecoveredPayments { invoices: VerifiedInvoice[]; problem: PaymentEvidenceProblem | null }
+export interface PaymentRecoveryOptions {
+  /** Historical ledger only; never use a single invoice to decide access. */
+  onlyInvoiceId?: string
+  /** Include the notified resource even if subscription search has not indexed it yet. */
+  notifiedInvoiceId?: string
+  /** Server-stored payment identity is a lookup hint; its invoice/payment are reread in MP. */
+  knownPaymentId?: string
+}
+
+const DEFINITE_PAYMENT_STATES = ['approved', 'rejected', 'cancelled', 'refunded', 'charged_back']
+function compareEvidence(a: VerifiedInvoice, b: VerifiedInvoice): number {
+  const chronology = (a.chargedAt ?? '').localeCompare(b.chargedAt ?? '')
+  if (chronology) return chronology
+  // At an equal instant, approval cannot outrank a rejection, refund or chargeback.
+  const priority = (i: VerifiedInvoice) => i.row.status === 'rejected' ? 3
+    : ['refunded', 'charged_back'].includes(i.row.status) ? 2 : ['approved', 'cancelled'].includes(i.row.status) ? 1 : 0
+  return priority(a) - priority(b)
+}
+
+export function latestPaymentEvidence(invoices: VerifiedInvoice[], periodStart: string | null = null): VerifiedInvoice | undefined {
+  return [...invoices].sort(compareEvidence).reverse().find(i => i.paymentId
+    && DEFINITE_PAYMENT_STATES.includes(i.row.status) && i.chargedAt
+    && (!periodStart || Date.parse(i.chargedAt) >= Date.parse(periodStart)))
+}
 
 function instant(value: unknown): string | null {
   if (typeof value !== 'string' || !value || !Number.isFinite(Date.parse(value))) return null
@@ -96,9 +120,21 @@ async function verifyInvoice(
 
 /** Only called after the canonical path has validated this server-issued session. */
 export async function recoverPayments(
-  ctx: BillingContext, pre: MpPreapproval, session: CheckoutSessionRow, onlyInvoiceId?: string,
+  ctx: BillingContext, pre: MpPreapproval, session: CheckoutSessionRow, options: PaymentRecoveryOptions = {},
 ): Promise<RecoveredPayments> {
-  const ids = onlyInvoiceId ? [onlyInvoiceId] : await invoiceIds(ctx, pre.id)
+  const ids = options.onlyInvoiceId ? [options.onlyInvoiceId] : await invoiceIds(ctx, pre.id)
+  if (options.notifiedInvoiceId && !ids.includes(options.notifiedInvoiceId)) ids.push(options.notifiedInvoiceId)
+  if (options.knownPaymentId) {
+    const known = await ctx.store.getPaymentByPaymentId(options.knownPaymentId)
+      ?? await ctx.store.getPaymentByInvoiceId(options.knownPaymentId)
+    if (known) {
+      if (known.business_id !== session.business_id || known.raw_payload.preapproval_id !== pre.id
+        || known.raw_payload.authorized_payment_id !== known.external_payment_id) {
+        return { invoices: [], problem: 'payment_link_mismatch' }
+      }
+      if (!ids.includes(known.external_payment_id)) ids.push(known.external_payment_id)
+    }
+  }
   const invoices: VerifiedInvoice[] = []
   const paymentIds = new Set<string>()
   for (const id of ids) {
@@ -110,6 +146,14 @@ export async function recoverPayments(
     if (verified.paymentId && paymentIds.has(verified.paymentId)) return { invoices: [], problem: 'payment_link_mismatch' }
     if (verified.paymentId) paymentIds.add(verified.paymentId)
     invoices.push(verified)
+  }
+  if (options.knownPaymentId && !invoices.some(i => i.paymentId === options.knownPaymentId
+    || i.row.external_payment_id === options.knownPaymentId)) {
+    return { invoices: [], problem: 'payment_link_mismatch' }
+  }
+  if (!options.onlyInvoiceId && invoices.some(i => i.paymentId
+    && DEFINITE_PAYMENT_STATES.includes(i.row.status) && !i.chargedAt)) {
+    return { invoices: [], problem: 'payment_missing_event_date' }
   }
   // Validate all evidence before persisting any of it. Same invoice/payment cannot migrate tenants.
   for (const invoice of invoices) {
@@ -137,5 +181,5 @@ export async function recoverPayments(
     })
     if (!unchanged) await ctx.store.upsertPayment(invoice.row)
   }
-  return { invoices: invoices.sort((a, b) => (a.chargedAt ?? '').localeCompare(b.chargedAt ?? '')), problem: null }
+  return { invoices: invoices.sort(compareEvidence), problem: null }
 }

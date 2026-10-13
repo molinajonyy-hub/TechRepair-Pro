@@ -8,6 +8,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MpApiError } from '../../../supabase/functions/_shared/billing/mpClient.ts'
 import { IGNORED_PAYMENT_TOPIC, parseNotification } from '../../../supabase/functions/_shared/billing/webhook.ts'
+import { applyPreapprovalEvidence } from '../../../supabase/functions/_shared/billing/preapproval.ts'
 import { BIZ_A, BIZ_B, DAY, HOUR, OWNER_A, OWNER_B, World } from './harness.ts'
 
 let w: World
@@ -226,6 +227,203 @@ describe('cobros recurrentes (subscription_authorized_payment)', () => {
     cobro('inv_1', 'pre_1', 'approved')
     await w.notify('subscription_authorized_payment', 'inv_1')
     expect(biz()).toMatchObject({ subscription_status: 'active', grace_until: null, last_payment_status: 'approved' })
+  })
+
+  it('una segunda cuota aprobada notificada después del rechazo de la tercera no levanta la mora', async () => {
+    const otherTenant = w.snapshot(BIZ_B)
+    w.advance(30 * DAY)
+    cobro('second_approved', 'pre_1', 'approved') // no webhook yet
+    w.advance(30 * DAY)
+    cobro('third_rejected', 'pre_1', 'rejected')
+    await w.notify('subscription_authorized_payment', 'third_rejected', 8201)
+    expect(biz()).toMatchObject({ subscription_status: 'past_due', last_payment_id: 'pay_third_rejected', last_payment_status: 'rejected' })
+    const rejectedState = w.snapshot(BIZ_A)
+
+    w.advance(HOUR)
+    await w.notify('subscription_authorized_payment', 'second_approved', 8202)
+    expect(w.snapshot(BIZ_A)).toEqual(rejectedState)
+    expect(ledger('second_approved').status).toBe('approved')
+    expect(ledger('third_rejected').status).toBe('rejected')
+    expect(w.snapshot(BIZ_B)).toEqual(otherTenant)
+    expect(w.db.tables.payments).toHaveLength(3)
+    const writes = w.db.writes.length
+    expect((await w.notify('subscription_authorized_payment', 'second_approved', 8202)).result).toBe('duplicate')
+    await w.notify('subscription_authorized_payment', 'second_approved', 8203)
+    const reconciliation = await w.call(OWNER_A, { action: 'reconcile', business_id: BIZ_A })
+    expect(reconciliation.body).toMatchObject({ activated: false, confirmed: false, outcome: 'payment_rejected' })
+    expect(w.snapshot(BIZ_A)).toEqual(rejectedState)
+    expect(w.db.events('billing_state_applied')).toHaveLength(2) // first activation and entry into past_due
+    expect(w.db.tables.payments).toHaveLength(3)
+    // Only a new notification audit is added; no repeated ledger or billing writes.
+    expect(w.db.writes.slice(writes).every(write => write.table === 'subscription_events')).toBe(true)
+
+    w.advance(30 * DAY)
+    const approvedAt = w.now().toISOString()
+    const nextDue = new Date(w.now().getTime() + 30 * DAY).toISOString()
+    w.mp.preapprovals.get('pre_1')!.next_payment_date = nextDue
+    cobro('fourth_approved', 'pre_1', 'approved')
+    await w.notify('subscription_authorized_payment', 'fourth_approved', 8204)
+    expect(biz()).toMatchObject({ subscription_status: 'active', last_payment_id: 'pay_fourth_approved',
+      last_payment_status: 'approved', grace_until: null, current_period_start: approvedAt, current_period_end: nextDue })
+    const recoveredState = w.snapshot(BIZ_A)
+    await w.notify('subscription_authorized_payment', 'third_rejected', 8205)
+    await w.call(OWNER_A, { action: 'reconcile', business_id: BIZ_A })
+    expect(w.snapshot(BIZ_A)).toEqual(recoveredState)
+    expect(w.db.tables.payments).toHaveLength(4)
+    expect(w.snapshot(BIZ_B)).toEqual(otherTenant)
+  })
+
+  it('un rechazo viejo no manda a mora si existe una aprobación posterior aún sin webhook', async () => {
+    w.advance(DAY)
+    cobro('older_rejection', 'pre_1', 'rejected')
+    w.advance(DAY)
+    cobro('newest_approval', 'pre_1', 'approved')
+    const approvedAt = w.now().toISOString()
+    await w.notify('subscription_authorized_payment', 'older_rejection', 8211)
+    expect(biz()).toMatchObject({ subscription_status: 'active', last_payment_status: 'approved',
+      last_payment_id: 'pay_newest_approval', current_period_start: approvedAt, grace_until: null })
+    const state = w.snapshot(BIZ_A)
+    await w.notify('subscription_authorized_payment', 'older_rejection', 8212)
+    await w.call(OWNER_A, { action: 'reconcile', business_id: BIZ_A })
+    expect(w.snapshot(BIZ_A)).toEqual(state)
+    expect(w.db.tables.payments).toHaveLength(3)
+  })
+
+  it('search incompleto no oculta el rechazo vigente: se relee su factura por la identidad local verificada', async () => {
+    w.advance(DAY); cobro('second_approved', 'pre_1', 'approved')
+    w.advance(DAY); cobro('third_rejected', 'pre_1', 'rejected')
+    await w.notify('subscription_authorized_payment', 'third_rejected', 8221)
+    const state = w.snapshot(BIZ_A)
+    const fetch = w.mp.fetchImpl
+    w.mp.fetchImpl = async (input, init) => {
+      const response = await fetch(input, init)
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+      if (url.pathname !== '/authorized_payments/search') return response
+      const page = await response.json()
+      page.results = page.results.filter((i: { id: string }) => i.id !== 'third_rejected')
+      page.paging.total = page.results.length
+      return new Response(JSON.stringify(page), { status: 200 })
+    }
+    const start = w.mp.calls.length
+    await w.notify('subscription_authorized_payment', 'second_approved', 8222)
+    expect(w.snapshot(BIZ_A)).toEqual(state)
+    expect(w.mp.calls.slice(start).some(c => c.path === '/authorized_payments/third_rejected')).toBe(true)
+    await w.call(OWNER_A, { action: 'reconcile', business_id: BIZ_A })
+    expect(w.snapshot(BIZ_A)).toEqual(state)
+  })
+
+  it('incluye la factura notificada aunque todavía no aparezca en search del contrato', async () => {
+    w.advance(DAY); cobro('not_indexed', 'pre_1', 'rejected')
+    const fetch = w.mp.fetchImpl
+    w.mp.fetchImpl = async (input, init) => {
+      const response = await fetch(input, init)
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+      if (url.pathname !== '/authorized_payments/search') return response
+      const page = await response.json()
+      page.results = page.results.filter((i: { id: string }) => i.id !== 'not_indexed')
+      page.paging.total = page.results.length
+      return new Response(JSON.stringify(page), { status: 200 })
+    }
+    await w.notify('subscription_authorized_payment', 'not_indexed', 8231)
+    expect(biz()).toMatchObject({ subscription_status: 'past_due', last_payment_status: 'rejected', last_payment_id: 'pay_not_indexed' })
+    expect(ledger('not_indexed').status).toBe('rejected')
+  })
+
+  it.each([true, false])('un empate temporal no prefiere aprobación al rechazo, orden de búsqueda reversed=%s', async reversed => {
+    w.advance(DAY)
+    cobro('same_time_approval', 'pre_1', 'approved')
+    cobro('same_time_rejection', 'pre_1', 'rejected')
+    if (reversed) {
+      const approved = w.mp.authorizedPayments.get('same_time_approval')!
+      w.mp.authorizedPayments.delete('same_time_approval')
+      w.mp.authorizedPayments.set('same_time_approval', approved)
+    }
+    await w.notify('subscription_authorized_payment', 'same_time_approval', 8241)
+    expect(biz()).toMatchObject({ subscription_status: 'past_due', last_payment_status: 'rejected', last_payment_id: 'pay_same_time_rejection' })
+    const state = w.snapshot(BIZ_A)
+    await w.notify('subscription_authorized_payment', 'same_time_rejection', 8242)
+    expect(w.snapshot(BIZ_A)).toEqual(state)
+  })
+
+  it('un rechazo sin cronología comprobable no permite activar ni reemplazar evidencia conocida', async () => {
+    w.advance(DAY); cobro('second_approved', 'pre_1', 'approved')
+    w.advance(DAY); cobro('third_rejected', 'pre_1', 'rejected')
+    await w.notify('subscription_authorized_payment', 'third_rejected', 8251)
+    delete w.mp.payments.get('pay_third_rejected')!.date_created
+    delete w.mp.authorizedPayments.get('third_rejected')!.date_created
+    delete w.mp.authorizedPayments.get('third_rejected')!.debit_date
+    const state = w.snapshot(BIZ_A)
+    const out = await w.notify('subscription_authorized_payment', 'second_approved', 8252)
+    expect(out.detail).toBe('not_applied:payment_missing_event_date')
+    expect(w.snapshot(BIZ_A)).toEqual(state)
+  })
+
+  it('la lectura de otra cuota falla: la notificación queda reintentable sin borrar la mora', async () => {
+    w.advance(DAY); cobro('second_approved', 'pre_1', 'approved')
+    w.advance(DAY); cobro('third_rejected', 'pre_1', 'rejected')
+    await w.notify('subscription_authorized_payment', 'third_rejected', 8261)
+    const state = w.snapshot(BIZ_A)
+    const thirdPayment = w.mp.payments.get('pay_third_rejected')!
+    w.mp.payments.delete('pay_third_rejected') // trigger invoice exists; another necessary resource is unavailable
+    await expect(w.notify('subscription_authorized_payment', 'second_approved', 8262)).rejects.toBeInstanceOf(MpApiError)
+    expect(w.db.events('subscription_authorized_payment').find(e => e.notification_id === '8262')!.processed).toBe(false)
+    expect(w.snapshot(BIZ_A)).toEqual(state)
+    w.mp.payments.set('pay_third_rejected', thirdPayment)
+    expect((await w.notify('subscription_authorized_payment', 'second_approved', 8262)).result).toBe('processed')
+    expect(w.snapshot(BIZ_A)).toEqual(state)
+    expect(w.db.tables.payments).toHaveLength(3)
+  })
+
+  it('si el rechazo conocido no puede vincularse y search lo omite, una aprobación vieja falla cerrada', async () => {
+    w.advance(DAY); cobro('second_approved', 'pre_1', 'approved')
+    w.advance(DAY); cobro('third_rejected', 'pre_1', 'rejected')
+    await w.notify('subscription_authorized_payment', 'third_rejected', 8271)
+    const state = w.snapshot(BIZ_A)
+    w.db.tables.payments = w.db.tables.payments.filter(p => p.external_payment_id !== 'third_rejected')
+    w.mp.authorizedPayments.delete('third_rejected') // current search has no native invoice hint
+    const out = await w.notify('subscription_authorized_payment', 'second_approved', 8272)
+    expect(out.detail).toBe('not_applied:payment_link_mismatch')
+    expect(w.snapshot(BIZ_A)).toEqual(state)
+  })
+
+  it('un rechazo aplicado durante una escritura concurrente obliga a releer todo el contrato antes de decidir acceso', async () => {
+    w.advance(DAY); cobro('second_approved', 'pre_1', 'approved')
+    const ctx = w.billingContext()
+    const compare = ctx.store.compareBusinessBilling
+    let injected = false
+    let searchesAtRejection = 0
+    let rejectedState: ReturnType<World['snapshot']>
+    ctx.store.compareBusinessBilling = async (before, patch, now) => {
+      if (!injected) {
+        injected = true
+        w.advance(DAY); cobro('third_rejected', 'pre_1', 'rejected')
+        await w.notify('subscription_authorized_payment', 'third_rejected', 8281)
+        rejectedState = w.snapshot(BIZ_A)
+        searchesAtRejection = w.mp.calls.filter(c => c.path.startsWith('/authorized_payments/search')).length
+      }
+      return compare(before, patch, now)
+    }
+    const pre = await ctx.mp.getPreapproval('pre_1')
+    expect(pre).not.toBeNull()
+    const result = await applyPreapprovalEvidence(ctx, pre!, { source: 'payment', authorizedPaymentId: 'second_approved' })
+    expect(result.reason).toBe('awaiting_payment')
+    expect(w.snapshot(BIZ_A)).toEqual(rejectedState!)
+    expect(w.db.tables.payments).toHaveLength(3)
+    expect(w.mp.calls.filter(c => c.path.startsWith('/authorized_payments/search')).length).toBeGreaterThan(searchesAtRejection)
+  })
+
+  it('la primera activación tampoco usa una sola cuota: un rechazo posterior prevalece sobre una cuota aprobada y una futura programada', async () => {
+    await w.openCheckout(OWNER_B, BIZ_B, 'full', 'monthly', 'pre_b')
+    w.pay('pre_b') // approved first fee, but no activation webhook
+    w.advance(DAY); cobro('newer_rejected_b', 'pre_b', 'rejected', { monto: 45000 })
+    w.mp.authorizedPayments.set('future_b', { id: 'future_b', preapproval_id: 'pre_b', status: 'scheduled',
+      transaction_amount: 45000, currency_id: 'ARS', debit_date: new Date(w.now().getTime() + 30 * DAY).toISOString() })
+    const beforeA = w.snapshot(BIZ_A)
+    await w.notify('subscription_authorized_payment', 'first_pre_b', 8291)
+    expect(biz(BIZ_B).subscription_status).toBe('trialing')
+    expect(w.sessionOf('pre_b').status).toBe('pending')
+    expect(ledger('newer_rejected_b').status).toBe('rejected')
+    expect(w.snapshot(BIZ_A)).toEqual(beforeA)
   })
 
   it('un cobro aprobado tardío NO revive una suscripción cancelada', async () => {

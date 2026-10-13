@@ -135,6 +135,12 @@ del contrato canónico anterior. Cada cuota verificada se registra con su identi
 original. Una intención posterior todavía sin aprobación conserva su checkout.
 No se cancela ni asocia el Plan A sin identidad local.
 
+La [revisión de pagos fuera de orden del PR #179](ordering-review.md) corrige
+la regresión reproducida sobre 050eb0b: una cuota aprobada antigua no puede borrar
+un rechazo posterior. La decisión exige evidencia completa verificada del contrato,
+incluyendo la factura notificada y el último pago conocido si search los omite.
+Esto aumenta las lecturas por webhook; los límites de recuperación siguen vigentes.
+
 Límites residuales:
 
 - Verificación de reemplazo limitada a un historial de 100 sesiones: más historial bloquea
@@ -191,7 +197,7 @@ primero el contrato antiguo para evitar doble cobro; no cobrar otra vez por defe
 
 Verificación ejecutada en este candidato:
 
-- 463 pruebas de billing/interfaz y firmas en Vitest; 33 contratos y diagnóstico
+- 474 pruebas de billing/interfaz y firmas en Vitest; 33 contratos y diagnóstico
   privado sin exposición de valores en Node.
 - 16 pruebas del handler real de webhook en Deno; check de los siete módulos
   compartidos de billing.

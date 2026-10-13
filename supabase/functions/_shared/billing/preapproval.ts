@@ -28,7 +28,7 @@
 import type { MpClient, MpPreapproval, PreapprovalState } from './mpClient.ts'
 import { preapprovalState } from './mpClient.ts'
 import { checkoutTermsProblem } from './planCatalog.ts'
-import { recoverPayments } from './paymentEvidence.ts'
+import { latestPaymentEvidence, recoverPayments } from './paymentEvidence.ts'
 import type { BillingPlan } from './planCatalog.ts'
 import type {
   BillingStore, BusinessBillingPatch, BusinessBillingRow, CheckoutSessionRow, SubscriptionStatus,
@@ -107,6 +107,7 @@ export type EvidenceReason =
   | 'payment_terms_mismatch'
   | 'payment_link_mismatch'
   | 'payment_missing_approval_date'
+  | 'payment_missing_event_date'
   | 'replacement_pending'
   | 'concurrent_change'
 
@@ -232,16 +233,16 @@ async function applyToBound(
   if (originSession && mpState === 'authorized' && checkoutTermsProblem(
     { billingCycle: originSession.billing_cycle, amount: originSession.amount, currency: originSession.currency }, pre.auto_recurring,
   )) return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: 'terms_mismatch' })
-  const recovered = originSession ? await recoverPayments(ctx, pre, originSession, options.authorizedPaymentId)
+  const recovered = originSession ? await recoverPayments(ctx, pre, originSession, {
+    notifiedInvoiceId: options.authorizedPaymentId, knownPaymentId: business.last_payment_id ?? undefined,
+  })
     : { invoices: [], problem: null }
   if (recovered.problem) return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: recovered.problem })
   // Subscription ordering protects access, but cannot discard separately reread financial evidence.
   if (isStale(pre.last_modified, business.mp_last_modified)) {
     return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: 'stale' })
   }
-  const latest = [...recovered.invoices].reverse().find(i => i.paymentId
-    && ['approved', 'rejected', 'cancelled', 'refunded', 'charged_back'].includes(i.row.status)
-    && i.chargedAt && (!business.current_period_start || Date.parse(i.chargedAt) >= Date.parse(business.current_period_start)))
+  const latest = latestPaymentEvidence(recovered.invoices, business.current_period_start)
   const approved = recovered.invoices.some(i => i.row.status === 'approved')
   const freshApproval = latest?.row.status === 'approved' && latest.row.paid_at !== null
     && (!business.current_period_start || Date.parse(latest.row.paid_at) > Date.parse(business.current_period_start))
@@ -414,7 +415,9 @@ async function applyToUnbound(
     return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: 'terms_mismatch' })
   }
 
-  const recovered = await recoverPayments(ctx, pre, session, options.authorizedPaymentId)
+  const recovered = await recoverPayments(ctx, pre, session, mpState === 'authorized' && session.status !== 'paid'
+    ? { notifiedInvoiceId: options.authorizedPaymentId }
+    : { onlyInvoiceId: options.authorizedPaymentId })
   if (recovered.problem) return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: recovered.problem })
   if (mpState !== 'authorized') {
     await noteUnauthorized(ctx, session, mpState, nowIso)
@@ -425,7 +428,7 @@ async function applyToUnbound(
     return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: 'superseded_preapproval' })
   }
   const approved = [...recovered.invoices].reverse().find(i => i.row.status === 'approved')
-  const latest = recovered.invoices.at(-1)
+  const latest = latestPaymentEvidence(recovered.invoices)
   if (!approved || (latest && ['rejected', 'refunded', 'charged_back'].includes(latest.row.status))) {
     return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: 'first_payment_pending' })
   }

@@ -573,7 +573,7 @@ function describeReconcile(facts: ReconcileFacts): { outcome: string; message: s
   if (has('replacement_pending') || has('concurrent_change')) {
     return { outcome: 'replacement_pending', message: 'El pago fue registrado, pero todavía no pudimos confirmar el reemplazo de tu suscripción anterior. Tu plan actual se conserva. Volvé a verificar o contactanos desde Ayuda.' }
   }
-  if (has('payment_terms_mismatch') || has('payment_link_mismatch') || has('payment_missing_approval_date')) {
+  if (has('payment_terms_mismatch') || has('payment_link_mismatch') || has('payment_missing_approval_date') || has('payment_missing_event_date')) {
     return { outcome: 'mismatch', message: 'No pudimos verificar los datos del cobro. Tu acceso no cambia. Contactanos desde Ayuda.' }
   }
   if (has('first_payment_pending')) {
