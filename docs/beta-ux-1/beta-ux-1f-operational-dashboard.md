@@ -1158,3 +1158,46 @@ Están en §18.9 E:
 
 Los dos últimos son el mismo patrón que se corrigió en Clientes; quedaron fuera por decisión del
 owner («no ampliar 1A»).
+
+### 19.8 Segundo ajuste: el setup de `button-system.spec.ts` en mobile
+
+El E2E de GitHub sobre `2f163af` dio **366 de 367**, con todos los demás jobs en verde. El único
+rojo fue del spec, no del producto:
+
+```
+button-system.spec.ts:255 › 375×812 · las acciones de página son un objetivo táctil de 44 px
+expect(locator).toBeEnabled() failed
+Locator: locator('.page-hdr-right').getByRole('button', { name: 'Plantilla', exact: true })
+```
+
+Al sumar Plantilla / Exportar / Importar a las acciones de Clientes (§19.5), el `abrir()` del spec
+pasó a exigirles `toBeEnabled()` a cualquier ancho. A 375 px BETA-UX-1D las saca del encabezado y
+las ofrece en el menú; `getByRole` no encuentra un botón oculto, así que la aserción esperó sus 30 s
+y falló antes de llegar al `isVisible()` que las iba a saltear. Fue un error del commit anterior:
+se había supuesto que `toBeEnabled` pasaba sobre un elemento oculto, sin poder correrlo.
+
+Cambio, **sólo en el spec**:
+
+- Una acción puede declarar dónde vive en mobile cuando no es un botón del encabezado (`enMobile`:
+  el menú y su rótulo).
+- `abrir(page, pantalla, ancho)`: toda acción que corresponde a ese ancho tiene que estar **a la
+  vista y habilitada**. En escritorio, las cuatro de Clientes. Ya no hay un `isVisible()` que
+  saltee nada.
+- En mobile, a las tres secundarias se les exige **no** ser un botón del encabezado y que su menú
+  esté. El test abre el menú y comprueba que las ofrece —las tres, en su orden, habilitadas y de
+  44 px— y que el disparador mide 44 × 44. Al final exige que lo comprobado dentro del menú sean
+  exactamente esas tres: si alguien les quita `enMobile`, falla en vez de dejarlas sin medir.
+- «Nuevo Cliente» sigue midiéndose en mobile: visible, habilitado y de al menos 44 px.
+- Los tests de geometría, de contraste y de estados no cambiaron.
+
+Verificación en local, sin Docker: el spec real corrido contra la app con el backend simulado de
+`verify-buttons.mjs` (se copia el spec cambiando sólo de dónde importa `test`).
+
+| Corrida | Resultado |
+|---|---|
+| Spec de `2f163af`, test de 375 px | el rojo de CI: mismo locator, misma línea, `element(s) not found` |
+| Spec corregido, completo | 7 / 7 |
+| Producto roto a propósito, spec corregido | 7 / 7 mutaciones en rojo, cada una en su aserción: el menú pierde un ítem · las secundarias se ven en el encabezado mobile · «Nuevo Cliente» baja de 44 px · «Nuevo Cliente» desaparece en mobile · falta «Importar» en escritorio · «Exportar» deshabilitada en escritorio · «Plantilla» compacta en escritorio |
+
+El stack local compartido estaba levantado pero atrasado respecto de `main`; prepararlo lo habría
+modificado para otras sesiones, así que el E2E contra la base lo valida GitHub.

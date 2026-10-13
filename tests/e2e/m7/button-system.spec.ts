@@ -34,11 +34,27 @@ const TOL = 1
 // `paintedContrastOf` mide sobre píxeles: necesita 2x para no promediar bordes.
 test.use({ deviceScaleFactor: 2 })
 
-interface Accion { nombre: string; variante: Variante; localizar: (page: Page) => Locator }
+type Ancho = 'desktop' | 'mobile'
+
+/**
+ * Una acción que en mobile (< 768 px) NO es un botón del encabezado: BETA-UX-1D
+ * la pasa a un menú. A ese ancho se le exige estar en el menú, con ese rótulo;
+ * no se le exige —ni se espera— un botón visible.
+ */
+interface EnMenu { disparador: (page: Page) => Locator; menu: (page: Page) => Locator; item: string }
+interface Accion { nombre: string; variante: Variante; localizar: (page: Page) => Locator; enMobile?: EnMenu }
 interface Pantalla { ruta: string; listo: (page: Page) => Locator; acciones: Accion[] }
 
 const enInicio = (page: Page, nombre: string) =>
   page.getByTestId('dashboard-actions').getByRole('button', { name: nombre, exact: true })
+
+/** El menú del encabezado de Clientes en mobile. */
+const MENU_DE_CLIENTES = {
+  disparador: (page: Page) => page.getByTestId('customers-mobile-header-menu'),
+  menu: (page: Page) => page.getByRole('menu', { name: 'Más acciones de clientes' }),
+}
+/** Las secundarias de Clientes: en el encabezado en escritorio, en el menú en mobile. */
+const SECUNDARIAS_DE_CLIENTES = ['Plantilla', 'Exportar', 'Importar']
 
 /** Las acciones de página que el lote llevó al contrato, por pantalla. */
 const PANTALLAS: Pantalla[] = [
@@ -65,12 +81,13 @@ const PANTALLAS: Pantalla[] = [
     listo: page => page.getByTestId('customers-new-button'),
     acciones: [
       { nombre: 'Clientes · Nuevo Cliente', variante: 'primary', localizar: page => page.getByTestId('customers-new-button') },
-      // Las tres compañeras del encabezado son la misma categoría (en mobile
-      // pasan al menú y no se miden: `isVisible()` las saltea).
-      ...['Plantilla', 'Exportar', 'Importar'].map((nombre): Accion => ({
+      // Las tres compañeras del encabezado son la misma categoría. En mobile
+      // no son botones del encabezado: las ofrece el menú (`enMobile`).
+      ...SECUNDARIAS_DE_CLIENTES.map((nombre): Accion => ({
         nombre: `Clientes · ${nombre}`,
         variante: 'secondary',
         localizar: page => page.locator('.page-hdr-right').getByRole('button', { name: nombre, exact: true }),
+        enMobile: { ...MENU_DE_CLIENTES, item: nombre },
       })),
     ],
   },
@@ -104,11 +121,27 @@ const asentar = (page: Page) =>
     .filter(a => a.effect?.getComputedTiming().iterations !== Infinity)
     .map(a => a.finished.catch(() => undefined))))
 
-async function abrir(page: Page, pantalla: Pantalla) {
+/**
+ * Abre la pantalla y deja cada acción en el estado que le corresponde a ese
+ * ancho. Ninguna se saltea: o está a la vista y habilitada en el encabezado, o
+ * (sólo en mobile, sólo las que declaran `enMobile`) no está en el encabezado y
+ * su menú sí.
+ */
+async function abrir(page: Page, pantalla: Pantalla, ancho: Ancho = 'desktop') {
   await page.goto(pantalla.ruta)
   await expect(pantalla.listo(page)).toBeVisible({ timeout: 30_000 })
-  // «Nuevo Comprobante» está deshabilitado mientras carga la lista: se mide habilitado.
-  for (const accion of pantalla.acciones) await expect(accion.localizar(page)).toBeEnabled({ timeout: 30_000 })
+  for (const accion of pantalla.acciones) {
+    const boton = accion.localizar(page)
+    const enMenu = ancho === 'mobile' ? accion.enMobile : undefined
+    if (enMenu) {
+      await expect(boton, `${accion.nombre}: en mobile no va como botón del encabezado`).toBeHidden()
+      await expect(enMenu.disparador(page), `${accion.nombre}: falta el menú que la ofrece en mobile`).toBeVisible({ timeout: 30_000 })
+      continue
+    }
+    await expect(boton, `${accion.nombre}: no está a la vista (${ancho})`).toBeVisible({ timeout: 30_000 })
+    // «Nuevo Comprobante» está deshabilitado mientras carga la lista: se mide habilitado.
+    await expect(boton, `${accion.nombre}: no está habilitada (${ancho})`).toBeEnabled({ timeout: 30_000 })
+  }
   await page.waitForLoadState('networkidle')
   await asentar(page)
 }
@@ -255,15 +288,40 @@ test.describe('@button-system-1a acciones de página', () => {
   test('375×812 · las acciones de página son un objetivo táctil de 44 px', async ({ page }) => {
     await applyTheme(page, 'light')
     await page.setViewportSize(MOBILE)
+    const ofrecidasPorMenu: string[] = []
     for (const pantalla of PANTALLAS.slice(0, 3)) {
-      await abrir(page, pantalla)
-      for (const accion of pantalla.acciones) {
+      // `abrir` ya exigió que cada acción del encabezado mobile esté a la vista
+      // y habilitada: acá no se saltea ninguna.
+      await abrir(page, pantalla, 'mobile')
+      for (const accion of pantalla.acciones.filter(a => !a.enMobile)) {
         const l = accion.localizar(page)
-        if (!(await l.isVisible())) continue
         const caja = await l.boundingBox()
         expect(caja?.height ?? 0, `${accion.nombre}: alto en mobile`).toBeGreaterThanOrEqual(ALTO - 0.01)
         expect(await l.evaluate(el => el.scrollWidth - el.clientWidth), `${accion.nombre}: el texto se recorta`).toBeLessThanOrEqual(TOL)
       }
+
+      // Las que en mobile viven en un menú (BETA-UX-1D): el disparador es un
+      // objetivo táctil y el menú las ofrece, todas, en su orden y habilitadas.
+      const enMenu = pantalla.acciones.flatMap(a => (a.enMobile ? [a.enMobile] : []))
+      if (enMenu.length === 0) continue
+      const [{ disparador, menu }] = enMenu
+      const cajaDelMenu = await disparador(page).boundingBox()
+      expect(cajaDelMenu?.height ?? 0, `${pantalla.ruta}: alto del menú del encabezado`).toBeGreaterThanOrEqual(ALTO - 0.01)
+      expect(cajaDelMenu?.width ?? 0, `${pantalla.ruta}: ancho del menú del encabezado`).toBeGreaterThanOrEqual(ALTO - 0.01)
+      await disparador(page).click()
+      const items = menu(page).getByRole('menuitem')
+      await expect(items, `${pantalla.ruta}: lo que ofrece el menú`).toHaveText(enMenu.map(m => m.item))
+      for (const item of await items.all()) {
+        const rotulo = (await item.textContent())?.trim() ?? ''
+        await expect(item, `«${rotulo}» del menú: no está habilitada`).toBeEnabled()
+        expect((await item.boundingBox())?.height ?? 0, `«${rotulo}» del menú: alto`).toBeGreaterThanOrEqual(ALTO - 0.01)
+        ofrecidasPorMenu.push(rotulo)
+      }
+      await page.keyboard.press('Escape')
+      await expect(menu(page)).toBeHidden()
     }
+    // Las tres secundarias de Clientes se comprobaron DENTRO del menú: si alguien
+    // les quita `enMobile`, esto falla en vez de dejarlas sin medir.
+    expect(ofrecidasPorMenu).toEqual(SECUNDARIAS_DE_CLIENTES)
   })
 })
