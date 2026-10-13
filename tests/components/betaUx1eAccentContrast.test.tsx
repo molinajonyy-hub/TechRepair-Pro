@@ -355,7 +355,7 @@ describe('BETA-UX-1E · la fuente de las seis superficies', () => {
     expect(leer('src/pages/UsersManagement.tsx').match(/\.\.\.primaryButtonStyle/g)).toHaveLength(2)
   })
 
-  // ── Producto: los cuatro CTAs conservan su gradiente y toman el token ─────
+  // ── Producto: los cuatro CTAs usan el primario sólido de BUTTON-SYSTEM-1A ─
   const PRODUCTO: [string, string][] = [
     ['«Guardar producto»', 'product-form-save-button'],
     ['«Seguir editando»', 'Seguir editando'],
@@ -365,10 +365,14 @@ describe('BETA-UX-1E · la fuente de las seis superficies', () => {
   it.each(PRODUCTO)('Producto · %s', (_nombre, aguja) => {
     const estilo = estiloDe('src/components/products/ProductFormModal.tsx', aguja)
     expect(estilo.get('color')).toBe('accentCta.text')
-    // Sobre este gradiente el blanco ya llegaba a AA bajo el texto (medido en el
-    // navegador): no se tocó. Su punto más claro es el índigo de la esquina.
-    const paradas = hexes(fondoDe(estilo))
-    expect(paradas).toEqual(['#6366f1', '#4f46e5'])
+    // La clase comparte reposo/hover/foco con el sistema. Un fondo en línea
+    // ocultaría el hover --indigo-700 y podría reintroducir un gradiente.
+    const sf = parsear('src/components/products/ProductFormModal.tsx')
+    const atributos = atributosDe(sf, 'src/components/products/ProductFormModal.tsx', aguja, 'button')
+    const clase = atributos.properties.find(a => ts.isJsxAttribute(a) && a.name.getText(sf) === 'className') as ts.JsxAttribute
+    expect(clase.initializer?.getText(sf)).toBe('"btn btn-primary"')
+    expect(fondoDe(estilo)).toBe('')
+    expect(estilo.has('boxShadow')).toBe(false)
   })
 
   it('Notas de la orden: sin guardar es un CTA de acento; «Guardado» no cambia', () => {
@@ -570,6 +574,8 @@ describe('BETA-UX-1E · el estilo que termina en el DOM', () => {
     const cta = screen.getByTestId('product-form-save-button')
     expect(cta).toHaveTextContent('Guardar producto')
     expect(cta.style.color).toBe('var(--text-on-accent)')
+    expect(cta).toHaveClass('btn', 'btn-primary')
+    expect(cta.style.background).toBe('')
     expect(cae(cta)).toBe(false)
   })
 

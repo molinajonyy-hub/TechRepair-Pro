@@ -147,25 +147,20 @@ describe('ProductFormModal · alta', () => {
   })
 })
 
-describe('ProductFormModal · «Con variantes» (Variants v2) oculto en beta', () => {
-  it('T13 · la opción no existe en el selector de tipo', () => {
+describe('ProductFormModal · «Con variantes» (Variants v2) operativo', () => {
+  it('T13 · la opción existe en el selector de tipo', () => {
     render(<ProductFormModal isOpen onClose={() => {}} onCreated={() => {}} registerStock />)
     const tipo = screen.getByTestId('product-form-tipo')
     expect(tipo).toHaveTextContent('Producto')
     expect(tipo).toHaveTextContent('Servicio')
-    expect(tipo).not.toHaveTextContent('Con variantes')
+    expect(tipo).toHaveTextContent('Con variantes')
   })
 
-  it('T13 · initialTipo="with_variants" degrada a producto simple con aviso explícito', async () => {
-    const onCreated = vi.fn()
-    render(<ProductFormModal isOpen onClose={() => {}} onCreated={onCreated} registerStock initialTipo="with_variants" />)
-    expect(screen.getByTestId('product-form-notice')).toHaveTextContent('no está disponible en la beta')
-    expect(screen.queryByText(/variantes? \(/i)).toBeNull()
-    completarAlta()
-    fireEvent.click(screen.getByTestId('product-form-save-button'))
-    await waitFor(() => expect(onCreated).toHaveBeenCalled())
-    // Se creó como producto simple: nada de product_variants.
-    expect(h.state.ops.filter((o: any) => o.table === 'product_variants')).toHaveLength(0)
+  it('T13 · initialTipo abre el flujo de variantes sin degradarlo', () => {
+    render(<ProductFormModal isOpen onClose={() => {}} onCreated={() => {}} registerStock initialTipo="with_variants" />)
+    expect(screen.queryByTestId('product-form-notice')).toBeNull()
+    expect(screen.getByTestId('variant-name-input')).toBeInTheDocument()
+    expect(screen.queryByTestId('product-stock-input')).toBeNull()
   })
 })
 
@@ -174,6 +169,10 @@ describe('ProductFormModal · edición', () => {
     id: EXISTENTE, code: 'P-1', name: 'Existente', category: 'Otros', stock_quantity: 10, reserved_quantity: 0,
     min_stock: 1, sale_price: 1000, is_active: true, created_at: '', updated_at: '', tipo: 'product',
   } as any
+
+  beforeEach(() => {
+    h.state.rows.set('inventory', new Map([[EXISTENTE, { ...item, business_id: BIZ, parent_id: null, has_variants: false }]]))
+  })
 
   it('T18/T19 · sólo metadata: UPDATE sin stock_quantity y 0 RPC de stock', async () => {
     const onSaved = vi.fn()
