@@ -119,7 +119,8 @@ test('ni el camino canónico, ni el webhook, ni el store resuelven nada por emai
   assert.doesNotMatch(store, /\.(eq|ilike|like|in|contains)\('(payer_email|mp_payer_email)'/)
   // En el cliente de Mercado Pago el email aparece una sola vez: en el cuerpo del POST.
   const mp = sinComentarios(mpClient)
-  assert.doesNotMatch(mp, /payer_email=|\/search/)
+  assert.doesNotMatch(mp, /payer_email=|preapproval\/search|preapproval_plan\/search/)
+  assert.match(mp, /new URLSearchParams\(\{ preapproval_id: preapprovalId, offset: String\(offset\), limit: String\(limit\) \}\)/)
   assert.deepEqual(mp.match(/payer_email: [^\n]+/g), ['payer_email: input.payerEmail,'])
 })
 

@@ -20,14 +20,15 @@
  *   · El plan otorgado es el de la sesión que originó ESE preapproval, y sólo si
  *     el importe, la moneda y la frecuencia que informa Mercado Pago son los de
  *     esa sesión.
- *   · Sólo `authorized` otorga acceso. `pending` nunca lo quita a quien no lo
- *     tenía por esta suscripción.
+ *   · La primera activación exige `authorized` y una cuota realmente `approved`,
+ *     verificada por ID y persistida en el ledger. Una autorización sola no paga.
  *   · Un evento más viejo que el último aplicado no pisa nada.
  *   · Todo cambio de acceso deja un evento de auditoría.
  */
 import type { MpClient, MpPreapproval, PreapprovalState } from './mpClient.ts'
 import { preapprovalState } from './mpClient.ts'
 import { checkoutTermsProblem } from './planCatalog.ts'
+import { latestPaymentEvidence, recoverPayments } from './paymentEvidence.ts'
 import type { BillingPlan } from './planCatalog.ts'
 import type {
   BillingStore, BusinessBillingPatch, BusinessBillingRow, CheckoutSessionRow, SubscriptionStatus,
@@ -102,6 +103,13 @@ export type EvidenceReason =
   | 'not_authorized'         // preapproval nuevo que todavía no está authorized
   | 'awaiting_payment'       // authorized, pero el último cobro fue rechazado
   | 'access_override'        // acceso otorgado por un admin: MP no lo degrada
+  | 'first_payment_pending'
+  | 'payment_terms_mismatch'
+  | 'payment_link_mismatch'
+  | 'payment_missing_approval_date'
+  | 'payment_missing_event_date'
+  | 'replacement_pending'
+  | 'concurrent_change'
 
 export interface EvidenceOutcome {
   /** `activated`: se vinculó una suscripción nueva. `updated`: cambió el acceso de una ya vinculada. */
@@ -123,6 +131,10 @@ export interface ApplyOptions {
    * resuelve a otro negocio no se escribe nada.
    */
   expectBusinessId?: string
+  /** Internal webhook resource, never a browser-provided invoice. */
+  authorizedPaymentId?: string
+  /** Bounded retry after a concurrent canonical state change. */
+  attempt?: number
 }
 
 /** Fuentes de acceso otorgadas por un admin de plataforma. */
@@ -210,12 +222,30 @@ async function applyToBound(
     // No se devuelve el id del negocio real: es de otro tenant.
     return outcome(pre, mpState, { kind: 'not_applied', reason: 'foreign_business' })
   }
-  if (isStale(pre.last_modified, business.mp_last_modified)) {
-    return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: 'stale' })
-  }
   if (mpState === 'unknown') {
     return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: 'unknown_status' })
   }
+
+  const originSession = await ctx.store.findCheckoutSessionByPreapprovalId(pre.id)
+  if (originSession && (originSession.business_id !== business.id || referenceConflicts(pre, originSession))) {
+    return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: 'reference_mismatch' })
+  }
+  if (originSession && mpState === 'authorized' && checkoutTermsProblem(
+    { billingCycle: originSession.billing_cycle, amount: originSession.amount, currency: originSession.currency }, pre.auto_recurring,
+  )) return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: 'terms_mismatch' })
+  const recovered = originSession ? await recoverPayments(ctx, pre, originSession, {
+    notifiedInvoiceId: options.authorizedPaymentId, knownPaymentId: business.last_payment_id ?? undefined,
+  })
+    : { invoices: [], problem: null }
+  if (recovered.problem) return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: recovered.problem })
+  // Subscription ordering protects access, but cannot discard separately reread financial evidence.
+  if (isStale(pre.last_modified, business.mp_last_modified)) {
+    return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: 'stale' })
+  }
+  const latest = latestPaymentEvidence(recovered.invoices, business.current_period_start)
+  const approved = recovered.invoices.some(i => i.row.status === 'approved')
+  const freshApproval = latest?.row.status === 'approved' && latest.row.paid_at !== null
+    && (!business.current_period_start || Date.parse(latest.row.paid_at) > Date.parse(business.current_period_start))
 
   // El plan se fijó al vincular, desde la sesión que originó este preapproval.
   // No se reescribe en cada evento: un cambio de plan hecho por un admin sobre
@@ -240,13 +270,19 @@ async function applyToBound(
     // activa, degrada ni recalifica: sólo se registra la novedad del preapproval.
     reason = 'access_override'
   } else if (mpState === 'authorized') {
-    const paymentFailure = (current === 'past_due' || current === 'suspended')
-      && business.last_payment_status === 'rejected'
+    const paymentFailure = latest?.row.status === 'rejected' || ((current === 'past_due' || current === 'suspended')
+      && business.last_payment_status === 'rejected' && !freshApproval)
     if (paymentFailure) {
       // Que el preapproval siga `authorized` no prueba que se cobró. La mora la
       // levanta un cobro aprobado (handler de cobros), no una relectura.
       reason = 'awaiting_payment'
-    } else {
+      if (current === 'active') {
+        patch.subscription_status = 'past_due'
+        patch.grace_until = new Date(now.getTime() + GRACE_DAYS * DAY_MS).toISOString()
+      }
+    } else if ((!approved && current !== 'active') || latest?.row.status === 'refunded' || latest?.row.status === 'charged_back') {
+      reason = 'first_payment_pending'
+    } else if (approved) {
       patch.subscription_status = 'active'
       patch.subscription_provider = 'mercadopago'
       patch.access_source = 'mercado_pago'
@@ -265,6 +301,16 @@ async function applyToBound(
     if (current !== 'trialing') patch.subscription_status = 'canceled'
   }
 
+  if (latest && (latest.row.status !== 'approved' || business.last_payment_status !== 'rejected' || freshApproval)) {
+    patch.last_payment_id = latest.paymentId
+    patch.last_payment_status = latest.row.status
+    if (latest.row.status === 'approved' && freshApproval && mpState === 'authorized' && !hasAccessOverride(business)) {
+      patch.current_period_start = latest.row.paid_at
+      const end = isoOrNull(pre.next_payment_date)
+      if (end) patch.current_period_end = end
+    }
+  }
+
   // Bitácora del preapproval (no cambia el acceso).
   const lastModified = isoOrNull(pre.last_modified)
   if (lastModified) patch.mp_last_modified = lastModified
@@ -275,7 +321,10 @@ async function applyToBound(
   if (options.source === 'webhook') changes.last_webhook_at = nowIso
 
   if (Object.keys(changes).length > 0) {
-    await ctx.store.updateBusinessBilling(business.id, changes, nowIso)
+    if (!(await ctx.store.compareBusinessBilling(business, changes, nowIso))) {
+      if ((options.attempt ?? 0) >= 3) return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: 'concurrent_change' })
+      return applyPreapprovalEvidence(ctx, pre, { ...options, attempt: (options.attempt ?? 0) + 1 })
+    }
   }
 
   const status = changes.subscription_status ?? current
@@ -284,8 +333,8 @@ async function applyToBound(
   // Repara una sesión que quedó `pending` si la escritura anterior se cortó entre
   // el negocio y la sesión.
   let sessionId: string | null = null
-  if (mpState === 'authorized' && status === 'active') {
-    sessionId = await settleSession(ctx, pre, business.id, nowIso)
+  if (mpState === 'authorized' && status === 'active' && recovered.invoices.some(i => i.row.status === 'approved') && reason !== 'first_payment_pending') {
+    sessionId = await settleSession(ctx, pre, business.id, nowIso, options.source)
   }
 
   if (accessChanged) {
@@ -305,12 +354,21 @@ async function applyToBound(
 }
 
 async function settleSession(
-  ctx: BillingContext, pre: MpPreapproval, businessId: string, nowIso: string,
+  ctx: BillingContext, pre: MpPreapproval, businessId: string, nowIso: string, source: EvidenceSource,
 ): Promise<string | null> {
   const session = await ctx.store.findCheckoutSessionByPreapprovalId(pre.id)
   if (!session || session.business_id !== businessId) return null
   if (session.status !== 'paid') {
     await ctx.store.updateCheckoutSession(session.id, { status: 'paid', confirmed_at: nowIso }, nowIso)
+  }
+  const audit = await ctx.store.claimEvent({
+    business_id: businessId, event_type: 'billing_state_applied', external_id: pre.id,
+    notification_id: `activation:${session.id}`, processed: false,
+    raw_payload: { source, session_id: session.id, linked_by: 'preapproval_id', recovered_state: true,
+      from: null, to: { status: 'active', plan: session.plan_id }, payment_status: 'approved' },
+  })
+  if (audit.id && !(audit.duplicate && audit.processed)) {
+    await ctx.store.updateEvent(audit.id, { processed: true, processed_at: nowIso, error_message: null })
   }
   return session.id
 }
@@ -341,7 +399,7 @@ async function applyToUnbound(
   }
   const nowIso = ctx.now().toISOString()
 
-  if (mpState !== 'authorized') {
+  if (mpState !== 'authorized' && !options.authorizedPaymentId) {
     // Ningún cambio de acceso: una intención sin pagar no otorga nada.
     await noteUnauthorized(ctx, session, mpState, nowIso)
     return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: mpState === 'unknown' ? 'unknown_status' : 'not_authorized' })
@@ -357,17 +415,55 @@ async function applyToUnbound(
     return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: 'terms_mismatch' })
   }
 
+  const recovered = await recoverPayments(ctx, pre, session, mpState === 'authorized' && session.status !== 'paid'
+    ? { notifiedInvoiceId: options.authorizedPaymentId }
+    : { onlyInvoiceId: options.authorizedPaymentId })
+  if (recovered.problem) return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: recovered.problem })
+  if (mpState !== 'authorized') {
+    await noteUnauthorized(ctx, session, mpState, nowIso)
+    return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: 'not_authorized' })
+  }
   if (session.status === 'paid') {
-    // Esta sesión ya activó este preapproval y el negocio pasó a otra suscripción.
+    // Historical invoices remain attributable to their origin, but cannot revive a replaced contract.
     return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: 'superseded_preapproval' })
   }
+  const approved = [...recovered.invoices].reverse().find(i => i.row.status === 'approved')
+  const latest = latestPaymentEvidence(recovered.invoices)
+  if (!approved || (latest && ['rejected', 'refunded', 'charged_back'].includes(latest.row.status))) {
+    return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: 'first_payment_pending' })
+  }
+  if (hasAccessOverride(business)) return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: 'access_override' })
 
   const previousPreapproval = business.mp_preapproval_id
   const previousStatus = business.subscription_status
+  const retirement = await retireOtherCheckouts(ctx, business, session)
+  if (retirement.reason) {
+    return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: retirement.reason })
+  }
+
+  // The new first payment is approved, but access moves ONLY after the old
+  // recurring contract has been reread as cancelled. A retry can finish a partial failure.
+  if (previousPreapproval && previousPreapproval !== pre.id
+    && !(await supersedePreapproval(ctx, business.id, previousPreapproval, pre.id))) {
+    return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: 'replacement_pending' })
+  }
+
+  // Durable audit intent survives a failure between the business, checkout and event writes.
+  const activationAudit = await ctx.store.claimEvent({
+    business_id: business.id, event_type: 'billing_state_applied', external_id: pre.id,
+    notification_id: `activation:${session.id}`, processed: false,
+    raw_payload: {
+      source: options.source, mp_status: mpState, session_id: session.id, linked_by: 'preapproval_id',
+      reference_echoed: reportedReference(pre) !== '', payment_status: 'approved',
+      authorized_payment_id: approved.row.external_payment_id, payment_id: approved.paymentId,
+      from: { status: previousStatus, plan: business.subscription_plan },
+      to: { status: 'active', plan: session.plan_id, billing_cycle: session.billing_cycle },
+    },
+  })
 
   // 1. El negocio. Si otro negocio ya tiene este preapproval, el índice único
   //    `uq_businesses_mp_preapproval_id` rechaza la escritura y no se sigue.
-  await ctx.store.updateBusinessBilling(business.id, {
+  const replaced = await ctx.store.compareBusinessBilling(business, {
     subscription_status: 'active',
     // El plan es el de la intención que el SERVIDOR registró al crear este preapproval.
     subscription_plan: session.plan_id,
@@ -379,45 +475,33 @@ async function applyToUnbound(
     mp_payer_email: typeof pre.payer_email === 'string' && pre.payer_email ? pre.payer_email : null,
     mp_last_modified: isoOrNull(pre.last_modified) ?? nowIso,
     // Período informado por MP. Lo que MP no informa queda vacío, no inventado.
-    current_period_start: isoOrNull(pre.date_created),
+    current_period_start: approved.row.paid_at,
     current_period_end: isoOrNull(pre.next_payment_date),
     grace_until: null,
-    // Suscripción nueva: todavía no hay un cobro registrado para ella.
-    last_payment_id: null,
-    last_payment_status: null,
+    // The approved first invoice has already been persisted in the ledger.
+    last_payment_id: approved.paymentId,
+    last_payment_status: 'approved',
     ...(options.source === 'webhook' ? { last_webhook_at: nowIso } : {}),
   }, nowIso)
+  if (!replaced) {
+    const current = await ctx.store.getBusinessBilling(business.id)
+    if (current?.mp_preapproval_id === pre.id) return applyToBound(ctx, pre, mpState, current, options)
+    return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: 'concurrent_change' })
+  }
 
   // 2. La sesión queda consumida.
   await ctx.store.updateCheckoutSession(session.id, { status: 'paid', confirmed_at: nowIso }, nowIso)
 
   // 3. Auditoría.
-  await ctx.store.recordEvent({
-    business_id: business.id, event_type: 'billing_state_applied', external_id: pre.id, processed: true,
-    raw_payload: {
-      source: options.source, mp_status: mpState, session_id: session.id,
-      linked_by: 'preapproval_id',
-      // ¿Mercado Pago devolvió la referencia que el servidor mandó al crearlo?
-      reference_echoed: reportedReference(pre) !== '',
-      from: { status: previousStatus, plan: business.subscription_plan },
-      to: { status: 'active', plan: session.plan_id, billing_cycle: session.billing_cycle },
-    },
-  })
+  if (activationAudit.id && !(activationAudit.duplicate && activationAudit.processed)) {
+    await ctx.store.updateEvent(activationAudit.id, { processed: true, processed_at: nowIso, error_message: null })
+  }
 
   // 4. Otros checkouts abiertos del mismo negocio dejan de estar vigentes.
-  const others = await ctx.store.listCheckoutSessions(business.id, 20)
-  for (const other of others) {
+  for (const other of retirement.sessions) {
     if (other.id !== session.id && other.status === 'pending') {
       await ctx.store.updateCheckoutSession(other.id, { status: 'expired' }, nowIso)
     }
-  }
-
-  // 5. Cambio de plan o reactivación: la suscripción anterior se cancela en MP
-  //    DESPUÉS de confirmada la nueva (antes se cancelaba al abrir el checkout).
-  //    Se intenta siempre que exista: una suscripción en mora sigue reintentando
-  //    cobros en MP aunque acá figure suspendida.
-  if (previousPreapproval && previousPreapproval !== pre.id) {
-    await supersedePreapproval(ctx, business.id, previousPreapproval, pre.id)
   }
 
   return outcome(pre, mpState, {
@@ -434,26 +518,87 @@ async function noteUnauthorized(
 }
 
 /**
- * Cancela en MP la suscripción que quedó reemplazada. Si falla, la nueva ya está
- * activa: no se revierte, pero queda un evento SIN procesar para que alguien lo
- * vea — el negocio tendría dos suscripciones cobrando.
+ * Confirms the old contract's cancellation before moving access. Failure preserves
+ * the old local plan and a retryable event. Both MP contracts may still bill until
+ * a retry succeeds: this condition must remain visible to the owner.
  */
 async function supersedePreapproval(
-  ctx: BillingContext, businessId: string, previousId: string, replacedBy: string,
-): Promise<void> {
+  ctx: BillingContext, businessId: string, previousId: string, replacedBy: string, pendingOnly = false,
+): Promise<boolean> {
   let error: string | null = null
   try {
     const previous = await ctx.mp.getPreapproval(previousId)
-    if (previous && preapprovalState(previous.status) !== 'cancelled') {
+    if (!previous || previous.id !== previousId) throw new Error('previous subscription missing')
+    const origin = await ctx.store.findCheckoutSessionByPreapprovalId(previousId)
+    if (origin && (origin.business_id !== businessId || referenceConflicts(previous, origin))) throw new Error('previous subscription mismatch')
+    if (pendingOnly && !['pending', 'cancelled'].includes(preapprovalState(previous.status))) {
+      throw new Error('another checkout became authorized')
+    }
+    if (preapprovalState(previous.status) !== 'cancelled') {
       await ctx.mp.cancelPreapproval(previousId)
+      const confirmed = await ctx.mp.getPreapproval(previousId)
+      if (!confirmed || confirmed.id !== previousId || preapprovalState(confirmed.status) !== 'cancelled') {
+        throw new Error('previous cancellation not confirmed')
+      }
     }
   } catch {
     error = 'supersede_cancel_failed'
     ctx.log({ event: 'supersede_cancel_failed', business_id: businessId, preapproval_id: previousId })
   }
-  await ctx.store.recordEvent({
+  const event = await ctx.store.claimEvent({
     business_id: businessId, event_type: 'preapproval_superseded', external_id: previousId,
-    processed: error === null, error_message: error,
+    notification_id: `replacement:${replacedBy}`, processed: false,
     raw_payload: { replaced_by: replacedBy },
   })
+  if (event.id && !(event.duplicate && event.processed && error === null)) {
+    await ctx.store.updateEvent(event.id, { processed: error === null, processed_at: ctx.now().toISOString(), error_message: error })
+  }
+  return error === null
+}
+
+/** Closing a local checkout cannot leave its known MP link payable or billing. */
+async function retireOtherCheckouts(
+  ctx: BillingContext, business: BusinessBillingRow, incoming: CheckoutSessionRow,
+): Promise<{ sessions: CheckoutSessionRow[]; reason: 'replacement_pending' | 'superseded_preapproval' | null }> {
+  const blocked = { sessions: [], reason: 'replacement_pending' as const }
+  const sessions = await ctx.store.listCheckoutSessions(business.id, 101)
+  const incomingIndex = sessions.findIndex(s => s.id === incoming.id)
+  if (sessions.length > 100 || incomingIndex < 0) {
+    ctx.log({ event: 'replacement_checkout_limit', business_id: business.id })
+    return blocked // Incomplete history cannot certify absence of another known contract.
+  }
+  const obsolete: CheckoutSessionRow[] = []
+  for (const [index, other] of sessions.entries()) {
+    if (other.id === incoming.id || !other.mp_preapproval_id) continue
+    const pre = await ctx.mp.getPreapproval(other.mp_preapproval_id)
+    if (!pre || pre.id !== other.mp_preapproval_id || referenceConflicts(pre, other)) return blocked
+    const state = preapprovalState(pre.status)
+    if (state === 'authorized' || state === 'paused') {
+      // Changed future terms cannot invalidate a historical fee's native identity.
+      // They do prevent selecting a newer checkout as the winning paid plan.
+      if (index < incomingIndex && checkoutTermsProblem(
+        { billingCycle: other.billing_cycle, amount: other.amount, currency: other.currency }, pre.auto_recurring,
+      )) return blocked
+      const recovered = await recoverPayments(ctx, pre, other)
+      if (recovered.problem) return blocked
+      // Preserve the existing rule: the newest server-issued paid intent wins.
+      // A newer authorization without an approved first fee stays open; it is
+      // neither proof of payment nor a reason to revoke this paid plan.
+      if (index < incomingIndex) {
+        if (recovered.invoices.some(i => i.row.status === 'approved')) {
+          return { sessions: [], reason: 'superseded_preapproval' }
+        }
+        continue
+      }
+      if (other.mp_preapproval_id === business.mp_preapproval_id) continue // Primary replacement confirms it below.
+      if (!(await supersedePreapproval(ctx, business.id, pre.id, incoming.mp_preapproval_id!))) return blocked
+    }
+    if (state === 'pending') {
+      if (index < incomingIndex) continue // A newer unconsumed intent remains usable.
+      if (other.mp_preapproval_id === business.mp_preapproval_id) continue
+      if (!(await supersedePreapproval(ctx, business.id, pre.id, incoming.mp_preapproval_id!, true))) return blocked
+    } else if (!['authorized', 'paused', 'cancelled'].includes(state)) return blocked
+    obsolete.push(other)
+  }
+  return { sessions: obsolete, reason: null }
 }

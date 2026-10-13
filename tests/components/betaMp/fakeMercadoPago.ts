@@ -129,6 +129,12 @@ export class FakeMercadoPago {
       return json(this.view(row))
     }
     if (method === 'GET') {
+      if (url.pathname === '/authorized_payments/search') {
+        const offset = Number(url.searchParams.get('offset'))
+        const limit = Number(url.searchParams.get('limit'))
+        const rows = [...this.authorizedPayments.values()].filter(p => p.preapproval_id === url.searchParams.get('preapproval_id'))
+        return json({ paging: { offset, limit, total: rows.length }, results: rows.slice(offset, offset + limit) })
+      }
       return one('/preapproval/', this.preapprovals, (row) => this.view(row))
         ?? one('/authorized_payments/', this.authorizedPayments) ?? one('/v1/payments/', this.payments)
         ?? json({ message: 'not found' }, 404)
@@ -146,6 +152,22 @@ export class FakeMercadoPago {
       next_payment_date: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
     }, patch)
     return row
+  }
+
+  /** Authorization and an actual approved invoice/payment are separate resources. */
+  approveFirstPayment(id: string): void {
+    const pre = this.preapprovals.get(id)!
+    const terms = (pre.auto_recurring ?? {}) as MpRow
+    const invoiceId = `first_${id}`
+    const paymentId = `pay_${invoiceId}`
+    this.authorizedPayments.set(invoiceId, {
+      id: invoiceId, preapproval_id: id, status: 'processed', transaction_amount: terms.transaction_amount,
+      currency_id: terms.currency_id, payment: { id: paymentId }, date_created: this.now().toISOString(), debit_date: this.now().toISOString(),
+    })
+    this.payments.set(paymentId, {
+      id: paymentId, status: 'approved', status_detail: 'accredited', transaction_amount: terms.transaction_amount,
+      currency_id: terms.currency_id, date_approved: this.now().toISOString(), date_created: this.now().toISOString(),
+    })
   }
 
   /**

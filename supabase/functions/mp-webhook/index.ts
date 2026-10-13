@@ -33,6 +33,7 @@ import { createMpClient } from '../_shared/billing/mpClient.ts'
 import type { BillingContext } from '../_shared/billing/preapproval.ts'
 import { createSupabaseBillingStore } from '../_shared/billing/store.ts'
 import { parseNotification, processWebhookNotification } from '../_shared/billing/webhook.ts'
+import { normalizeSignedId, validateMpSignature } from '../_shared/billing/mpSignature.ts'
 
 // ─────────────────────────────────────────────────────────────────
 // HMAC-SHA256 signature validation (timing-safe)
@@ -42,37 +43,7 @@ async function verifySignature(
   req: Request,
   dataId: string | undefined,
 ): Promise<'ok' | 'missing_secret' | 'invalid'> {
-  const secret = Deno.env.get('MP_WEBHOOK_SECRET')
-  if (!secret) return 'missing_secret'
-
-  const signature = req.headers.get('x-signature') || ''
-  const requestId = req.headers.get('x-request-id') || ''
-  const parts = Object.fromEntries(
-    signature.split(',').map(p => {
-      const idx = p.indexOf('=')
-      return idx === -1 ? [p.trim(), ''] : [p.slice(0, idx).trim(), p.slice(idx + 1).trim()]
-    }),
-  )
-  const ts = parts['ts'] || ''
-  const v1 = parts['v1'] || ''
-  if (!ts || !v1) return 'invalid'
-
-  // MP template: lowercase alphanumeric resource id.
-  const id = (dataId ?? '').toLowerCase()
-  const manifest = `id:${id};request-id:${requestId};ts:${ts};`
-
-  const encoder = new TextEncoder()
-  const key = await crypto.subtle.importKey(
-    'raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
-  )
-  const sigBuffer = await crypto.subtle.sign('HMAC', key, encoder.encode(manifest))
-  const computed = Array.from(new Uint8Array(sigBuffer)).map(b => b.toString(16).padStart(2, '0')).join('')
-
-  // Constant-time comparison
-  if (computed.length !== v1.length) return 'invalid'
-  let diff = 0
-  for (let i = 0; i < computed.length; i++) diff |= computed.charCodeAt(i) ^ v1.charCodeAt(i)
-  return diff === 0 ? 'ok' : 'invalid'
+  return validateMpSignature(req, dataId, Deno.env.get('MP_WEBHOOK_SECRET'))
 }
 
 /**
@@ -116,12 +87,17 @@ serve(async (req) => {
   // Mercado Pago firma el `data.id` de la URL de la notificación. Si viene, tiene
   // que ser el mismo recurso que el cuerpo: lo firmado y lo procesado no pueden
   // diferir.
-  const urlDataId = new URL(req.url).searchParams.get('data.id')
-  if (urlDataId !== null && resourceId && urlDataId.toLowerCase() !== resourceId.toLowerCase()) {
+  const query = new URL(req.url).searchParams
+  const urlDataId = query.get('data.id')
+  if (query.getAll('data.id').length > 1 || query.getAll('type').length > 1) {
+    console.warn('[mp-webhook] Rejected: ambiguous URL parameters')
+    return new Response('Forbidden', { status: 401 })
+  }
+  if (urlDataId !== null && resourceId && normalizeSignedId(urlDataId) !== normalizeSignedId(resourceId)) {
     console.warn(`[mp-webhook] Rejected: signed id differs from body id (type=${topic})`)
     return new Response('Forbidden', { status: 401 })
   }
-  const sig = await verifySignature(req, urlDataId ?? (resourceId || undefined))
+  const sig = await verifySignature(req, urlDataId ?? undefined)
   if (sig === 'missing_secret') {
     console.error('[mp-webhook] MP_WEBHOOK_SECRET not configured — refusing to process')
     return new Response('Webhook secret not configured', { status: 500 })
@@ -130,6 +106,13 @@ serve(async (req) => {
     console.warn(`[mp-webhook] Rejected: invalid signature (type=${topic} id=${resourceId} ${signatureParts(req, urlDataId)})`)
     return new Response('Forbidden', { status: 401 })
   }
+  // MP can sign manifests with omitted fields. A billing resource MUST itself
+  // be signed: an unsigned body id is never substituted into that manifest.
+  if (!urlDataId || (query.get('type') !== null && query.get('type') !== topic)) {
+    console.warn('[mp-webhook] Rejected: missing signed resource or topic mismatch')
+    return new Response('Forbidden', { status: 401 })
+  }
+  notification.resourceId = normalizeSignedId(urlDataId)
 
   console.log(`[mp-webhook] Received type=${topic} action=${action} id=${resourceId}`)
 

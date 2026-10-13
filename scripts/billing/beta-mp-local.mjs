@@ -18,7 +18,7 @@
 // crea el preapproval en `POST /preapproval` (Plan B) y puede omitir la
 // `external_reference`, como se midió en el smoke real del 2026-10-02.
 //
-// Requiere las migraciones 20261012120000 y 20261013120000 aplicadas y Node >= 22.18 (importa los
+// Requiere las migraciones 20261012120000, 20261013120000 y 20261015120000 y Node >= 22.18 (importa los
 // módulos .ts tal cual). Deja la base como la encontró.
 //
 //   node scripts/billing/beta-mp-local.mjs
@@ -39,9 +39,11 @@ const project = readFileSync('supabase/config.toml', 'utf8').match(/^project_id 
 if (!project) throw new Error('No se pudo identificar el proyecto Supabase local')
 const dbContainer = process.env.BETA_MP_DB_CONTAINER || `supabase_db_${project}`
 if (!/^supabase_db_[a-z0-9-]+$/.test(dbContainer)) throw new Error('Se requiere el contenedor de base LOCAL (supabase_db_*)')
+const dbName = process.env.BETA_MP_DB_NAME || 'postgres'
+if (dbName !== 'postgres' && !/^beta_mp_recovery_[a-z0-9]+$/.test(dbName)) throw new Error('Invalid isolated local database name')
 
 const docker = (args, input) => execFileSync('docker', args, { input, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 32 * 1024 * 1024 })
-const sql = (q) => docker(['exec', '-i', dbContainer, 'psql', '-X', '-U', 'postgres', '-d', 'postgres', '-Atq', '-v', 'ON_ERROR_STOP=1'], q).trim()
+const sql = (q) => docker(['exec', '-i', dbContainer, 'psql', '-X', '-U', 'postgres', '-d', dbName, '-Atq', '-v', 'ON_ERROR_STOP=1'], q).trim()
 
 const ids = Object.fromEntries(['A', 'B', 'C', 'ownerA', 'ownerB', 'ownerC', 'techA'].map((n) => [n, randomUUID()]))
 const TAG = 'beta-mp-local.invalid'
@@ -53,19 +55,20 @@ const check = (cond, label) => { checks++; assert(cond, label); console.log(`  �
 const section = (title) => console.log(`\n--- ${title} ---`)
 
 const main = async () => {
-  const rest = JSON.parse(docker(['inspect', dbContainer.replace('supabase_db_', 'supabase_rest_')]))[0]
-  const kong = JSON.parse(docker(['inspect', dbContainer.replace('supabase_db_', 'supabase_kong_')]))[0]
+  const rest = JSON.parse(docker(['inspect', process.env.BETA_MP_REST_CONTAINER || dbContainer.replace('supabase_db_', 'supabase_rest_')]))[0]
+  const kong = process.env.BETA_MP_LOCAL_API_URL ? null : JSON.parse(docker(['inspect', dbContainer.replace('supabase_db_', 'supabase_kong_')]))[0]
   const vars = Object.fromEntries(rest.Config.Env.map((s) => { const i = s.indexOf('='); return [s.slice(0, i), s.slice(i + 1)] }))
-  const hostPort = kong.NetworkSettings.Ports?.['8000/tcp']?.[0]?.HostPort
-  assert(vars.PGRST_JWT_SECRET && hostPort, 'Falta configuracion de PostgREST local (¿kong sin puerto publicado?)')
-  const baseUrl = `http://127.0.0.1:${hostPort}`
+  const hostPort = kong?.NetworkSettings.Ports?.['8000/tcp']?.[0]?.HostPort
+  assert(vars.PGRST_JWT_SECRET && (hostPort || process.env.BETA_MP_LOCAL_API_URL), 'Falta configuracion de PostgREST local')
+  const baseUrl = process.env.BETA_MP_LOCAL_API_URL || `http://127.0.0.1:${hostPort}`
   assert(/^http:\/\/127\.0\.0\.1:\d+$/.test(baseUrl), 'El destino no es local')
 
   // Las migraciones tienen que estar aplicadas: si no, cada rechazo "pasaria" por otra razon.
   const applied = sql(`SELECT (to_regclass('public.uq_subscription_events_notification') IS NOT NULL)::int
     + (SELECT count(*) FROM pg_attribute WHERE attrelid = 'public.subscription_checkout_sessions'::regclass AND attname = 'mp_preapproval_id')
-    + (to_regclass('public.uq_scs_mp_preapproval') IS NOT NULL)::int;`)
-  assert(applied === '3', 'Las migraciones BETA-MP (20261012120000) y Plan B (20261013120000) no estan aplicadas en la base local')
+    + (to_regclass('public.uq_scs_mp_preapproval') IS NOT NULL)::int
+    + (to_regclass('public.uq_payments_mp_payment_id') IS NOT NULL)::int;`)
+  assert(applied === '4', 'Las tres migraciones BETA-MP, Plan B y Recovery no estan aplicadas en la base local')
 
   let signingKey = Buffer.from(vars.PGRST_JWT_SECRET)
   if (vars.PGRST_JWT_SECRET.trim().startsWith('{')) {
@@ -204,6 +207,7 @@ const main = async () => {
   check(n.result === 'processed' && n.detail === 'not_applied:not_authorized' && business('A').subscription_status === 'trialing',
     'pending: procesada, sin acceso nuevo y sin degradar el trial')
   mp.authorize(pre('a'))
+  mp.approveFirstPayment(pre('a'))
   n = await notify('subscription_preapproval', pre('a'), `${run}-updated`)
   let A = business('A')
   check(n.result === 'processed' && A.subscription_status === 'active' && A.subscription_plan === 'pro'
@@ -251,6 +255,7 @@ const main = async () => {
   mp.nextIds.push(pre('c0'))
   r = await call('ownerC', { action: 'create', business_id: ids.C, plan: 'basico', billing_cycle: 'monthly' })
   mp.authorize(pre('c0'))
+  mp.approveFirstPayment(pre('c0'))
   mp.preapprovals.get(pre('c0')).auto_recurring.transaction_amount = 1
   n = await notify('subscription_preapproval', pre('c0'))
   check(n.detail === 'not_applied:terms_mismatch' && huella('C') === antesC, 'authorized con otro importe que el de la sesión: no activa (sin drift silencioso)')
@@ -258,6 +263,7 @@ const main = async () => {
   // Lo medido en el smoke real: Mercado Pago no devuelve la referencia.
   mp.dropsExternalReference = true
   mp.authorize(pre('b'))
+  mp.approveFirstPayment(pre('b'))
   n = await notify('subscription_preapproval', pre('b'))
   mp.dropsExternalReference = false
   const B = business('B')
@@ -280,7 +286,7 @@ const main = async () => {
   n = await notify('subscription_authorized_payment', inv)
   check(count('payments', `external_payment_id = '${inv}'`) === 1, 'otra notificación del mismo cobro no duplica el ledger')
   n = await notify('payment', `pay_${run}`)
-  check(count('payments', `business_id = '${ids.A}'`) === 1, 'la notificación `payment` no agrega una segunda fila al ledger')
+  check(count('payments', `business_id = '${ids.A}'`) === 2, 'la notificación `payment` no agrega una fila al ledger')
 
   // ── 7. reconcile ─────────────────────────────────────────────────────────
   section('7. reconcile: recupera sin webhook, por id, y es idempotente')
@@ -291,8 +297,16 @@ const main = async () => {
   r = await call('ownerC', { action: 'create', business_id: ids.C, plan: 'full', billing_cycle: 'annual' })
   check(r.status === 200 && mp.created().at(-1).body.auto_recurring.transaction_amount === 432000 && mp.created().at(-1).body.auto_recurring.frequency === 12,
     'anual: el servidor pide 432000 cada 12 months')
-  // Paga; Mercado Pago lo informa como 1 / years y NO manda ninguna notificación.
+  // Authorized is not paid: real PostgREST must preserve the trial and an open session.
   mp.authorize(pre('c'))
+  const beforeFirstPayment = huella('C')
+  r = await call('ownerC', { action: 'reconcile', business_id: ids.C })
+  check(r.status === 200 && r.body.activated === false && r.body.confirmed === false
+    && r.body.checkout?.status === 'pending' && r.body.checkout?.payment_confirmed === false
+    && huella('C') === beforeFirstPayment && count('payments', `business_id = '${ids.C}'`) === 0,
+    'authorized sin primer pago approved: trial y sesión intactos, sin ledger ficticio')
+  // Paga; Mercado Pago lo informa como 1 / years y NO manda ninguna notificación.
+  mp.approveFirstPayment(pre('c'))
   Object.assign(mp.preapprovals.get(pre('c')).auto_recurring, { frequency: 1, frequency_type: 'years' })
   mp.calls.length = 0
   r = await call('ownerC', { action: 'reconcile', business_id: ids.C })
@@ -300,7 +314,14 @@ const main = async () => {
   check(r.status === 200 && r.body.activated === true && r.body.outcome === 'activated' && r.body.checkout?.status === 'paid'
     && C.subscription_status === 'active' && C.subscription_plan === 'full' && C.mp_preapproval_id === pre('c'),
   'webhook perdido: reconcile lee el preapproval por el id de la sesión y activa Full anual')
-  check(mp.calls.every((c) => c.method === 'GET' && /^\/preapproval\/[^/?]+$/.test(c.path)), 'reconcile sólo hizo lecturas directas por id (ninguna búsqueda)')
+  check(mp.calls.every((c) => (c.method === 'GET' || (c.method === 'PUT' && c.path === `/preapproval/${pre('c0')}`))
+    && !c.path.includes('/preapproval/search') && !c.path.includes('payer_email')),
+    'reconcile sólo usa IDs vinculados: lee sus facturas y cancela el checkout anterior conocido')
+  check(count('payments', `business_id = '${ids.C}' AND status = 'approved' AND raw_payload->>'preapproval_id' = '${pre('c')}'`) === 1,
+    'sin webhook: reconcile reconstruye un único pago aprobado en el ledger real')
+  check(mp.preapprovals.get(pre('c0')).status === 'cancelled'
+    && count('payments', `business_id = '${ids.C}' AND status = 'approved' AND raw_payload->>'preapproval_id' = '${pre('c0')}'`) === 1,
+    'el checkout anterior autorizado sin activar queda cancelado y su cuota histórica queda registrada una sola vez')
   check(count('subscription_events', `business_id = '${ids.C}' AND event_type = 'billing_state_applied' AND raw_payload->>'source' = 'reconcile'`) === 1, 'el cambio queda auditado con origen reconcile')
   const despuesRec = huella('C')
   r = await call('ownerC', { action: 'reconcile', business_id: ids.C })
@@ -366,9 +387,10 @@ const main = async () => {
   check(n.detail === 'not_applied:unknown_preapproval' && huella('B') === antesPagador, 'un preapproval desconocido con el mismo email no activa (webhook)')
   mp.calls.length = 0
   r = await call('ownerB', { action: 'reconcile', business_id: ids.B, mp_payer_email: cuentaMp })
-  check(r.status === 200 && business('B').mp_preapproval_id === pre('b') && mp.calls.every((c) => c.method === 'GET' && /^\/preapproval\/[^/?]+$/.test(c.path))
+  check(r.status === 200 && business('B').mp_preapproval_id === pre('b') && mp.calls.every((c) => c.method === 'GET'
+      && !c.path.includes('/preapproval/search') && !c.path.includes('payer_email'))
     && !mp.calls.some((c) => c.path.includes(pre('mismo_email'))),
-  'reconcile ignora el email: sólo relee por id los preapprovals de las sesiones de B')
+  'reconcile ignora el email: sólo relee los recursos vinculados por id a las sesiones de B')
   mp.payerAccounts = null
 }
 

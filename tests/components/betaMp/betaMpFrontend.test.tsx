@@ -25,6 +25,7 @@ const h = vi.hoisted(() => ({
   from: vi.fn(),
   refresh: vi.fn(async () => undefined),
   sub: {} as Record<string, unknown>,
+  businessId: 'biz-beta-mp',
 }))
 
 // Builder mínimo de PostgREST: lo usa `Subscription` para contar usuarios. El
@@ -46,7 +47,7 @@ vi.mock('../../../src/lib/supabase', () => ({
 }))
 
 vi.mock('../../../src/contexts/AuthContext', () => ({
-  useAuth: () => ({ businessId: 'biz-beta-mp', user: { email: 'owner@invalid.test' }, role: 'owner', isOwner: true, profile: { permissions: null } }),
+  useAuth: () => ({ businessId: h.businessId, user: { email: 'owner@invalid.test' }, role: 'owner', isOwner: true, profile: { permissions: null } }),
 }))
 
 vi.mock('../../../src/hooks/useSubscription', () => ({ useSubscription: () => h.sub }))
@@ -77,12 +78,12 @@ function suscripcion(status: Estado, fila: Record<string, unknown> = {}) {
 }
 
 const checkout = (status: string, plan = 'full') =>
-  ({ status, plan, billing_cycle: 'monthly', created_at: '2026-10-01T12:00:00.000Z', confirmed_at: status === 'paid' ? '2026-10-01T12:05:00.000Z' : null })
+  ({ status, plan, billing_cycle: 'monthly', created_at: '2026-10-01T12:00:00.000Z', confirmed_at: status === 'paid' ? '2026-10-01T12:05:00.000Z' : null, payment_confirmed: status === 'paid' })
 
 /** Lo que responde `mp-subscription:reconcile`. */
 function servidorResponde(body: Record<string, unknown>) {
   h.invoke.mockImplementation(async (_fn: string, o: { body: { action: string } }) => {
-    if (o.body.action === 'reconcile') return { data: body, error: null }
+    if (o.body.action === 'reconcile' || o.body.action === 'status') return { data: body, error: null }
     return { data: {}, error: null }
   })
 }
@@ -133,6 +134,7 @@ const avanzar = (ms: number) => act(async () => { await vi.advanceTimersByTimeAs
 const accionesEnviadas = () => h.invoke.mock.calls.map(([fn, o]) => `${fn}:${o.body.action}`)
 
 beforeEach(() => {
+  h.businessId = 'biz-beta-mp'
   h.invoke.mockReset()
   // `restoreMocks: true` borra las implementaciones entre tests: se reponen acá.
   h.from.mockReset()
@@ -195,6 +197,15 @@ describe('P · PaymentPending no es autoridad de activación', () => {
     expect(h.refresh).toHaveBeenCalled()
     await avanzar(800)
     expect(ruta()).toBe('/subscription/success')
+  })
+
+  it('un estado paid sin prueba explícita de aprobación no muestra Pago confirmado', async () => {
+    servidorResponde({ activated: true, message: 'pendiente', checkout: { ...checkout('paid'), payment_confirmed: false } })
+    montarPending()
+    await avanzar(1000)
+    expect(screen.queryByTestId('payment-confirmed')).toBeNull()
+    expect(ruta()).toBe('/subscription/pending')
+    expect(h.refresh).not.toHaveBeenCalled()
   })
 
   it('primero pendiente, después pagado: confirma cuando el servidor lo dice', async () => {
@@ -618,10 +629,29 @@ describe('M · Mi Suscripción y la pantalla de éxito', () => {
     expect(screen.getByText('Estamos confirmando tu pago')).not.toBeNull()
   })
 
-  it('SubscriptionSuccess: con una suscripción de Mercado Pago activa, sí', () => {
-    suscripcion('active', { subscription_plan: 'pro', access_source: 'mercado_pago', mp_preapproval_id: 'pre_1' })
+  it('SubscriptionSuccess: exige suscripción activa, pago aprobado y checkout verificado', async () => {
+    suscripcion('active', { subscription_plan: 'pro', access_source: 'mercado_pago', mp_preapproval_id: 'pre_1', last_payment_status: 'approved' })
+    servidorResponde({ checkout: checkout('paid', 'pro') })
     montar(<SubscriptionSuccess />)
-    expect(screen.getByText('Suscripción activada')).not.toBeNull()
+    expect(await screen.findByText('Suscripción activada')).not.toBeNull()
+  })
+  it('SubscriptionSuccess: un plan anterior activo no confirma el nuevo checkout pendiente', async () => {
+    suscripcion('active', { subscription_plan: 'pro', access_source: 'mercado_pago', mp_preapproval_id: 'pre_1', last_payment_status: 'approved' })
+    servidorResponde({ checkout: checkout('pending', 'full') })
+    montar(<SubscriptionSuccess />)
+    await act(async () => { await Promise.resolve() })
+    expect(screen.queryByText('Suscripción activada')).toBeNull()
+  })
+  it('SubscriptionSuccess: cambiar de negocio invalida la confirmación del negocio anterior', async () => {
+    suscripcion('active', { subscription_plan: 'pro', access_source: 'mercado_pago', last_payment_status: 'approved' })
+    servidorResponde({ checkout: checkout('paid', 'pro') })
+    const view = render(<MemoryRouter><SubscriptionSuccess /></MemoryRouter>)
+    expect(await screen.findByText('Suscripción activada')).not.toBeNull()
+    h.businessId = 'biz-other'
+    h.invoke.mockImplementation(() => new Promise(() => {}))
+    view.rerender(<MemoryRouter><SubscriptionSuccess /></MemoryRouter>)
+    expect(screen.queryByText('Suscripción activada')).toBeNull()
+    expect(screen.getByText('Estamos confirmando tu pago')).not.toBeNull()
   })
 })
 

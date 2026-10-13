@@ -1,5 +1,10 @@
 # BETA-MP — Suscripciones SaaS por Mercado Pago
 
+> Candidato actual: [BETA-MP-RECOVERY](recovery-runbook.md), basado en la auditoría
+> del 13/10/2026. Exige primer pago aprobado, recupera el ledger y confirma la
+> cancelación anterior antes de mover el plan. Las conclusiones de los lotes
+> anteriores que siguen abajo son históricas; no certifican el candidato actual.
+
 > Alcance: **Billing SaaS** (`mp-subscription` + `mp-webhook`). El medio de pago manual
 > «MercadoPago» del POS y Merchant Connect (`mp-oauth` / `mp-payments`) son otro dominio y no se
 > tocan en este lote.

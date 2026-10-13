@@ -380,7 +380,7 @@ describe('pedir dos veces el mismo checkout', () => {
     const res = await create('pro')
 
     expect(res.status).toBe(409)
-    expect(res.body.code).toBe('checkout_already_paid')
+    expect(res.body.code).toBe('checkout_already_authorized')
     expect(res.body.init_point).toBeUndefined()
     expect(w.mp.created()).toHaveLength(1)
     // `create` no activa: eso es del webhook y de `reconcile`.
