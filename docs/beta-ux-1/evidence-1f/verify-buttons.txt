@@ -214,6 +214,157 @@
   OK    Inicio · Ver todas (órdenes)     (secondary) reposo 10.52:1 · hover 14.08:1
   OK    Órdenes · Nueva Orden            (primary  ) reposo 6.29:1 · hover 7.90:1
 
+[F] Inventario · filtros de stock · light · 375px
+  OK    «Ver stock bajo» inactivo: clases «inventory-stock-filter inventory-stock-filter--low», sin estilo en línea (ninguno)
+  OK    «Ver stock bajo» inactivo: rgb(15, 23, 42) sobre rgb(236, 229, 227) = 14.35:1
+  OK    «Ver stock bajo» inactivo + hover: rgb(15, 23, 42) sobre rgb(228, 221, 227) = 13.39:1
+  OK    «Ver agotados» inactivo: clases «inventory-stock-filter inventory-stock-filter--out», sin estilo en línea (ninguno)
+  OK    «Ver agotados» inactivo: rgb(15, 23, 42) sobre rgb(242, 236, 228) = 15.21:1
+  OK    «Ver agotados» inactivo + hover: rgb(15, 23, 42) sobre rgb(233, 228, 228) = 14.18:1
+  OK    «Ver stock bajo» activo, medido enseguida del clic ×5: 8.31:1 sobre rgb(245, 158, 11) (intentos del instrumento: 1, 1, 1, 1, 1)
+  OK    «Ver stock bajo» activo: lleva `.is-active` y `aria-pressed="true"`
+  OK    «Ver stock bajo» activo: fondo rgb(245, 158, 11) · rgb(15, 23, 42) = 8.31:1
+  OK    «Ver stock bajo» activo + hover: conserva el fondo (rgb(245, 158, 11)) · 8.31:1
+  OK    «Ver stock bajo» activo + foco de teclado: conserva el fondo (rgb(245, 158, 11)) · 8.31:1 · contorno solid
+  OK    «Ver agotados» activo, medido enseguida del clic ×5: 4.74:1 sobre rgb(239, 68, 68) (intentos del instrumento: 1, 1, 1, 1, 1)
+  OK    «Ver agotados» activo: lleva `.is-active` y `aria-pressed="true"`
+  OK    «Ver agotados» activo: fondo rgb(239, 68, 68) · rgb(15, 23, 42) = 4.74:1
+  OK    «Ver agotados» activo + hover: conserva el fondo (rgb(239, 68, 68)) · 4.74:1
+  OK    «Ver agotados» activo + foco de teclado: conserva el fondo (rgb(239, 68, 68)) · 4.74:1 · contorno solid
+  OK    «Ver stock bajo» inactivo tras cambiar: 14.67:1
+  OK    «Ver todos»: rgb(51, 65, 85) sobre rgb(238, 232, 227) = 8.52:1
+  dato  alto de los filtros en mobile: 40 / 40 / 40 px (objetivo táctil 44 → BUTTON-SYSTEM-1B; no se exige acá)
+  OK    sin errores de página
+
+[F] Inventario · filtros de stock · dark · 375px
+  OK    «Ver stock bajo» inactivo: clases «inventory-stock-filter inventory-stock-filter--low», sin estilo en línea (ninguno)
+  OK    «Ver stock bajo» inactivo: rgb(240, 244, 255) sobre rgb(35, 33, 36) = 14.52:1
+  OK    «Ver stock bajo» inactivo + hover: rgb(240, 244, 255) sobre rgb(40, 38, 52) = 13.47:1
+  OK    «Ver agotados» inactivo: clases «inventory-stock-filter inventory-stock-filter--out», sin estilo en línea (ninguno)
+  OK    «Ver agotados» inactivo: rgb(240, 244, 255) sobre rgb(33, 30, 29) = 15.05:1
+  OK    «Ver agotados» inactivo + hover: rgb(240, 244, 255) sobre rgb(38, 35, 45) = 14.03:1
+  OK    «Ver stock bajo» activo, medido enseguida del clic ×5: 8.31:1 sobre rgb(245, 158, 11) (intentos del instrumento: 1, 1, 1, 1, 1)
+  OK    «Ver stock bajo» activo: lleva `.is-active` y `aria-pressed="true"`
+  OK    «Ver stock bajo» activo: fondo rgb(245, 158, 11) · rgb(15, 23, 42) = 8.31:1
+  OK    «Ver stock bajo» activo + hover: conserva el fondo (rgb(245, 158, 11)) · 8.31:1
+  OK    «Ver stock bajo» activo + foco de teclado: conserva el fondo (rgb(245, 158, 11)) · 8.31:1 · contorno solid
+  OK    «Ver agotados» activo, medido enseguida del clic ×5: 4.74:1 sobre rgb(239, 68, 68) (intentos del instrumento: 1, 1, 1, 1, 1)
+  OK    «Ver agotados» activo: lleva `.is-active` y `aria-pressed="true"`
+  OK    «Ver agotados» activo: fondo rgb(239, 68, 68) · rgb(15, 23, 42) = 4.74:1
+  OK    «Ver agotados» activo + hover: conserva el fondo (rgb(239, 68, 68)) · 4.74:1
+  OK    «Ver agotados» activo + foco de teclado: conserva el fondo (rgb(239, 68, 68)) · 4.74:1 · contorno solid
+  OK    «Ver stock bajo» inactivo tras cambiar: 14.88:1
+  OK    «Ver todos»: rgb(196, 205, 232) sobre rgb(33, 30, 30) = 10.44:1
+  dato  alto de los filtros en mobile: 40 / 40 / 40 px (objetivo táctil 44 → BUTTON-SYSTEM-1B; no se exige acá)
+  OK    sin errores de página
+
+[F] Inventario · filtros de stock · light · 1440px
+  OK    «Ver stock bajo» inactivo: clases «inventory-stock-filter inventory-stock-filter--low», sin estilo en línea (ninguno)
+  OK    «Ver stock bajo» inactivo: rgb(15, 23, 42) sobre rgb(245, 239, 228) = 15.60:1
+  OK    «Ver stock bajo» inactivo + hover: rgb(15, 23, 42) sobre rgb(236, 230, 228) = 14.46:1
+  OK    «Ver agotados» inactivo: clases «inventory-stock-filter inventory-stock-filter--out», sin estilo en línea (ninguno)
+  OK    «Ver agotados» inactivo: rgb(15, 23, 42) sobre rgb(245, 238, 228) = 15.50:1
+  OK    «Ver agotados» inactivo + hover: rgb(15, 23, 42) sobre rgb(236, 230, 228) = 14.46:1
+  OK    «Ver stock bajo» activo, medido enseguida del clic ×5: 8.31:1 sobre rgb(245, 158, 11) (intentos del instrumento: 1, 1, 1, 1, 1)
+  OK    «Ver stock bajo» activo: lleva `.is-active` y `aria-pressed="true"`
+  OK    «Ver stock bajo» activo: fondo rgb(245, 158, 11) · rgb(15, 23, 42) = 8.31:1
+  OK    «Ver stock bajo» activo + hover: conserva el fondo (rgb(245, 158, 11)) · 8.31:1
+  OK    «Ver stock bajo» activo + foco de teclado: conserva el fondo (rgb(245, 158, 11)) · 8.31:1 · contorno solid
+  OK    «Ver agotados» activo, medido enseguida del clic ×5: 4.74:1 sobre rgb(239, 68, 68) (intentos del instrumento: 1, 1, 1, 1, 1)
+  OK    «Ver agotados» activo: lleva `.is-active` y `aria-pressed="true"`
+  OK    «Ver agotados» activo: fondo rgb(239, 68, 68) · rgb(15, 23, 42) = 4.74:1
+  OK    «Ver agotados» activo + hover: conserva el fondo (rgb(239, 68, 68)) · 4.74:1
+  OK    «Ver agotados» activo + foco de teclado: conserva el fondo (rgb(239, 68, 68)) · 4.74:1 · contorno solid
+  OK    «Ver stock bajo» inactivo tras cambiar: 15.30:1
+  OK    «Ver todos»: rgb(51, 65, 85) sobre rgb(241, 237, 227) = 8.86:1
+  OK    sin errores de página
+
+[F] Inventario · filtros de stock · dark · 1440px
+  OK    «Ver stock bajo» inactivo: clases «inventory-stock-filter inventory-stock-filter--low», sin estilo en línea (ninguno)
+  OK    «Ver stock bajo» inactivo: rgb(240, 244, 255) sobre rgb(30, 27, 24) = 15.58:1
+  OK    «Ver stock bajo» inactivo + hover: rgb(240, 244, 255) sobre rgb(35, 32, 41) = 14.57:1
+  OK    «Ver agotados» inactivo: clases «inventory-stock-filter inventory-stock-filter--out», sin estilo en línea (ninguno)
+  OK    «Ver agotados» inactivo: rgb(240, 244, 255) sobre rgb(30, 27, 24) = 15.58:1
+  OK    «Ver agotados» inactivo + hover: rgb(240, 244, 255) sobre rgb(35, 32, 41) = 14.57:1
+  OK    «Ver stock bajo» activo, medido enseguida del clic ×5: 8.31:1 sobre rgb(245, 158, 11) (intentos del instrumento: 1, 1, 1, 1, 1)
+  OK    «Ver stock bajo» activo: lleva `.is-active` y `aria-pressed="true"`
+  OK    «Ver stock bajo» activo: fondo rgb(245, 158, 11) · rgb(15, 23, 42) = 8.31:1
+  OK    «Ver stock bajo» activo + hover: conserva el fondo (rgb(245, 158, 11)) · 8.31:1
+  OK    «Ver stock bajo» activo + foco de teclado: conserva el fondo (rgb(245, 158, 11)) · 8.31:1 · contorno solid
+  OK    «Ver agotados» activo, medido enseguida del clic ×5: 4.74:1 sobre rgb(239, 68, 68) (intentos del instrumento: 1, 1, 1, 1, 1)
+  OK    «Ver agotados» activo: lleva `.is-active` y `aria-pressed="true"`
+  OK    «Ver agotados» activo: fondo rgb(239, 68, 68) · rgb(15, 23, 42) = 4.74:1
+  OK    «Ver agotados» activo + hover: conserva el fondo (rgb(239, 68, 68)) · 4.74:1
+  OK    «Ver agotados» activo + foco de teclado: conserva el fondo (rgb(239, 68, 68)) · 4.74:1 · contorno solid
+  OK    «Ver stock bajo» inactivo tras cambiar: 15.72:1
+  OK    «Ver todos»: rgb(196, 205, 232) sobre rgb(30, 26, 22) = 10.91:1
+  OK    sin errores de página
+
+[R] Inventario · 375px oscuro · «Ver stock bajo» activo, con la página moviéndose bajo la medida
+  OK    1 · página quieta: rgb(15, 23, 42) sobre rgb(245, 158, 11) = 8.31:1 en 1 intento
+  OK    2 · la página se corre 18 px entre las dos capturas, UNA vez → descarta y repite: 8.31:1 sobre rgb(245, 158, 11) en 2 intentos (4 capturas)
+  OK    3 · la página se corre antes de la PRIMERA captura → descarta y repite: 8.31:1 sobre rgb(245, 158, 11) en 2 intentos
+  OK    4 · la página se corre en CADA medida → falla sin devolver un número, tras 4 intentos
+       paintedContrastOf: element moved during contrast measurement — «Ver stock bajo» no se pudo medir quieto en 4 intentos: 1) se movió entre las dos capturas (y -18px, scrollY +18px) · 2) se movió entre las dos capturas (y -18px, scrollY +18px) · 3) se movió entre las dos capturas (y -18px, scrollY +18p
+  OK    5 · scroll suave en curso, medida a 0 ms → 8.31:1 sobre rgb(245, 158, 11) (1 intento/s)
+  OK    5 · scroll suave en curso, medida a 40 ms → 8.31:1 sobre rgb(245, 158, 11) (1 intento/s)
+  OK    5 · scroll suave en curso, medida a 120 ms → 8.31:1 sobre rgb(245, 158, 11) (1 intento/s)
+  OK    5 · scroll suave en curso, medida a 250 ms → 8.31:1 sobre rgb(245, 158, 11) (1 intento/s)
+  OK    6 · scroll cuadro a cuadro en curso (45 cuadros de 9 px) → espera a que termine: 8.31:1 sobre rgb(245, 158, 11) (1 intento/s)
+  OK    7 · la página no se queda quieta NUNCA → falla con «element moved during contrast measurement»
+
+[R] Inventario · 375px claro · el mismo corrimiento
+  OK    8 · claro, corrimiento de 18 px entre capturas → descarta y repite: 8.31:1 sobre rgb(245, 158, 11) (no sobre el fondo de la caja de alerta)
+
+[K] Clientes · escritorio (≥ 768): cuatro acciones de página, una fila
+  OK    1440px · visibles, en orden: Plantilla · Exportar · Importar · Nuevo Cliente
+  OK    1440px · mismo alto (44 px) y misma coordenada Y (132.8) → una fila
+  OK    1440px · mismo radio (8px), padding (16px/16px), tipografía (14px/600) e ícono (16x16)
+  OK    1440px · tres secundarias + una primaria, sin `btn-sm` ni gradiente; anchos 111 / 116 / 116 / 153 px (no se igualan)
+  OK    1440px · sin desborde horizontal (0)
+  OK    1280px · visibles, en orden: Plantilla · Exportar · Importar · Nuevo Cliente
+  OK    1280px · mismo alto (44 px) y misma coordenada Y (132.8) → una fila
+  OK    1280px · mismo radio (8px), padding (16px/16px), tipografía (14px/600) e ícono (16x16)
+  OK    1280px · tres secundarias + una primaria, sin `btn-sm` ni gradiente; anchos 111 / 116 / 116 / 153 px (no se igualan)
+  OK    1280px · sin desborde horizontal (0)
+  OK    1024px · visibles, en orden: Plantilla · Exportar · Importar · Nuevo Cliente
+  OK    1024px · mismo alto (44 px) y misma coordenada Y (196.5) → una fila
+  OK    1024px · mismo radio (8px), padding (16px/16px), tipografía (14px/600) e ícono (16x16)
+  OK    1024px · tres secundarias + una primaria, sin `btn-sm` ni gradiente; anchos 111 / 116 / 116 / 153 px (no se igualan)
+  OK    1024px · sin desborde horizontal (0)
+  OK    900px · visibles, en orden: Plantilla · Exportar · Importar · Nuevo Cliente
+  OK    900px · mismo alto (44 px) y misma coordenada Y (79.6) → una fila
+  OK    900px · mismo radio (8px), padding (16px/16px), tipografía (14px/600) e ícono (16x16)
+  OK    900px · tres secundarias + una primaria, sin `btn-sm` ni gradiente; anchos 111 / 116 / 116 / 153 px (no se igualan)
+  OK    900px · sin desborde horizontal (0)
+  OK    768px · visibles, en orden: Plantilla · Exportar · Importar · Nuevo Cliente
+  OK    768px · mismo alto (44 px) y misma coordenada Y (143.3) → una fila
+  OK    768px · mismo radio (8px), padding (16px/16px), tipografía (14px/600) e ícono (16x16)
+  OK    768px · tres secundarias + una primaria, sin `btn-sm` ni gradiente; anchos 111 / 116 / 116 / 153 px (no se igualan)
+  OK    768px · sin desborde horizontal (0)
+  OK    sin errores de página
+
+[K] Clientes · contraste de las secundarias · light · 1440px
+  OK    «Plantilla» reposo 9.57:1 · hover 15.32:1
+  OK    «Exportar» reposo 9.61:1 · hover 15.38:1
+  OK    «Importar» reposo 9.55:1 · hover 15.28:1
+
+[K] Clientes · contraste de las secundarias · dark · 1440px
+  OK    «Plantilla» reposo 12.19:1 · hover 16.57:1
+  OK    «Exportar» reposo 12.27:1 · hover 16.69:1
+  OK    «Importar» reposo 12.27:1 · hover 16.69:1
+
+[K] Clientes · mobile (< 768): «Nuevo Cliente» + el menú, como en BETA-UX-1D
+  OK    320px · visibles: Nuevo Cliente · Más acciones de clientes (Plantilla / Exportar / Importar no están en la fila)
+  OK    320px · «Nuevo Cliente» 242x44 y el menú 44x44, en la misma fila, sin desborde
+  OK    375px · visibles: Nuevo Cliente · Más acciones de clientes (Plantilla / Exportar / Importar no están en la fila)
+  OK    375px · «Nuevo Cliente» 289x44 y el menú 44x44, en la misma fila, sin desborde
+  OK    430px · visibles: Nuevo Cliente · Más acciones de clientes (Plantilla / Exportar / Importar no están en la fila)
+  OK    430px · «Nuevo Cliente» 344x44 y el menú 44x44, en la misma fila, sin desborde
+  OK    767px · visibles: Nuevo Cliente · Más acciones de clientes (Plantilla / Exportar / Importar no están en la fila)
+  OK    767px · «Nuevo Cliente» 681x44 y el menú 44x44, en la misma fila, sin desborde
+  OK    375px · el menú ofrece: Plantilla · Exportar · Importar
+
 [L] Todas las variantes · tema light — se MIDEN; sólo se exige lo que 1A cambió
   · primary   texto 6.29:1 · sólido · sombra ninguna · deshabilitado: fondo rgb(79, 70, 229)
   OK    primary: AA, sólido y sin sombra

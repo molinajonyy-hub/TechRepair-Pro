@@ -396,9 +396,31 @@ describe('BETA-UX-1E · la fuente de las seis superficies', () => {
   })
 
   it('Inventario: los filtros de stock no llevan blanco ni activos ni inactivos', () => {
-    for (const [aguja, clave] of [['Ver stock bajo', 'low'], ['Ver agotados', 'out']] as const) {
-      const estilo = estiloDe('src/pages/Inventory.tsx', aguja)
-      expect(estilo.get('color')).toBe(`stockStatusFilter === '${clave}' ? accentCta.textOnBright : 'var(--text-primary)'`)
+    // BUTTON-SYSTEM-1A sacó estos estados del estilo en línea (un ternario por
+    // filtro) a las reglas `.inventory-stock-filter` de index.css. El contrato
+    // es el de siempre: activo = la tinta invariante sobre el color sólido;
+    // inactivo = el texto del tema. Ahora lo decide la clase, no el marcado.
+    const regla = (selector: string): Record<string, string> => {
+      for (const m of css.matchAll(/([^{}@;]+)\{([^{}]*)\}/g)) {
+        if (!m[1].split(',').map(s => s.trim()).includes(selector)) continue
+        return Object.fromEntries(m[2].split(';').map(d => d.split(':').map(s => s.trim())).filter(d => d.length === 2))
+      }
+      throw new Error(`no hay regla para ${selector}`)
+    }
+    const fuente = leer('src/pages/Inventory.tsx')
+
+    expect(regla('.inventory-stock-filter').color).toBe('var(--text-primary)')
+    for (const [clave, fondo] of [['low', '#f59e0b'], ['out', '#ef4444']] as const) {
+      const activo = regla(`.inventory-stock-filter--${clave}.is-active`)
+      expect(activo.color).toBe(accentCta.textOnBright)
+      expect(activo.background).toBe(fondo)
+      expect(contraste(tokenInvariante('--text-on-bright')!, fondo)).toBeGreaterThanOrEqual(AA)
+      expect(fuente).toContain(`inventory-stock-filter--${clave}\${stockStatusFilter === '${clave}' ? ' is-active' : ''}`)
+    }
+    // Ninguna regla de los filtros declara blanco.
+    for (const m of css.matchAll(/([^{}@;]+)\{([^{}]*)\}/g)) {
+      if (!m[1].includes('.inventory-stock-filter')) continue
+      expect(m[2], m[1].trim()).not.toMatch(/#fff\b|#ffffff\b|\bwhite\b|rgba?\(\s*255,\s*255,\s*255/i)
     }
   })
 

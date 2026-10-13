@@ -3815,6 +3815,61 @@ tbody tr:hover td {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
+   BUTTON-SYSTEM-1A (microfix) — Filtros de stock de Inventario
+
+   «Ver stock bajo», «Ver agotados» y «Ver todos», en la caja de alerta de
+   Inventario. Eran estilos en línea con un ternario por estado; acá cada estado
+   tiene su regla y el contrato se puede leer y probar.
+
+   Son filtros de ESTA pantalla, no variantes de botón: no son `.btn` y no hay
+   que promoverlos a `.btn-warning` / `.btn-danger`.
+
+   Activo = el color semántico SÓLIDO con la tinta invariante (BETA-UX-1E). El
+   blanco mide 2,15:1 sobre el ámbar y 3,76:1 sobre el rojo; `--text-on-bright`
+   mide 8,31:1 y 4,74:1, y el par es el mismo en los dos temas. Por eso el fondo
+   activo es un valor fijo y no `--warning-soft` / `--error-soft`, que cambian
+   con el tema.
+
+   Un filtro activo conserva su fondo con el puntero encima, con el foco y
+   presionado: el hover del inactivo está acotado con `:not(.is-active)`.
+   ══════════════════════════════════════════════════════════════════════════ */
+.inventory-stock-filters { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+.inventory-stock-filter {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.inventory-stock-filter--low { border-color: var(--warning-border); }
+.inventory-stock-filter--out { border-color: var(--error-border); }
+.inventory-stock-filter--reset { color: var(--text-secondary); }
+
+.inventory-stock-filter:not(.is-active):hover { background: var(--bg-hover); }
+.inventory-stock-filter:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+
+.inventory-stock-filter--low.is-active,
+.inventory-stock-filter--low.is-active:hover,
+.inventory-stock-filter--low.is-active:focus-visible,
+.inventory-stock-filter--low.is-active:active {
+  background: #f59e0b;
+  border-color: #f59e0b;
+  color: var(--text-on-bright);
+}
+.inventory-stock-filter--out.is-active,
+.inventory-stock-filter--out.is-active:hover,
+.inventory-stock-filter--out.is-active:focus-visible,
+.inventory-stock-filter--out.is-active:active {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: var(--text-on-bright);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
    BETA-UX-1F — Inicio como centro operativo + utilidades de la barra superior
 
    Dos piezas:

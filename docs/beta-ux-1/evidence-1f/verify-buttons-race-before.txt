@@ -1,0 +1,26 @@
+ANTES del microfix — `paintedContrastOf` tal como estaba en da711d5 (sin control de geometría),
+sobre la pantalla real de Inventario con backend simulado, 375 px, tema oscuro.
+
+Lo que dio el E2E de GitHub sobre da711d5:
+  Inventario · «Ver stock bajo» · dark mobile · activo: texto rgb(15, 23, 42) sobre rgb(31, 27, 27) = 1.05:1
+
+La misma medida, reproducida corriendo la página 18 px entre las dos capturas del instrumento:
+
+[R] Inventario · 375px oscuro · «Ver stock bajo» activo, con la página moviéndose bajo la medida
+  OK    página quieta: rgb(15, 23, 42) sobre rgb(245, 158, 11) = 8.31:1
+  OK    corrimiento de -18 px entre capturas → 8.31:1 sobre rgb(245, 158, 11) (2 capturas)
+  FALLA corrimiento de 18 px entre capturas → 1.05:1 sobre rgb(31, 27, 27) (2 capturas)
+  OK    scroll suave en curso, medida a 0 ms → 8.31:1 sobre rgb(245, 158, 11)
+  OK    scroll suave en curso, medida a 40 ms → 8.31:1 sobre rgb(245, 158, 11)
+  OK    scroll suave en curso, medida a 120 ms → 8.31:1 sobre rgb(245, 158, 11)
+  OK    scroll suave en curso, medida a 250 ms → 8.31:1 sobre rgb(245, 158, 11)
+
+VERIFICACIÓN DE BOTONES: 1 comprobación(es) en rojo
+
+Notas:
+  · El botón estaba pintado en ámbar con tinta a 8,31:1 (primera línea). El 1,05:1 es la tinta contra
+    el fondo de la caja de alerta que lo rodea (ámbar al 10 % sobre la página oscura).
+  · El corrimiento de -18 px no movió nada: la página ya estaba arriba de todo.
+  · Con un scroll suave del navegador en curso, en esta máquina el instrumento anterior no falló: la
+    carrera de CI depende de los tiempos. Por eso la reproducción mueve la página a mano.
+  · La salida con el instrumento corregido está en `verify-buttons.txt`, parte [R].

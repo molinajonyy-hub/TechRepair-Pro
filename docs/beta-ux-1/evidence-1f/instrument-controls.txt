@@ -1,0 +1,30 @@
+[instrumento] el bloque del spec real, con el helper tal cual: 7/7 en verde
+  OK    ve el fondo pintado —también un gradiente— y reproduce los valores WCAG conocidos
+  OK    página oscura · si se mueve entre las dos capturas, descarta la medida y la repite
+  OK    página oscura · si se mueve en CADA medida, falla: no devuelve el contraste de otro fondo
+  OK    página clara · si se mueve entre las dos capturas, descarta la medida y la repite
+  OK    página clara · si se mueve en CADA medida, falla: no devuelve el contraste de otro fondo
+  OK    con un scroll en curso, espera a que la página se quede quieta y mide el botón
+  OK    si el elemento no se queda quieto nunca, falla en vez de medir
+
+[controles negativos] cada mutación del helper tiene que poner en rojo su test
+  OK    I1 no se vuelve a medir la caja después de la segunda captura (el instrumento anterior) → 4 test(s) en rojo:
+          × página oscura · si se mueve entre las dos capturas, descarta la medida y la repite
+          × página oscura · si se mueve en CADA medida, falla: no devuelve el contraste de otro fondo
+          × página clara · si se mueve entre las dos capturas, descarta la medida y la repite
+          × página clara · si se mueve en CADA medida, falla: no devuelve el contraste de otro fondo
+  OK    I2 la tolerancia de la caja se afloja a 50 px → 6 test(s) en rojo:
+          × página oscura · si se mueve entre las dos capturas, descarta la medida y la repite
+          × página oscura · si se mueve en CADA medida, falla: no devuelve el contraste de otro fondo
+          × página clara · si se mueve entre las dos capturas, descarta la medida y la repite
+          × página clara · si se mueve en CADA medida, falla: no devuelve el contraste de otro fondo
+          × con un scroll en curso, espera a que la página se quede quieta y mide el botón
+          × si el elemento no se queda quieto nunca, falla en vez de medir
+  OK    I3 no se espera a que el elemento esté quieto antes de medir → 1 test(s) en rojo:
+          × con un scroll en curso, espera a que la página se quede quieta y mide el botón
+  OK    I4 una medida descartada no se repite (un solo intento) → 2 test(s) en rojo:
+          × página oscura · si se mueve entre las dos capturas, descarta la medida y la repite
+          × página clara · si se mueve entre las dos capturas, descarta la medida y la repite
+
+helper restaurado byte a byte: sí
+INSTRUMENTO: verde con el helper real y 4/4 mutaciones detectadas

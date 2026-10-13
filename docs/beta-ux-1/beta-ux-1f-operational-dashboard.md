@@ -19,6 +19,10 @@ rediseñó Finanzas. No se implementó CRM ni ORDERS-HISTORY-1.
 > acciones de página comparten un tamaño. Como #175 ya estaba mergeado, se entrega en un PR propio
 > desde `main`. Es §18; las secciones 6, 9 y 10 ya describen los botones como quedaron.
 
+> **Microfix de BUTTON-SYSTEM-1A sobre `da711d5` (mismo PR #177).** El E2E de GitHub dio dos rojos.
+> Uno era del instrumento de contraste, no del producto (midió píxeles que no eran del botón); el
+> otro, real: el encabezado de Clientes quedó con dos altos. Es §19.
+
 ---
 
 ## 1. Decisión de producto
@@ -770,6 +774,7 @@ Esto alcanza a todos los `.btn` de esas cuatro variantes, no sólo a los de Inic
 | Inicio · Órdenes recientes | Ver todas | `.btn-secondary.btn-sm` | `.btn-secondary.btn-page-action` |
 | Órdenes | Nueva Orden | `.btn-primary.btn-sm.btn-lift`, ícono `+` | `.btn-primary.btn-page-action`, el mismo ícono que en Inicio |
 | Clientes | Nuevo Cliente | `.btn-primary.btn-sm.btn-lift` | `.btn-primary.btn-page-action` |
+| Clientes | Plantilla · Exportar · Importar | `.btn-ghost.btn-sm`, ícono de 15 px | `.btn-secondary.btn-page-action`, ícono de 16 px (microfix, §19.4) |
 | Tareas | Nueva tarea | `AppButton indigo` `sm` | `primary` · `size="page"` |
 | Comprobantes | Nuevo Comprobante | `.btn-primary` (tamaño por defecto) | `.btn-primary.btn-page-action` |
 | Garantías | Nueva garantía | `.btn-primary.btn-sm.btn-lift` | `.btn-primary.btn-page-action` |
@@ -863,6 +868,23 @@ corrigió en primary, que es la variante que cambió de fondo.
 **Limpieza de marcado:** quitar la clase `btn-primary-aa` y su comentario (10 usos en 7 archivos) y
 reemplazar `variant="indigo"` / `btn-fill-indigo` / `btn-indigo` por primary (15 usos).
 
+**E · encabezados con un compañero compacto junto a la acción de 44 px** (hallazgos del microfix,
+§19; documentados, **sin tocar**)
+
+La regla que fijó el owner para Clientes —las acciones visibles de un mismo encabezado son una
+categoría y comparten tamaño— todavía no se cumple en dos encabezados que 1A migró a medias:
+
+| Pantalla | Fila | Estado |
+|---|---|---|
+| Tareas | «Actualizar» (`AppButton ghost sm`, ícono de 14 px) + «Nueva tarea» (`primary`, 44 px) | dos altos en la misma fila |
+| Comprobantes | «Actualizar» (`.btn-ghost.btn-sm`, ícono de 14 px) + «Nuevo Comprobante» (`.btn-primary.btn-page-action`) | dos altos en la misma fila |
+
+Y uno de Inventario que no es de botones `.btn`:
+
+| Pantalla | Control | Estado |
+|---|---|---|
+| Inventario | «Ver stock bajo» · «Ver agotados» · «Ver todos» | miden 40 px de alto en mobile (objetivo táctil: 44). El microfix les dio clases propias y no les cambió el tamaño |
+
 ### 18.10 Tests y gates
 
 - `tests/components/buttonSystem1a.test.tsx` (nuevo, 55 tests): sin gradientes en ningún estado
@@ -898,3 +920,241 @@ reemplazar `variant="indigo"` / `btn-fill-indigo` / `btn-indigo` por primary (15
 Las seis capturas de `evidence-1f/` se regrabaron con los botones nuevos (mismo arnés de backend
 simulado). `verify-buttons.mjs` y su salida `verify-buttons.txt` documentan estados, geometría,
 contraste y el inventario medido de las variantes pendientes.
+
+---
+
+## 19. Microfix de BUTTON-SYSTEM-1A sobre `da711d5`
+
+Mismo PR (#177). El E2E de GitHub sobre `da711d5` dio 359 verdes y **2 rojos**. No eran el mismo
+tipo de problema: uno era del instrumento de medida y el otro, una regresión real de 1A.
+
+| Rojo de CI | Qué era |
+|---|---|
+| `cta-contrast.spec.ts` · Inventario · «Ver stock bajo» · dark mobile · activo: «texto rgb(15, 23, 42) sobre rgb(31, 27, 27) = 1.05:1» | El **instrumento** midió píxeles que no eran del botón. El producto pintaba bien (§19.1) |
+| `mobile-orders.spec.ts` · Clientes · escritorio: «los botones del encabezado se partieron en más de una fila» | **Regresión de 1A**: «Nuevo Cliente» pasó a 44 px y sus tres compañeras siguieron en `btn-sm` (§19.3) |
+
+Ningún spec se modificó para que dejara de fallar: las expectativas que dieron rojo siguen iguales,
+y se sumaron otras más estrictas.
+
+### 19.1 Inventario: qué midió CI
+
+**El producto estaba bien.** Medido en Chromium con el CSS servido, antes de tocar nada:
+
+| Filtro activo | Fondo | Tinta | Contraste |
+|---|---|---|---|
+| «Ver stock bajo» | `rgb(245, 158, 11)` | `#0f172a` | 8,31:1 |
+| «Ver agotados» | `rgb(239, 68, 68)` | `#0f172a` | 4,74:1 |
+
+Igual en claro y en oscuro, a 375 y a 1440, en reposo, con el puntero y con el foco del teclado.
+Ninguna regla pisa el fondo activo: los filtros no eran `.btn` y no hay reglas globales de `button`
+que toquen el color.
+
+**Lo que pasó en la medida.** `paintedContrastOf` toma dos capturas del mismo recorte de pantalla
+(con los glifos y sin ellos) y el recorte se calcula antes, en coordenadas del viewport. El clic de
+un filtro de stock hace `scrollIntoView({ behavior: 'smooth' })` hacia la tabla
+(`applyStockStatusFilter`). La traza de la corrida de CI muestra:
+
+- la página en movimiento durante la medida (`scrollTop` 2 → 616 → 637 → 18 en unos 450 ms después
+  del clic);
+- el botón **en ámbar con texto oscuro** en el cuadro de la primera captura;
+- como fondo reportado, `rgb(31, 27, 27)`: el de la caja de alerta que rodea a los filtros (ámbar al
+  10 % sobre la página oscura), no un estado del botón.
+
+**Reproducido.** Con el instrumento anterior y la pantalla real, correr la página 18 px entre las
+dos capturas devuelve exactamente lo de CI: `1.05:1 sobre rgb(31, 27, 27)`
+(`evidence-1f/verify-buttons-race-before.txt`). El recorte mide unos 17 px de alto: con 18 px de
+corrimiento, la captura sin glifos ya incluye la caja de alerta.
+
+Lo que **no** quedó demostrado es qué corrió la página esos píxeles en CI. La hipótesis es la cola
+del scroll suave después del scroll instantáneo del propio instrumento; en esta máquina, con un
+scroll suave en curso, el instrumento anterior no falló (cuatro retardos probados). Por eso la
+reproducción mueve la página a mano y no depende de los tiempos.
+
+**El mismo error da verde.** En tema claro el fondo de la caja de alerta es claro: la tinta oscura
+contra él da más de 14:1 y la medida habría pasado sin haber medido el botón. En CI, «mobile light»
+pasó con la misma secuencia; no se puede saber si esa medida fue buena. El arreglo cierra los dos
+casos, porque son el mismo.
+
+### 19.2 El instrumento: geometría quieta o no hay medida
+
+`tests/e2e/helpers/contrast.ts`. El mínimo (4,5:1) no cambió; cambió qué se acepta como medida.
+
+1. Espera a que el elemento esté **quieto**: 4 cuadros seguidos con la misma caja (`x`, `y`, ancho,
+   alto) y el mismo scroll de la página, con una tolerancia de 0,5 px y un tope de 2 s.
+2. Lo lleva al centro sin animar y vuelve a esperar.
+3. Lee la caja y calcula el recorte.
+4. Captura con texto y **vuelve a leer la caja** (un cuadro después).
+5. Captura sin texto y vuelve a leerla.
+6. Si la caja o el scroll cambiaron más que la tolerancia, la medida se **descarta entera** y se
+   repite desde el paso 1.
+7. Hasta 4 intentos (`MEASURE_ATTEMPTS`). Si ninguno queda quieto, lanza
+   `paintedContrastOf: element moved during contrast measurement — «…» no se pudo medir quieto en 4
+   intentos: …`, con el corrimiento de cada intento.
+
+Nunca devuelve un contraste tomado de otro lugar, ni un verde por no haber podido medir. El
+resultado suma `attempts` (1 si nada se movió).
+
+Medido con la página moviéndose bajo la medida (`verify-buttons.mjs`, parte R):
+
+| Caso | Instrumento anterior | Ahora |
+|---|---|---|
+| Página quieta | 8,31:1 | 8,31:1 en 1 intento |
+| Se corre 18 px entre las dos capturas, una vez (oscuro) | **1,05:1 sobre `rgb(31, 27, 27)`** | descarta y repite: 8,31:1 en 2 intentos |
+| Lo mismo en tema claro | un contraste alto, contra la caja de alerta | descarta y repite: 8,31:1 sobre el ámbar |
+| Se corre antes de la primera captura | — | descarta y repite: 8,31:1 en 2 intentos |
+| Se corre en **cada** medida | un número de otro fondo | falla, sin número, tras 4 intentos |
+| Scroll en curso al empezar (suave del navegador, o cuadro a cuadro) | depende de los tiempos | espera a que termine: 8,31:1 |
+| La página no se queda quieta nunca | un número cualquiera | falla con `element moved during contrast measurement` |
+
+### 19.3 Inventario: filtros con clases propias
+
+Los tres botones tenían sus estados en un ternario en línea. Pasaron a clases de Inventario
+(`src/index.css`, antes del bloque de 1F), con cada estado declarado:
+
+```css
+.inventory-stock-filters { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+.inventory-stock-filter {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.inventory-stock-filter--low { border-color: var(--warning-border); }
+.inventory-stock-filter--out { border-color: var(--error-border); }
+.inventory-stock-filter--reset { color: var(--text-secondary); }
+
+.inventory-stock-filter:not(.is-active):hover { background: var(--bg-hover); }
+.inventory-stock-filter:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+
+.inventory-stock-filter--low.is-active,
+.inventory-stock-filter--low.is-active:hover,
+.inventory-stock-filter--low.is-active:focus-visible,
+.inventory-stock-filter--low.is-active:active {
+  background: #f59e0b;
+  border-color: #f59e0b;
+  color: var(--text-on-bright);
+}
+.inventory-stock-filter--out.is-active,
+.inventory-stock-filter--out.is-active:hover,
+.inventory-stock-filter--out.is-active:focus-visible,
+.inventory-stock-filter--out.is-active:active {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: var(--text-on-bright);
+}
+```
+
+- **Contrato de BETA-UX-1E, intacto:** activo = color semántico sólido con `--text-on-bright`. El
+  fondo activo es un valor fijo y no `--warning-soft` / `--error-soft`, porque esos tokens cambian
+  con el tema y el par medido (8,31 y 4,74) tiene que valer en los dos.
+- **Un activo no pierde su fondo:** hover, foco y presionado están en la misma regla que el reposo,
+  y el hover del inactivo está acotado con `:not(.is-active)`.
+- **Inactivo:** fondo transparente (se ve la caja de alerta), texto `--text-primary`
+  (`--text-secondary` en «Ver todos») y el anillo de foco del sistema. El borde conserva el tinte
+  ámbar o rojo que ya tenía, ahora con los tokens `--warning-border` / `--error-border`.
+- **No son variantes de botón:** no son `.btn`, no existe `.btn-warning`, y sólo Inventario usa
+  estas clases. `green`, `amber`, `red`, `teal`, `success` y `ghost` no se tocaron.
+- En el marcado, `.is-active` y `aria-pressed` salen del mismo estado.
+- El tamaño no cambió (ver §18.9 E: 40 px en mobile, anotado para 1B).
+
+Medido (`verify-buttons.mjs`, parte F), en los cuatro casos claro/oscuro × 375/1440:
+
+| Estado | «Ver stock bajo» | «Ver agotados» |
+|---|---|---|
+| Inactivo · reposo | 14,35 – 15,60 | 15,05 – 15,58 |
+| Inactivo · hover | 13,39 – 14,57 | 14,03 – 14,57 |
+| Activo · reposo | 8,31 | 4,74 |
+| Activo · hover | 8,31 (mismo fondo) | 4,74 (mismo fondo) |
+| Activo · foco de teclado | 8,31 (mismo fondo, anillo del sistema) | 4,74 (mismo fondo, anillo del sistema) |
+
+«Ver todos»: 8,52 – 10,91.
+
+### 19.4 Clientes: las acciones visibles del encabezado son una categoría
+
+1A había migrado sólo la primaria. Con `align-items: center`, un botón de 44 px al lado de tres
+compactos (`btn-ghost btn-sm`) da dos coordenadas Y en la misma fila: eso es lo que midió el test.
+
+**Decisión del owner:** los botones visibles de un mismo encabezado pertenecen a la misma categoría
+y comparten alto, radio, padding, tamaño de ícono, tipografía y alineación. No hace falta que midan
+lo mismo de ancho.
+
+| Ancho | Composición |
+|---|---|
+| ≥ 768 px | `Plantilla` · `Exportar` · `Importar` (`.btn-secondary.btn-page-action`) + `Nuevo Cliente` (`.btn-primary.btn-page-action`), en una fila |
+| < 768 px | `Nuevo Cliente` de lado a lado + el menú «Más acciones de clientes» con Plantilla, Exportar e Importar. **Sin cambios respecto de BETA-UX-1D** |
+
+Medido (`verify-buttons.mjs`, parte K) a 1440, 1280, 1024, 900 y 768: las cuatro miden 44 px, comparten
+la coordenada Y, el radio (8 px), el padding (16 px), la tipografía (14 px / 600) y el ícono
+(16 px); anchos 111 / 116 / 116 / 153 px; sin desborde. Contraste de las secundarias: 9,55 – 9,61
+en claro y 12,19 – 12,27 en oscuro (15,28 – 16,69 con hover). A 320, 375, 430 y 767: «Nuevo
+Cliente» (44 px de alto) y el menú (44 × 44) en la misma fila; las otras tres no están en la fila y
+el menú las ofrece en su orden.
+
+### 19.5 Tests
+
+- `buttonSystem1a.test.tsx`: 55 → **72**. Clientes (las tres secundarias con su clase, una sola
+  primaria, un solo tamaño de ícono, la fila por construcción, el corte de mobile de 1D) e
+  Inventario (la base, cada activo con su par y su aritmética WCAG, hover/foco/presionado en la
+  misma regla, ninguna regla de estado alcanza a un activo, inactivo legible en los dos temas,
+  marcado sin estilo en línea, no son `.btn`).
+- `betaUx1eAccentContrast.test.tsx`: el test de los filtros leía el ternario en línea; ahora lee la
+  regla CSS. Mismo contrato (tinta invariante sobre el sólido, texto del tema en el inactivo).
+- E2E, `cta-contrast.spec.ts`:
+  - «El instrumento de medida» suma seis tests sobre una página armada a mano que se mueve entre
+    las dos capturas, en oscuro y en claro: descarta y repite; falla si se mueve siempre; espera a
+    un scroll en curso; falla si no se queda quieta nunca.
+  - Inventario conserva sus medidas de siempre y suma inactivo + hover, y cada filtro activo con el
+    puntero y con el foco del teclado: el color computado es el semántico, lo pintado detrás del
+    texto es un solo color y el contraste llega a 4,5.
+- E2E, `mobile-orders.spec.ts`: el test que dio rojo conserva su expectativa y suma alto (44, 44,
+  44, 44), misma Y, radio, padding, tipografía e ícono; el del corte de 768 comprueba a 767 que sólo
+  quedan la primaria y el menú, y a 768 las cuatro en una fila.
+- E2E, `button-system.spec.ts`: las tres secundarias de Clientes entran en la medida de geometría.
+- Controles negativos: 12 nuevos sobre el contrato (5 de Clientes, 7 de los filtros) y
+  `evidence-1f/instrument-controls.mjs`, que corre el bloque del instrumento del spec real (no
+  necesita ni la app ni la base) y después rompe el helper: 4 mutaciones, las 4 detectadas. La
+  primera es el instrumento anterior.
+
+### 19.6 Gates
+
+| Gate | Resultado |
+|---|---|
+| `tsc --noEmit` · `eslint src --quiet` | 0 · 0 |
+| `buttonSystem1a` | 72 / 72 |
+| Contratos de BETA-UX-1D · 1E · 1F (las listas de archivos de `test:beta-ux-1d`, `-1e` y `-1f`) | 163 / 163 · 243 / 243 · 409 / 409 |
+| Suite completa de componentes | 137 archivos · 3.118 / 3.119. El único rojo es `orderIntakeMobile › scanner … getUserMedia OK`, el intermitente de §14; esta vez corrió con el arnés de navegador en paralelo. Aislado después pasó 3 de 3 |
+| `test:unit` | 1.215 / 1.215 |
+| `vite build` | OK |
+| Guards estáticos de CI | 23 en verde |
+| Controles negativos (`negative-controls.mjs`) | 59 / 59 detectados (47 anteriores + 12 del microfix); árbol idéntico al terminar |
+| Instrumento (`instrument-controls.mjs`) | 7 / 7 con el helper real · 4 / 4 mutaciones detectadas |
+| Navegador con backend simulado (`verify-buttons.mjs`, las siete partes) | 277 comprobaciones en verde |
+| E2E (`cta-contrast`, `mobile-orders`, `button-system` y el resto de `m7-local`) | **→ GitHub** |
+
+Evidencia nueva en `evidence-1f/`: `verify-buttons.txt` (partes F, R y K), `verify-buttons-race-before.txt`
+(la medida de CI reproducida con el instrumento anterior), `instrument-controls.mjs` / `.txt` y
+`negative-controls.txt`.
+
+Los E2E **no se corrieron en local**: `C:` tenía 10,6 GB libres, por debajo del umbral de 15. Sí se
+ejecutó en Chromium el bloque «El instrumento de medida» del spec real (7/7), que no necesita el
+stack. El resto lo valida GitHub.
+
+En este worktree `npm run test:…` de vitest falla con `Invalid Chai property` (doble instancia por
+la junction de `node_modules`): las suites se corrieron por ruta, con la misma lista de archivos que
+el script.
+
+### 19.7 Hallazgos anotados para BUTTON-SYSTEM-1B (sin tocar)
+
+Están en §18.9 E:
+
+1. Los filtros de stock de Inventario miden 40 px de alto en mobile.
+2. Tareas: «Actualizar» (`ghost sm`) junto a «Nueva tarea» (44 px).
+3. Comprobantes: «Actualizar» (`btn-ghost btn-sm`) junto a «Nuevo Comprobante» (44 px).
+
+Los dos últimos son el mismo patrón que se corrigió en Clientes; quedaron fuera por decisión del
+owner («no ampliar 1A»).

@@ -981,18 +981,61 @@ test.describe('@beta-ux-1d Clientes · lista mobile y encabezado', () => {
     const filas = new Set<number>()
     for (const boton of await derecha.locator('button:visible, a:visible').all()) filas.add(Math.round((await caja(boton)).y))
     expect(filas.size, 'los botones del encabezado se partieron en más de una fila').toBe(1)
+    await mismaCategoria(derecha, 'Clientes a 1440')
   })
+
+  /**
+   * BUTTON-SYSTEM-1A — las acciones VISIBLES de un encabezado son una categoría:
+   * acción de página. Mismo alto (44px), misma coordenada Y, mismo radio,
+   * padding, tipografía e ícono. El ancho no: lo da el texto.
+   */
+  async function mismaCategoria(derecha: Locator, donde: string) {
+    const botones = derecha.locator('button:visible, a:visible')
+    await expect(botones).toHaveCount(4)
+    const medidas = await botones.evaluateAll(els => els.map(el => {
+      const r = el.getBoundingClientRect()
+      const s = getComputedStyle(el)
+      const icono = el.querySelector('svg')?.getBoundingClientRect()
+      return {
+        texto: (el.textContent || '').trim(),
+        top: Math.round(r.top * 10) / 10,
+        alto: Math.round(r.height * 10) / 10,
+        radio: s.borderTopLeftRadius,
+        padding: `${s.paddingLeft}/${s.paddingRight}`,
+        fuente: `${s.fontSize}/${s.fontWeight}`,
+        icono: icono ? `${Math.round(icono.width)}x${Math.round(icono.height)}` : 'sin ícono',
+      }
+    }))
+    const detalle = medidas.map(m => `${m.texto}: y ${m.top} · ${m.alto}px`).join(' | ')
+    expect(medidas.map(m => m.alto), `${donde} · alto de cada acción — ${detalle}`).toEqual([44, 44, 44, 44])
+    expect(new Set(medidas.map(m => m.top)).size, `${donde} · las acciones no comparten la coordenada Y — ${detalle}`).toBe(1)
+    expect([...new Set(medidas.map(m => m.radio))], `${donde} · radio`).toHaveLength(1)
+    expect([...new Set(medidas.map(m => m.padding))], `${donde} · padding`).toEqual(['16px/16px'])
+    expect([...new Set(medidas.map(m => m.fuente))], `${donde} · tipografía`).toEqual(['14px/600'])
+    expect([...new Set(medidas.map(m => m.icono))], `${donde} · ícono`).toEqual(['16x16'])
+  }
 
   test('el corte es 768px: 767 tarjetas y menú, 768 tabla y botones', async ({ page }) => {
     await abrir(page, '/customers', 'light', 767, 900, 'customers-mobile-list')
     await expect(page.getByTestId('customers-desktop-table')).toBeHidden()
     await expect(page.getByTestId('customers-mobile-header-menu')).toBeVisible()
+    // 767: sólo la primaria y el menú; las tres secundarias no están en la fila.
+    const derecha = page.locator('.page-hdr-right')
+    await expect(derecha.locator('button:visible, a:visible')).toHaveCount(2)
+    await expect(page.getByTestId('customers-new-button')).toBeVisible()
+    for (const nombre of ['Plantilla', 'Exportar', 'Importar']) {
+      await expect(derecha.getByRole('button', { name: nombre, exact: true })).toBeHidden()
+    }
     await sinDesborde(page, 'Clientes a 767')
     await page.setViewportSize({ width: 768, height: 900 })
     await expect(page.getByTestId('customers-desktop-table')).toBeVisible()
     await expect(page.getByTestId('customers-mobile-list')).toBeHidden()
     await expect(page.getByTestId('customers-mobile-header-menu')).toBeHidden()
     await expect(page.locator('.page-hdr-right').getByRole('button', { name: 'Plantilla', exact: true })).toBeVisible()
+    // 768: las cuatro, en su orden, en una fila y con el mismo tamaño.
+    await expect(derecha.locator('button:visible, a:visible')).toHaveText([/Plantilla/, /Exportar/, /Importar/, /Nuevo Cliente/])
+    await mismaCategoria(derecha, 'Clientes a 768')
+    await sinDesborde(page, 'Clientes a 768')
   })
 })
 

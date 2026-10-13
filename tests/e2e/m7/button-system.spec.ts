@@ -63,7 +63,16 @@ const PANTALLAS: Pantalla[] = [
   {
     ruta: '/customers',
     listo: page => page.getByTestId('customers-new-button'),
-    acciones: [{ nombre: 'Clientes · Nuevo Cliente', variante: 'primary', localizar: page => page.getByTestId('customers-new-button') }],
+    acciones: [
+      { nombre: 'Clientes · Nuevo Cliente', variante: 'primary', localizar: page => page.getByTestId('customers-new-button') },
+      // Las tres compañeras del encabezado son la misma categoría (en mobile
+      // pasan al menú y no se miden: `isVisible()` las saltea).
+      ...['Plantilla', 'Exportar', 'Importar'].map((nombre): Accion => ({
+        nombre: `Clientes · ${nombre}`,
+        variante: 'secondary',
+        localizar: page => page.locator('.page-hdr-right').getByRole('button', { name: nombre, exact: true }),
+      })),
+    ],
   },
   {
     ruta: '/tasks',

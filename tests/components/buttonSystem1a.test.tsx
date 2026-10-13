@@ -428,3 +428,183 @@ describe('BUTTON-SYSTEM-1A · las acciones de página migradas', () => {
       .toEqual([...screen.getByRole('button', { name: 'Con AppButton' }).classList])
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Microfix — las dos cosas que marcó el E2E de CI sobre el primer commit.
+//
+//   · Clientes: «Nuevo Cliente» había pasado a 44px y sus tres compañeras del
+//     encabezado seguían en `btn-sm`: una fila con dos altos. Decisión del
+//     owner: las acciones VISIBLES de un mismo encabezado son una categoría.
+//   · Inventario: los filtros de stock pasan de estilos en línea a clases
+//     propias, con cada estado declarado.
+//
+// La fila real (alto, coordenada Y, una sola fila) y los colores pintados se
+// miden en `tests/e2e/m7/mobile-orders.spec.ts`, `cta-contrast.spec.ts` y en
+// `verify-buttons.mjs` (partes K y F).
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('BUTTON-SYSTEM-1A · Clientes: las acciones visibles del encabezado son UNA categoría', () => {
+  const CLIENTES = 'src/pages/Customers.tsx'
+  const fuente = leerCodigo(CLIENTES)
+  const encabezado = fuente.slice(fuente.indexOf('<div className="page-hdr-right">'), fuente.indexOf('<div className="filter-bar'))
+  const SECUNDARIAS: [string, string][] = [
+    ['Plantilla', 'onClick={handleDownloadTemplate}'],
+    ['Exportar', 'onClick={handleExportCustomers}'],
+    ['Importar', 'onClick={() => setShowImportModal(true)}'],
+  ]
+
+  it.each(SECUNDARIAS)('«%s»: secondary + acción de página', (_nombre, aguja) => {
+    expect(claseDe(aperturaCon(CLIENTES, aguja))).toEqual(['btn', 'btn-secondary', 'btn-page-action'])
+  })
+
+  it('las cuatro comparten tamaño, y sigue habiendo UNA sola primaria', () => {
+    const visibles = [
+      ...SECUNDARIAS.map(([, aguja]) => aperturaCon(CLIENTES, aguja)),
+      aperturaCon(CLIENTES, 'data-testid="customers-new-button"'),
+    ]
+    for (const apertura of visibles) {
+      expect(claseDe(apertura)).toContain('btn-page-action')
+      for (const otra of ['btn-xs', 'btn-sm', 'btn-lg', 'btn-ghost']) expect(claseDe(apertura), apertura).not.toContain(otra)
+      // Sin tamaño ni alto propios en línea: el tamaño lo da la clase.
+      expect(apertura).not.toMatch(/height|padding|fontSize/)
+    }
+    expect(visibles.filter(a => claseDe(a).includes('btn-primary'))).toHaveLength(1)
+    // Ningún botón compacto en el encabezado, y un solo tamaño de ícono.
+    expect(encabezado).not.toMatch(/\bbtn-(sm|xs)\b/)
+    const iconos = [...encabezado.matchAll(/<(?:Download|Upload|Plus) size=\{(\d+)\}/g)].map(m => m[1])
+    expect(iconos).toHaveLength(7)
+    expect([...new Set(iconos)]).toEqual(['16'])
+  })
+
+  it('una fila por construcción: hijas de la misma fila flex, centradas, con el mismo alto mínimo', () => {
+    // En escritorio `.list-hdr-secondary` no arma caja: las tres son hijas
+    // directas de `.page-hdr-right`, igual que «Nuevo Cliente».
+    expect(declaraciones(reglasDe('.list-hdr-secondary')[0].cuerpo)).toEqual({ display: 'contents' })
+    const fila = declaracionesDe('.page-hdr-right')
+    expect(fila.display).toBe('flex')
+    expect(fila['align-items']).toBe('center')
+    // El alto es de la categoría, no de cada botón.
+    expect(declaracionesDe('.btn-page-action')['min-height']).toBe('44px')
+    expect(declaracionesDe('.btn-secondary')['min-height']).toBeUndefined()
+  })
+
+  it('mobile conserva BETA-UX-1D: bajo 768 las tres pasan al menú y «Nuevo Cliente» sigue visible', () => {
+    // Estructura: las tres dentro de `.list-hdr-secondary`; la primaria, afuera.
+    const desde = encabezado.indexOf('<div className="list-hdr-secondary">')
+    const secundarias = encabezado.slice(desde, encabezado.indexOf('</div>', desde))
+    for (const [nombre] of SECUNDARIAS) expect(secundarias).toContain(`/>${nombre}</button>`)
+    expect(secundarias).not.toContain('customers-new-button')
+    expect(encabezado.indexOf('data-testid="customers-new-button"')).toBeGreaterThan(encabezado.indexOf('</div>', desde))
+    // El menú ofrece las mismas tres, en el mismo orden.
+    const menu = encabezado.slice(encabezado.indexOf('<div className="list-hdr-overflow">'))
+    expect(menu).toContain('testId="customers-mobile-header-menu"')
+    expect([...menu.matchAll(/label: '([^']+)', icon:/g)].map(m => m[1])).toEqual(['Plantilla', 'Exportar', 'Importar'])
+
+    // El corte: una regla de raíz y otra dentro de `@media (max-width: 767px)`.
+    expect(reglasDe('.list-hdr-secondary').map(r => declaraciones(r.cuerpo).display)).toEqual(['contents', 'none'])
+    expect(reglasDe('.list-hdr-overflow').map(r => declaraciones(r.cuerpo).display)).toEqual(['none', 'inline-flex'])
+    const enMobile = css.indexOf('.list-hdr-overflow { display: inline-flex; }')
+    const media = css.lastIndexOf('@media', enMobile)
+    expect(css.slice(media, css.indexOf('{', media)).trim()).toBe('@media (max-width: 767px)')
+    // La primaria ocupa el ancho y es un objetivo táctil.
+    expect(declaracionesDe('.mobile-list-page .page-hdr-right > .btn-primary')['min-height']).toBe('var(--mobile-touch-target)')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('BUTTON-SYSTEM-1A · Inventario: los filtros de stock tienen clases propias', () => {
+  const INVENTARIO = 'src/pages/Inventory.tsx'
+  const FILTRO = '.inventory-stock-filter'
+  const ACTIVOS = [['low', '#f59e0b'], ['out', '#ef4444']] as const
+  const ES_DE_ESTADO = /:(hover|focus-visible|focus|active)\b/
+  const delBloque = REGLAS.filter(r => r.selectores.some(s => s.startsWith(FILTRO)))
+
+  it('la base es neutra y del tema; cada variante sólo cambia su borde o su texto', () => {
+    expect(declaracionesDe(FILTRO)).toEqual({
+      padding: '0.5rem 0.75rem',
+      border: '1px solid var(--border-strong)',
+      'border-radius': 'var(--radius-md)',
+      background: 'transparent',
+      color: 'var(--text-primary)',
+      'font-size': '0.875rem',
+      'font-weight': '500',
+      cursor: 'pointer',
+    })
+    expect(declaracionesDe(`${FILTRO}--low`)).toEqual({ 'border-color': 'var(--warning-border)' })
+    expect(declaracionesDe(`${FILTRO}--out`)).toEqual({ 'border-color': 'var(--error-border)' })
+    expect(declaracionesDe(`${FILTRO}--reset`)).toEqual({ color: 'var(--text-secondary)' })
+  })
+
+  it.each(ACTIVOS)('%s activo: el color semántico sólido con la tinta invariante (contrato de BETA-UX-1E)', (clave, fondo) => {
+    expect(declaracionesDe(`${FILTRO}--${clave}.is-active`)).toEqual({
+      background: fondo,
+      'border-color': fondo,
+      color: 'var(--text-on-bright)',
+    })
+    const tinta = hex(invariante('--text-on-bright'))
+    expect(contraste(tinta, hex(fondo))).toBeGreaterThanOrEqual(AA)
+    // Por qué no blanco: no llega a AA sobre ninguno de los dos.
+    expect(contraste(hex('#ffffff'), hex(fondo))).toBeLessThan(AA)
+  })
+
+  it.each(ACTIVOS)('%s activo: con el puntero, con el foco y presionado es la MISMA regla', (clave) => {
+    const reglas = reglasDe(`${FILTRO}--${clave}.is-active`)
+    expect(reglas).toHaveLength(1)
+    expect(reglas[0].selectores).toEqual([
+      `${FILTRO}--${clave}.is-active`,
+      `${FILTRO}--${clave}.is-active:hover`,
+      `${FILTRO}--${clave}.is-active:focus-visible`,
+      `${FILTRO}--${clave}.is-active:active`,
+    ])
+  })
+
+  it('ninguna regla de estado le cambia el fondo o el texto a un filtro activo', () => {
+    const deEstado = delBloque.filter(r => r.selectores.some(s => ES_DE_ESTADO.test(s)))
+    expect(deEstado.length).toBeGreaterThanOrEqual(4)
+    for (const r of deEstado) {
+      const d = declaraciones(r.cuerpo)
+      if (d.background === undefined && d['background-color'] === undefined && d.color === undefined) continue
+      // O es la regla del activo (que repite su fondo), o está acotada a los inactivos.
+      for (const s of r.selectores.filter(x => ES_DE_ESTADO.test(x))) {
+        expect(/\.is-active:|:not\(\.is-active\)/.test(s), `«${s}» puede pintar sobre un filtro activo`).toBe(true)
+      }
+    }
+    expect(declaracionesDe(`${FILTRO}:not(.is-active):hover`)).toEqual({ background: 'var(--bg-hover)' })
+    // El foco es el anillo del sistema (el de `.btn:focus-visible`): no toca fondo ni texto.
+    expect(declaracionesDe(`${FILTRO}:focus-visible`)).toEqual({ outline: '2px solid var(--accent-primary)', 'outline-offset': '2px' })
+    expect(declaracionesDe('.btn:focus-visible').outline).toBe(declaracionesDe(`${FILTRO}:focus-visible`).outline)
+  })
+
+  it.each(TEMAS)('inactivo (%s): el texto del tema se lee sobre la caja de alerta, también con hover', (_tema, vars) => {
+    // La caja que los contiene: ámbar al 10 % sobre la página.
+    const caja = sobre('rgba(245, 158, 11, 0.1)', hex(token(vars, '--bg-primary')))
+    const conHover = sobre(token(vars, '--bg-hover'), caja)
+    for (const texto of ['--text-primary', '--text-secondary']) {
+      expect(contraste(hex(token(vars, texto)), caja), `${texto} en reposo`).toBeGreaterThanOrEqual(AA)
+      expect(contraste(hex(token(vars, texto)), conHover), `${texto} con hover`).toBeGreaterThanOrEqual(AA)
+    }
+  })
+
+  it.each(ACTIVOS)('%s: `.is-active` y `aria-pressed` salen del mismo estado, sin estilo en línea', (clave) => {
+    const apertura = aperturaCon(INVENTARIO, `applyStockStatusFilter('${clave}')`)
+    expect(apertura).toMatch(/^<button\b/)
+    expect(apertura).toContain(`inventory-stock-filter inventory-stock-filter--${clave}\${stockStatusFilter === '${clave}' ? ' is-active' : ''}`)
+    expect(apertura).toContain(`aria-pressed={stockStatusFilter === '${clave}'}`)
+    expect(apertura).not.toMatch(/\bstyle=/)
+  })
+
+  it('son filtros de Inventario: no son `.btn` ni se promovieron a variantes globales', () => {
+    const fuente = leerCodigo(INVENTARIO)
+    const desde = fuente.indexOf('<div className="inventory-stock-filters">')
+    const bloque = fuente.slice(desde, fuente.indexOf('</div>', desde))
+    expect(bloque.match(/<button\b/g)).toHaveLength(3)
+    expect(bloque).not.toMatch(/\bbtn\b|\bbtn-|style=\{\{/)
+    // Todas las reglas cuelgan de la clase del filtro: ninguna toca `.btn`.
+    for (const r of delBloque) for (const s of r.selectores) expect(s.startsWith(FILTRO), s).toBe(true)
+    // No apareció una variante global nueva para esto…
+    for (const variante of ['.btn-warning', '.btn-stock', '.btn-filter']) expect(reglasDeLaClase(variante)).toEqual([])
+    // … y sólo Inventario usa estas clases.
+    expect(leerCodigo('src/pages/Customers.tsx')).not.toContain('inventory-stock-filter')
+    expect(leerCodigo('src/pages/Dashboard.tsx')).not.toContain('inventory-stock-filter')
+  })
+})

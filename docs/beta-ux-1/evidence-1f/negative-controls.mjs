@@ -21,6 +21,8 @@ const diffAntes = hash(execFileSync('git', ['-C', root, 'diff'], { encoding: 'ut
 const DASH = 'src/pages/Dashboard.tsx'
 const DOLAR = 'src/hooks/useDollarRate.ts'
 const ACCESO_TAREAS = 'src/hooks/useTasksAccess.ts'
+const CLIENTES = 'src/pages/Customers.tsx'
+const INVENTARIO = 'src/pages/Inventory.tsx'
 const ANCLA_JSX = '      <FirstStepsChecklist />\n'
 const BLOQUE_TAREAS = '      {canAccessTasks && <DashboardTasks refreshKey={tasksRefreshKey} />}\n'
 const tras = (ancla, extra) => s => { if (!s.includes(ancla)) throw new Error('ancla ausente'); return s.replace(ancla, () => ancla + extra) }
@@ -189,6 +191,47 @@ const CONTROLES = [
     cambiar('.btn-sm  { padding: 0.35rem 0.75rem; font-size: 0.8125rem; border-radius: var(--radius-sm); }',
       '.btn-sm  { padding: 0.35rem 0.75rem; font-size: 0.8125rem; border-radius: var(--radius-sm); min-height: 44px; }'),
     'los tamaños compactos NO se tocaron'],
+  // ── Microfix · Clientes: las acciones visibles del encabezado, una categoría ─
+  ['45 Clientes · «Plantilla» vuelve a ser compacta (`btn-ghost btn-sm`)', CLIENTES,
+    cambiar('<button onClick={handleDownloadTemplate} className="btn btn-secondary btn-page-action"><Download size={16} />',
+      '<button onClick={handleDownloadTemplate} className="btn btn-ghost btn-sm"><Download size={15} />'),
+    '«Plantilla»: secondary + acción de página'],
+  ['46 Clientes · una secundaria con otro tamaño de ícono', CLIENTES,
+    cambiar('className="btn btn-secondary btn-page-action"><Upload size={16} />Importar', 'className="btn btn-secondary btn-page-action"><Upload size={15} />Importar'),
+    'las cuatro comparten tamaño'],
+  ['47 Clientes · «Exportar» pasa a ser otra primaria', CLIENTES,
+    cambiar('<button onClick={handleExportCustomers} className="btn btn-secondary btn-page-action">', '<button onClick={handleExportCustomers} className="btn btn-primary btn-page-action">'),
+    'sigue habiendo UNA sola primaria'],
+  ['48 Clientes · las secundarias dejan de ocultarse en mobile', 'src/index.css',
+    cambiar('  .customers-desktop-table,\n  .list-hdr-secondary { display: none; }', '  .customers-desktop-table { display: none; }'),
+    'mobile conserva BETA-UX-1D'],
+  ['49 Clientes · el menú de mobile pierde una acción', CLIENTES,
+    cambiar("                { label: 'Exportar', icon: <Download size={16} aria-hidden=\"true\" />, onSelect: () => void handleExportCustomers() },\n", ''),
+    'mobile conserva BETA-UX-1D'],
+  // ── Microfix · Inventario: filtros de stock con clases propias ────────────
+  ['50 Filtros · el hover deja de estar acotado a los inactivos', 'src/index.css',
+    cambiar('.inventory-stock-filter:not(.is-active):hover { background: var(--bg-hover); }', '.inventory-stock-filter:hover { background: var(--bg-hover); }'),
+    'ninguna regla de estado le cambia el fondo'],
+  ['51 Filtros · el activo deja de declarar su hover y su foco', 'src/index.css',
+    cambiar('.inventory-stock-filter--low.is-active,\n.inventory-stock-filter--low.is-active:hover,\n.inventory-stock-filter--low.is-active:focus-visible,\n', '.inventory-stock-filter--low.is-active,\n'),
+    'low activo: con el puntero, con el foco y presionado es la MISMA regla'],
+  ['52 Filtros · «Ver stock bajo» activo vuelve al texto blanco', 'src/index.css',
+    cambiar('  background: #f59e0b;\n  border-color: #f59e0b;\n  color: var(--text-on-bright);', '  background: #f59e0b;\n  border-color: #f59e0b;\n  color: #fff;'),
+    'low activo: el color semántico sólido'],
+  ['53 Filtros · el rojo activo pasa a depender del tema', 'src/index.css',
+    cambiar('  background: #ef4444;\n  border-color: #ef4444;', '  background: var(--error-soft);\n  border-color: var(--error-soft);'),
+    'out activo: el color semántico sólido'],
+  ['54 Filtros · un estado vuelve al estilo en línea', INVENTARIO,
+    cambiar("                aria-pressed={stockStatusFilter === 'low'}\n",
+      "                aria-pressed={stockStatusFilter === 'low'}\n                style={{ backgroundColor: stockStatusFilter === 'low' ? '#f59e0b' : undefined }}\n"),
+    'low: `.is-active` y `aria-pressed` salen del mismo estado'],
+  ['55 Filtros · se promueven a variantes de botón', INVENTARIO,
+    cambiar('className="inventory-stock-filter inventory-stock-filter--reset"', 'className="btn btn-secondary inventory-stock-filter inventory-stock-filter--reset"'),
+    'no son `.btn` ni se promovieron'],
+  ['56 Filtros · el texto del inactivo vuelve a un gris fijo', 'src/index.css',
+    cambiar('.inventory-stock-filter {\n  padding: 0.5rem 0.75rem;\n  border: 1px solid var(--border-strong);\n  border-radius: var(--radius-md);\n  background: transparent;\n  color: var(--text-primary);',
+      '.inventory-stock-filter {\n  padding: 0.5rem 0.75rem;\n  border: 1px solid var(--border-strong);\n  border-radius: var(--radius-md);\n  background: transparent;\n  color: #94a3b8;'),
+    'la base es neutra y del tema'],
 ]
 
 const vitest = () => spawnSync(process.execPath, ['node_modules/vitest/vitest.mjs', 'run', '--config', 'vitest.config.ts', ...SUITES],

@@ -30,7 +30,7 @@ import { appendFileSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { test, expect } from './fixtures'
 import type { Locator, Page } from '@playwright/test'
-import { AA_SMALL_TEXT, applyTheme, contrastOf, paintedContrastOf } from '../helpers/contrast'
+import { AA_SMALL_TEXT, MEASURE_ATTEMPTS, MOVED_DURING_MEASUREMENT, applyTheme, contrastOf, paintedContrastOf } from '../helpers/contrast'
 import { consultarJSON } from '../setup/sqlLocal.ts'
 import { MOBILE_ORDERS, limpiarMobileOrders, sembrarMobileOrders } from '../setup/seedMobileOrdersFixture.ts'
 import { CTA_CONTRAST_TEXT, limpiarCtaContrast, sembrarCtaContrast } from '../setup/seedCtaContrastFixture.ts'
@@ -112,11 +112,30 @@ async function bajoElPuntero(page: Page, cta: Locator) {
   expect(await cta.evaluate(el => el.matches(':hover')), 'el CTA se mide con el puntero encima').toBe(true)
 }
 
-/** Mide un CTA, lo deja asentado en el registro y exige el mínimo. */
+/**
+ * Le da al CTA el foco DE TECLADO y comprueba que quedó con `:focus-visible`.
+ * Un `focus()` por script después de un clic no cuenta como foco de teclado:
+ * salir y volver con Tab, sí.
+ */
+async function conElFocoDelTeclado(page: Page, cta: Locator) {
+  await page.mouse.move(0, 0)
+  await cta.focus()
+  await page.keyboard.press('Shift+Tab')
+  await page.keyboard.press('Tab')
+  await asentar(page)
+  expect(await cta.evaluate(el => el.matches(':focus-visible')), 'el CTA se mide con el foco del teclado').toBe(true)
+}
+
+/**
+ * Mide un CTA, lo deja asentado en el registro y exige el mínimo. El estado
+ * dice cómo se lo mide: los que terminan en «hover» van con el puntero encima,
+ * los que terminan en «foco» con el foco del teclado y el resto, en reposo.
+ */
 async function medir(page: Page, cta: Locator, c: Contexto, minimo = AA_SMALL_TEXT) {
   await expect(cta).toBeVisible()
   const estado = c.estado ?? 'normal'
-  if (estado === 'hover') await bajoElPuntero(page, cta)
+  if (/hover$/.test(estado)) await bajoElPuntero(page, cta)
+  else if (/foco$/.test(estado)) await conElFocoDelTeclado(page, cta)
   else await enReposo(page, cta)
   const m = await paintedContrastOf(cta)
   if (REGISTRO) {
@@ -200,6 +219,99 @@ test.describe('@beta-ux-1e El instrumento de medida', () => {
     expect(apagado.opacity).toBe(0.5)
     expect(apagado.foregroundPainted).not.toBe('rgb(255, 255, 255)')
     expect(apagado.ratio).toBeLessThan(indigo.ratio)
+  })
+
+  // ── La medida son dos capturas del mismo recorte: el elemento no se puede mover ──
+  //
+  // BUTTON-SYSTEM-1A. En CI, «Ver stock bajo» activo (ámbar, tinta a 8,31:1) dio
+  // «1,05:1 sobre rgb(31, 27, 27)»: el clic del filtro dispara un scroll suave a
+  // la tabla, la página se corrió entre las dos capturas y la segunda tomó el
+  // fondo de la caja de alerta que rodea al botón. Sobre una página CLARA el
+  // mismo corrimiento da un fondo claro y la medida habría salido verde sin
+  // haber medido el botón. Estos tests arman esa página y mueven el scroll ellos.
+
+  /** Tinta `#0f172a` sobre `#f59e0b`: el par del filtro activo. */
+  const TINTA_SOBRE_AMBAR = 8.31
+  const PAGINAS: Array<[string, string]> = [['oscura', '#060d1a'], ['clara', '#f4f7fb']]
+
+  /**
+   * Un botón ámbar dentro de una caja de otro color, con página de sobra para
+   * moverse. Cada vez que aparece la sonda del instrumento —o sea, ENTRE sus dos
+   * capturas— la página se corre 18 px, hasta `veces` veces: con un recorte del
+   * alto del texto, alcanza para que entre el fondo de la caja.
+   */
+  async function botonEnUnaPaginaQueSeMueve(page: Page, fondo: string, veces: number | 'siempre') {
+    await page.setViewportSize(VIEWPORT.mobile)
+    await page.setContent(`<body style="margin:0;background:${fondo}">
+      <div style="height:600px"></div>
+      <div style="margin:0 16px;padding:16px;background:rgba(245,158,11,0.1)">
+        <button id="filtro" style="padding:8px 12px;border:0;border-radius:8px;font:500 14px/1.5 system-ui;background:#f59e0b;color:#0f172a">Ver stock bajo</button>
+      </div>
+      <div style="height:1600px"></div>
+    </body>`)
+    await page.evaluate((limite) => {
+      const estado = window as unknown as { __corrimientos: number }
+      estado.__corrimientos = 0
+      const filtro = document.getElementById('filtro')!
+      new MutationObserver(() => {
+        if (!filtro.hasAttribute('data-contrast-probe')) return
+        if (limite !== null && estado.__corrimientos >= limite) return
+        estado.__corrimientos += 1
+        window.scrollBy({ top: 18, behavior: 'instant' })
+      }).observe(filtro, { attributes: true, attributeFilter: ['data-contrast-probe'] })
+    }, veces === 'siempre' ? null : veces)
+    return page.locator('#filtro')
+  }
+  const corrimientos = (page: Page) => page.evaluate(() => (window as unknown as { __corrimientos: number }).__corrimientos)
+
+  for (const [nombre, fondo] of PAGINAS) {
+    test(`página ${nombre} · si se mueve entre las dos capturas, descarta la medida y la repite`, async ({ page }) => {
+      const filtro = await botonEnUnaPaginaQueSeMueve(page, fondo, 1)
+      const m = await paintedContrastOf(filtro)
+      expect(await corrimientos(page), 'la página se corrió entre las capturas').toBe(1)
+      expect(m.attempts, 'la primera medida se descartó').toBe(2)
+      // El contraste es el del BOTÓN, no el de la caja que lo rodea (≈ 1,05:1 en
+      // oscuro, > 14:1 en claro), y todo el fondo medido es un solo color.
+      expect(m.ratio).toBeCloseTo(TINTA_SOBRE_AMBAR, 1)
+      expect(m.ratioMax - m.ratio).toBeLessThan(0.05)
+    })
+
+    test(`página ${nombre} · si se mueve en CADA medida, falla: no devuelve el contraste de otro fondo`, async ({ page }) => {
+      const filtro = await botonEnUnaPaginaQueSeMueve(page, fondo, 'siempre')
+      await expect(paintedContrastOf(filtro)).rejects.toThrow(MOVED_DURING_MEASUREMENT)
+      expect(await corrimientos(page), 'un intento por cada corrimiento').toBe(MEASURE_ATTEMPTS)
+    })
+  }
+
+  test('con un scroll en curso, espera a que la página se quede quieta y mide el botón', async ({ page }) => {
+    const filtro = await botonEnUnaPaginaQueSeMueve(page, '#060d1a', 0)
+    // 45 cuadros de 9 px: la página se mueve seguro, haya o no scroll suave.
+    await page.evaluate(() => {
+      const estado = window as unknown as { __cuadros: number }
+      estado.__cuadros = 0
+      const paso = () => {
+        window.scrollBy({ top: 9, behavior: 'instant' })
+        estado.__cuadros += 1
+        if (estado.__cuadros < 45) requestAnimationFrame(paso)
+      }
+      requestAnimationFrame(paso)
+    })
+    const m = await paintedContrastOf(filtro)
+    expect(await page.evaluate(() => (window as unknown as { __cuadros: number }).__cuadros), 'el scroll terminó antes de medir').toBe(45)
+    expect(m.ratio).toBeCloseTo(TINTA_SOBRE_AMBAR, 1)
+    expect(m.ratioMax - m.ratio).toBeLessThan(0.05)
+  })
+
+  test('si el elemento no se queda quieto nunca, falla en vez de medir', async ({ page }) => {
+    const filtro = await botonEnUnaPaginaQueSeMueve(page, '#f4f7fb', 0)
+    await page.evaluate(() => {
+      const paso = () => {
+        window.scrollBy({ top: performance.now() % 400 < 200 ? 6 : -6, behavior: 'instant' })
+        requestAnimationFrame(paso)
+      }
+      requestAnimationFrame(paso)
+    })
+    await expect(paintedContrastOf(filtro)).rejects.toThrow(MOVED_DURING_MEASUREMENT)
   })
 })
 
@@ -286,18 +398,45 @@ test.describe('@beta-ux-1e Inventario', () => {
       await abrir(page, '/inventory', tema, ancho, bajo)
       const c = { superficie: 'Inventario', tema, ancho }
 
+      /**
+       * BUTTON-SYSTEM-1A — un filtro ACTIVO conserva su fondo semántico con el
+       * puntero encima y con el foco del teclado: el hover no lo reemplaza por
+       * el fondo de un inactivo. Se exige el color computado, el mínimo de
+       * contraste sobre lo pintado y que lo pintado sea un solo color.
+       */
+      async function activoConPunteroYConFoco(filtro: Locator, cta: string, fondo: string) {
+        for (const estado of ['activo + hover', 'activo + foco']) {
+          const m = await medir(page, filtro, { ...c, cta, estado })
+          // Sigue en ese estado al terminar: la medida no se tomó en otro.
+          expect(await filtro.evaluate((el, pseudo) => el.matches(pseudo), estado.endsWith('hover') ? ':hover' : ':focus-visible'), `«${cta}» · ${estado}: dejó de estarlo mientras se medía`).toBe(true)
+          expect.soft(await filtro.evaluate(el => getComputedStyle(el).backgroundColor), `«${cta}» · ${estado}: el fondo semántico`).toBe(fondo)
+          expect.soft(m.ratioMax - m.ratio, `«${cta}» · ${estado}: lo pintado detrás del texto no es un solo color (${m.backgroundWorst} … ${m.backgroundBest})`).toBeLessThan(0.05)
+        }
+        await filtro.evaluate(el => (el as HTMLElement).blur())
+      }
+
       // Inactivos: fondo neutro del tema.
+      await expect(bajo).toHaveAttribute('aria-pressed', 'false')
       await medir(page, bajo, { ...c, cta: 'Ver stock bajo', estado: 'inactivo' })
       await medir(page, agotados, { ...c, cta: 'Ver agotados', estado: 'inactivo' })
+      await medir(page, bajo, { ...c, cta: 'Ver stock bajo', estado: 'inactivo + hover' })
 
       // Activos: ámbar y rojo sólidos. El blanco no llega a AA sobre ninguno.
       await bajo.click()
+      await expect(bajo).toHaveAttribute('aria-pressed', 'true')
       await medir(page, bajo, { ...c, cta: 'Ver stock bajo', estado: 'activo' })
+      expect.soft(await bajo.evaluate(el => getComputedStyle(el).backgroundColor), '«Ver stock bajo» activo: el fondo semántico').toBe('rgb(245, 158, 11)')
       if (ancho === 'desktop' && tema === 'light') await capturar(bajo.locator('xpath=../..'), 'inventory-actions-light')
       if (ancho === 'desktop' && tema === 'dark') await capturar(bajo.locator('xpath=../..'), 'inventory-actions-dark')
+      await activoConPunteroYConFoco(bajo, 'Ver stock bajo', 'rgb(245, 158, 11)')
+
       await agotados.click()
+      await expect(agotados).toHaveAttribute('aria-pressed', 'true')
       await medir(page, agotados, { ...c, cta: 'Ver agotados', estado: 'activo' })
+      expect.soft(await agotados.evaluate(el => getComputedStyle(el).backgroundColor), '«Ver agotados» activo: el fondo semántico').toBe('rgb(239, 68, 68)')
+      await activoConPunteroYConFoco(agotados, 'Ver agotados', 'rgb(239, 68, 68)')
       // El que dejó de estar activo vuelve a leerse.
+      await expect(bajo).toHaveAttribute('aria-pressed', 'false')
       await medir(page, bajo, { ...c, cta: 'Ver stock bajo', estado: 'inactivo tras cambiar' })
 
       await accionable(bajo, 'Ver stock bajo')
