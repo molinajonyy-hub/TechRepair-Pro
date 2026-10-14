@@ -168,9 +168,9 @@ export async function getSubscriptionEvents(businessId: string): Promise<Subscri
 // devuelve su checkout. NO cambia el estado ni el plan del negocio: el acceso
 // sólo cambia cuando Mercado Pago confirma esa suscripción.
 //
-// El primer intento va SIN email: el servidor usa el del login. Si Mercado Pago
-// lo rechaza, la llamada falla con `MP_PAYER_EMAIL_REQUIRED` y se reintenta con
-// `mp_payer_email`, el que indique el usuario. Ese email es sólo un dato que
+// Por defecto va SIN email: el servidor usa el del login. El usuario puede
+// indicar otro antes del checkout o ante `MP_PAYER_EMAIL_REQUIRED`, mediante
+// `mp_payer_email`. Ese email es sólo un dato que
 // Mercado Pago exige para crear la suscripción: no identifica al negocio.
 export async function createSubscription(
   req: Omit<CreateSubscriptionRequest, 'back_url'>

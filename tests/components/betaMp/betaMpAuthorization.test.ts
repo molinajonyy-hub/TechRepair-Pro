@@ -83,7 +83,9 @@ describe('cross-tenant: el usuario de A manda el business_id de B', () => {
 
 describe('el propio negocio', () => {
   it.each(BILLING_ACTIONS)('%s propio → pasa la autorización', async (action) => {
-    const res = await w.call(OWNER_B, body(action, BIZ_B))
+    // B ya tiene Pro activo: crear el mismo plan/ciclo debe bloquear duplicados.
+    const request = body(action, BIZ_B)
+    const res = await w.call(OWNER_B, action === 'create' ? { ...request, plan: 'full' } : request)
     expect(res.status).not.toBe(403)
     expect(res.status).toBe(200)
   })

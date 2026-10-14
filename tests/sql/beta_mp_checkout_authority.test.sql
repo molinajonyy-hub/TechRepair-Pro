@@ -10,13 +10,13 @@
 --   B  el backend (service_role) crea la sesion, la resuelve y no puede borrarla;
 --   C  abrir un checkout no cambia la fila del negocio;
 --   D  la referencia del checkout es unica y hay una sola sesion pending por
---      (negocio, plan, ciclo);
+--      negocio (BETA-MP-EMAIL también protege entre planes/ciclos);
 --   E  subscription_events deduplica por NOTIFICACION: dos notificaciones del
 --      mismo recurso entran las dos; la misma notificacion dos veces, no;
 --   F  payments admite el upsert del webhook;
 --   G  Plan B: el preapproval que crea el backend pertenece a UNA sesion.
 --
--- Requiere las dos migraciones aplicadas. Corre dentro de BEGIN ... ROLLBACK.
+-- Requiere BETA-MP, Plan B, Recovery y Email aplicadas. Corre en BEGIN ... ROLLBACK.
 -- RUN: docker cp ... && psql -X -v ON_ERROR_STOP=1 -f
 -- ============================================================================
 BEGIN;
@@ -134,6 +134,8 @@ CREATE TEMP TABLE _beta_mp_biz ON COMMIT DROP AS
 -- ============================================================================
 -- B · El backend es la autoridad
 -- ============================================================================
+-- Synthetic fixture only: free A's pending slot while measuring INSERT privileges.
+UPDATE public.subscription_checkout_sessions SET status = 'expired' WHERE id = :'SES_A';
 SELECT pg_temp.assert(
   pg_temp.como('service_role', NULL,
     $$INSERT INTO public.subscription_checkout_sessions
@@ -155,6 +157,7 @@ SELECT pg_temp.assert(
   (SELECT status = 'paid' AND mp_preapproval_id = 'pre_test_1' AND confirmed_at IS NOT NULL
      FROM public.subscription_checkout_sessions WHERE external_reference = 'trpcs_00000000-0000-4000-8000-0000000be7c5'),
   'B2 · la sesion queda paid, con el preapproval confirmado y confirmed_at');
+UPDATE public.subscription_checkout_sessions SET status = 'pending' WHERE id = :'SES_A';
 
 SELECT pg_temp.assert(
   pg_temp.como('service_role', NULL,
@@ -171,7 +174,7 @@ SELECT pg_temp.assert(
 SELECT pg_temp.assert(
   pg_temp.como('service_role', NULL,
     $$INSERT INTO public.subscription_checkout_sessions(business_id, plan_id, billing_cycle, amount, external_reference, status)
-      VALUES ('00000000-0000-4000-8000-0000000be7b1', 'basico', 'monthly', 15000, 'trpcs_00000000-0000-4000-8000-0000000be7a5', 'pending')$$) = '23505',
+      VALUES ('00000000-0000-4000-8000-0000000be7b1', 'basico', 'monthly', 15000, 'trpcs_00000000-0000-4000-8000-0000000be7a5', 'expired')$$) = '23505',
   'D1 · una referencia de checkout no se puede reutilizar para otro negocio');
 
 SELECT pg_temp.assert(
@@ -179,6 +182,12 @@ SELECT pg_temp.assert(
     $$INSERT INTO public.subscription_checkout_sessions(business_id, plan_id, billing_cycle, amount, external_reference, status)
       VALUES ('00000000-0000-4000-8000-0000000be7a1', 'pro', 'monthly', 25000, 'trpcs_00000000-0000-4000-8000-0000000be7d5', 'pending')$$) = '23505',
   'D2 · una sola sesion pending por (negocio, plan, ciclo)');
+
+SELECT pg_temp.assert(
+  pg_temp.como('service_role', NULL,
+    $$INSERT INTO public.subscription_checkout_sessions(business_id, plan_id, billing_cycle, amount, external_reference, status)
+      VALUES ('00000000-0000-4000-8000-0000000be7a1', 'full', 'annual', 432000, 'trpcs_00000000-0000-4000-8000-0000000be7e5', 'pending')$$) = '23505',
+  'D3 · BETA-MP-EMAIL impide otra sesion pending incluso con distinto plan y ciclo');
 
 -- ============================================================================
 -- E · subscription_events deduplica por notificacion, no por recurso
@@ -260,7 +269,7 @@ SELECT pg_temp.assert(
 SELECT pg_temp.assert(
   pg_temp.como('service_role', NULL,
     $$INSERT INTO public.subscription_checkout_sessions(business_id, plan_id, billing_cycle, amount, external_reference, status, mp_preapproval_id)
-      VALUES ('00000000-0000-4000-8000-0000000be7b1', 'basico', 'annual', 144000, 'trpcs_00000000-0000-4000-8000-0000000be7e5', 'pending', 'pre_plan_b_1')$$) = '23505',
+      VALUES ('00000000-0000-4000-8000-0000000be7b1', 'basico', 'annual', 144000, 'trpcs_00000000-0000-4000-8000-0000000be7e5', 'expired', 'pre_plan_b_1')$$) = '23505',
   'G3 · ni entrar en una sesion nueva');
 
 SELECT pg_temp.assert(
@@ -271,7 +280,7 @@ SELECT pg_temp.assert(
 SELECT pg_temp.assert(
   pg_temp.como('service_role', NULL,
     $$INSERT INTO public.subscription_checkout_sessions(business_id, plan_id, billing_cycle, amount, external_reference, status)
-      VALUES ('00000000-0000-4000-8000-0000000be7b1', 'basico', 'annual', 144000, 'trpcs_00000000-0000-4000-8000-0000000be7f5', 'pending')$$) = 'OK',
+      VALUES ('00000000-0000-4000-8000-0000000be7b1', 'basico', 'annual', 144000, 'trpcs_00000000-0000-4000-8000-0000000be7f5', 'expired')$$) = 'OK',
   'G5 · las sesiones todavia sin preapproval (NULL) conviven: el indice es parcial');
 
 SELECT pg_temp.assert(

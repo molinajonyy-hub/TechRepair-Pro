@@ -456,7 +456,9 @@ describe('estados del preapproval', () => {
   it('un checkout vencido que igual se paga: el pago es real y activa', async () => {
     const { preapprovalId, session } = await w.openCheckout(OWNER_A, BIZ_A, 'pro')
     w.advance(3 * DAY)
-    await w.openCheckout(OWNER_A, BIZ_A, 'pro')          // el viejo quedó expired
+    // Sesión histórica expirada localmente (antes del microfix): su pago real
+    // sigue siendo evidencia válida. No fingimos pagar un recurso cancelado.
+    session.status = 'expired'
     expect(session.status).toBe('expired')
 
     w.pay(preapprovalId)

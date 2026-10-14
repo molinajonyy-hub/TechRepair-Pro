@@ -292,8 +292,8 @@ class Query implements PromiseLike<PgResult> {
         return 'uq_scs_mp_preapproval'
       }
       const merged = own.length === 1 ? { ...own[0], ...next } : next
-      if (merged.status === 'pending' && others.some((r) => r.status === 'pending' && r.business_id === merged.business_id
-          && r.plan_id === merged.plan_id && r.billing_cycle === merged.billing_cycle)) return 'idx_scs_pending_unique'
+      if (merged.status === 'pending' && others.some((r) => r.status === 'pending'
+          && r.business_id === merged.business_id)) return 'uq_scs_pending_business'
     }
     if (this.table === 'subscription_events' && next.external_id && next.notification_id) {
       if (others.some((r) => r.provider === next.provider && r.event_type === next.event_type
@@ -441,6 +441,16 @@ export class World {
     const id = url.searchParams.get('preapproval_id') as string
     const session = this.sessionOf(id)
     return { res, url, preapprovalId: id, session, reference: session.external_reference as string }
+  }
+
+  /** Historical fixtures predating the one-pending-business index. Never used by application code.
+   * Keeps recovery regression coverage for old, concurrently open contracts.
+   */
+  async openLegacyCheckout(userId: string, businessId: string, plan: string, billingCycle = 'monthly', preapprovalId?: string) {
+    const previous = this.db.tables.subscription_checkout_sessions.filter(s => s.business_id === businessId && s.status === 'pending')
+    for (const row of previous) row.status = 'expired'
+    try { return await this.openCheckout(userId, businessId, plan, billingCycle, preapprovalId) }
+    finally { for (const row of previous) row.status = 'pending' }
   }
 
   /** Quien abrió el checkout paga: Mercado Pago deja ESE preapproval `authorized`. */

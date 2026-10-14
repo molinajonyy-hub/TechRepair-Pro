@@ -41,7 +41,8 @@ try {
   phase = 'schema restore'
   sql(schema)
   for (const file of ['20261012120000_beta_mp_checkout_session_server_authority.sql',
-    '20261013120000_beta_mp_plan_b_session_preapproval_unique.sql', '20261015120000_beta_mp_recovery_payment_identity.sql']) {
+    '20261013120000_beta_mp_plan_b_session_preapproval_unique.sql', '20261015120000_beta_mp_recovery_payment_identity.sql',
+    '20261014184750_beta_mp_email_one_pending_business.sql']) {
     phase = file
     sql(readFileSync(`supabase/migrations/${file}`, 'utf8'))
     const version = file.slice(0, 14)

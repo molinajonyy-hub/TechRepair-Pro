@@ -2,8 +2,8 @@
  * Plans.tsx — Pantalla de selección de plan con checkout Mercado Pago.
  * Diseño iOS premium. Trial users ven Pro recomendado.
  */
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useSubscription } from '../hooks/useSubscription'
@@ -55,9 +55,9 @@ function fmt(n: number) {
   return '$' + Math.round(n).toLocaleString('es-AR')
 }
 
-/** El fallback abierto: qué plan se estaba contratando y qué respondió el servidor. */
+/** Correo opcional (sin plan todavía) o corrección durante un intento de checkout. */
 interface PayerEmailPrompt {
-  plan: SubscriptionPlan
+  plan: SubscriptionPlan | null
   /** El email que se intentó y no funcionó; vacío si todavía no se pidió ninguno. */
   email: string
   /** Por qué no funcionó ese email. */
@@ -70,22 +70,26 @@ export function Plans() {
   const { businessId } = useAuth()
   const { isTrial, daysUntilTrialEnd, currentPlan } = useSubscription()
   const navigate = useNavigate()
+  const location = useLocation()
   const [cycle, setCycle]     = useState<Cycle>('monthly')
   const [loading, setLoading] = useState<string | null>(null)
   const [error, setError]     = useState('')
-  // Email de la cuenta de Mercado Pago que el usuario indicó y Mercado Pago aceptó
-  // en ESTA visita. Estado efímero: no se guarda en el navegador ni en el perfil.
+  // Dato indicado por el usuario en ESTA visita, sin afirmar que MP lo verificó.
+  // Estado efímero: no se guarda en el navegador ni en el perfil.
   const [mpPayerEmail, setMpPayerEmail] = useState('')
-  const [payerPrompt, setPayerPrompt]   = useState<PayerEmailPrompt | null>(null)
+  const [payerPrompt, setPayerPrompt] = useState<PayerEmailPrompt | null>(() =>
+    location.state?.correctMpEmail === true ? { plan: null, email: '', error: '' } : null)
+  const checkoutBusy = useRef(false)
 
   const isAnnual = cycle === 'annual'
 
   /**
    * Un intento de checkout. Sin `email`, el servidor usa el del login: es el
-   * camino normal y no pide nada. Con `email`, es el reintento del fallback.
+   * camino normal y no pide nada. Con `email`, usa el dato indicado por el usuario.
    */
   async function startCheckout(planId: SubscriptionPlan, email: string) {
-    if (!businessId) return
+    if (!businessId || checkoutBusy.current) return
+    checkoutBusy.current = true
     setError(''); setLoading(planId)
     try {
       const res = await createSubscription({
@@ -97,8 +101,13 @@ export function Plans() {
       if (email) setMpPayerEmail(email)
       window.location.href = res.init_point
     } catch (e: unknown) {
+      checkoutBusy.current = false
       setLoading(null)
-      if (email) {
+      const code = subscriptionErrorCode(e)
+      if (code === 'checkout_already_authorized' || code === 'checkout_replacement_blocked') {
+        setPayerPrompt(null)
+        setError(messageOf(e))
+      } else if (email) {
         // El reintento falló: se muestra el motivo y NO se reintenta solo. El
         // usuario corrige el email o cierra.
         setPayerPrompt({ plan: planId, email, error: messageOf(e) })
@@ -141,18 +150,39 @@ export function Plans() {
         {/* Toggle mensual / anual */}
         <div className="tabs" style={{ display: 'inline-flex' }}>
           {(['monthly', 'annual'] as Cycle[]).map(c => (
-            <button key={c} onClick={() => setCycle(c)} className={`tab ${cycle === c ? 'tab-active' : ''}`}>
+            <button key={c} onClick={() => setCycle(c)} disabled={!!loading} className={`tab ${cycle === c ? 'tab-active' : ''}`}>
               {c === 'monthly' ? 'Mensual' : (
                 <>Anual <span style={{ padding: '0.1rem 0.4rem', borderRadius: '999px', background: 'rgba(34,197,94,0.15)', color: '#22c55e', fontSize: '0.7rem', fontWeight: 800 }}>−20%</span></>
               )}
             </button>
           ))}
         </div>
+
+        <div style={{ marginTop: '0.75rem' }}>
+          <button
+            className="btn btn-ghost btn-sm"
+            style={{ minHeight: 44, whiteSpace: 'normal' }}
+            disabled={!!loading}
+            aria-haspopup="dialog"
+            onClick={() => setPayerPrompt({ plan: null, email: mpPayerEmail, error: '' })}
+          >
+            {mpPayerEmail ? 'Cambiar correo de Mercado Pago' : '¿Usás otro correo en Mercado Pago?'}
+          </button>
+          {mpPayerEmail && (
+            <button className="btn btn-ghost btn-sm" style={{ minHeight: 44 }} disabled={!!loading}
+              onClick={() => setMpPayerEmail('')}>
+              Usar el correo de TechRepair Pro
+            </button>
+          )}
+        </div>
       </div>
 
       {error && (
-        <div className="alert-inline alert-error" style={{ marginBottom: '1.75rem', justifyContent: 'center' }}>
+        <div role="alert" className="alert-inline alert-error" style={{ marginBottom: '1.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
           {error}
+          <button className="btn btn-ghost btn-sm" style={{ minHeight: 44 }} onClick={() => navigate('/subscription/pending')}>
+            Verificar pago
+          </button>
         </div>
       )}
 
@@ -262,15 +292,19 @@ export function Plans() {
         </button>
       </div>
 
-      {/* Fallback: sólo si Mercado Pago no pudo iniciar con el email del login. */}
+      {/* Opción previa al checkout o recuperación de un rechazo del servidor. */}
       {payerPrompt && (
         <MercadoPagoEmailDialog
           planName={PLANS.find(p => p.id === payerPrompt.plan)?.name ?? ''}
           attemptedEmail={payerPrompt.email}
-          submitting={loading === payerPrompt.plan}
+          submitting={loading !== null}
           error={payerPrompt.error}
-          onSubmit={email => startCheckout(payerPrompt.plan, email)}
-          onClose={() => { setPayerPrompt(null); setLoading(null) }}
+          optionalEmail={payerPrompt.plan === null}
+          onSubmit={email => {
+            if (payerPrompt.plan) void startCheckout(payerPrompt.plan, email)
+            else { setMpPayerEmail(email); setPayerPrompt(null) }
+          }}
+          onClose={() => { if (!checkoutBusy.current) setPayerPrompt(null) }}
         />
       )}
     </div>

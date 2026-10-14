@@ -259,6 +259,8 @@ const main = async () => {
   mp.preapprovals.get(pre('c0')).auto_recurring.transaction_amount = 1
   n = await notify('subscription_preapproval', pre('c0'))
   check(n.detail === 'not_applied:terms_mismatch' && huella('C') === antesC, 'authorized con otro importe que el de la sesión: no activa (sin drift silencioso)')
+  // Historical locally retired checkout, before one-pending-per-business protection.
+  sql(`UPDATE public.subscription_checkout_sessions SET status = 'expired' WHERE mp_preapproval_id = '${pre('c0')}';`)
 
   // Lo medido en el smoke real: Mercado Pago no devuelve la referencia.
   mp.dropsExternalReference = true
@@ -392,6 +394,45 @@ const main = async () => {
     && !mp.calls.some((c) => c.path.includes(pre('mismo_email'))),
   'reconcile ignora el email: sólo relee los recursos vinculados por id a las sesiones de B')
   mp.payerAccounts = null
+
+  section('10. BETA-MP-EMAIL: reemplazo confirmado y cierre condicional en PostgREST real')
+  const emailCreate = email => call('ownerB', { action: 'create', business_id: ids.B, plan: 'basico', billing_cycle: 'monthly', mp_payer_email: email })
+  const postsBeforeEmail = mp.created().length
+  r = await emailCreate(cuentaMp)
+  check(r.status === 200 && preOf(r) === pre('d') && mp.created().length === postsBeforeEmail,
+    'mismo email: reutiliza el recurso sin crear otro')
+  mp.cancelIsIgnored = true
+  r = await emailCreate(`corregido@${TAG}`)
+  check(r.status === 409 && session(pre('d')).status === 'pending' && mp.created().length === postsBeforeEmail,
+    'cancelacion sin confirmar: conserva pending, sin segundo POST')
+  mp.cancelIsIgnored = false
+  mp.cancelFails = true
+  r = await emailCreate(`corregido@${TAG}`)
+  check(r.status === 502 && session(pre('d')).status === 'pending' && mp.created().length === postsBeforeEmail,
+    'error de cancelacion: no libera la reserva')
+  mp.cancelFails = false
+  r = await emailCreate(`corregido@${TAG}`)
+  check(r.status === 200 && session(pre('d')).status === 'canceled' && mp.preapprovals.get(pre('d')).status === 'cancelled'
+    && mp.created().length === postsBeforeEmail + 1 && huella('B') === antesPagador,
+    'cancelacion confirmada + CAS real: permite un reemplazo sin cambiar el acceso')
+  const replacement = session(preOf(r))
+  const store = createSupabaseBillingStore(serviceClient)
+  const cas = await Promise.all([store.closePendingCheckout(replacement, new Date().toISOString()),
+    store.closePendingCheckout(replacement, new Date().toISOString())])
+  check(cas.filter(Boolean).length === 1, 'dos cierres condicionales concurrentes: gana exactamente uno')
+  // Restore this purely local fixture before testing the provider state protection.
+  sql(`UPDATE public.subscription_checkout_sessions SET status = 'pending' WHERE id = '${replacement.id}';`)
+  mp.authorize(replacement.mp_preapproval_id)
+  r = await emailCreate(`tercero@${TAG}`)
+  check(r.status === 409 && r.body.code === 'checkout_already_authorized' && mp.created().length === postsBeforeEmail + 1,
+    'authorized sin pago: no cancela, no duplica, no activa')
+
+  // Real unique index: two different plans/cycles cannot reserve a second pending row.
+  const duplicate = await serviceClient.from('subscription_checkout_sessions').insert({
+    business_id: ids.B, user_id: ids.ownerB, plan_id: 'full', billing_cycle: 'annual', amount: 432000,
+    currency: 'ARS', payer_email: cuentaMp, external_reference: `trpcs_${randomUUID()}`, status: 'pending',
+  })
+  check(duplicate.error?.code === '23505', 'indice real por negocio bloquea otro plan/ciclo pendiente')
 }
 
 const cleanup = () => {

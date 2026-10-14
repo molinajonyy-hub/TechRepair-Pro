@@ -56,6 +56,7 @@ import { PaymentPending } from '../../../src/pages/PaymentPending'
 import { Plans } from '../../../src/pages/Plans'
 import { Subscription } from '../../../src/pages/Subscription'
 import { SubscriptionSuccess } from '../../../src/pages/SubscriptionSuccess'
+import { SubscriptionFailure } from '../../../src/pages/SubscriptionFailure'
 import {
   MP_PAYER_EMAIL_REQUIRED, SubscriptionActionError, createSubscription, getCheckoutStatus, reconcilePayment, subscriptionErrorCode,
 } from '../../../src/services/subscriptionService'
@@ -534,7 +535,7 @@ describe('E · Planes: el email de Mercado Pago se pide sólo si hace falta', ()
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
-  it('no vuelve a pedirlo en la misma visita: el siguiente plan manda el email que ya funcionó', async () => {
+  it('después de iniciar la redirección no permite cerrar ni abrir otro checkout', async () => {
     soloAceptaLaCuentaDeMp()
     montarPlanes()
     elegir('Pro')
@@ -543,14 +544,11 @@ describe('E · Planes: el email de Mercado Pago se pide sólo si hace falta', ()
     continuar()
     await waitFor(() => expect(window.location.hash).toBe(CHECKOUT))
 
-    // (jsdom no navega) El usuario elige otro plan en la misma pantalla.
-    window.location.hash = ''
+    // jsdom no navega: aun así el bloqueo dura hasta abandonar la pantalla.
     fireEvent.click(screen.getByRole('button', { name: 'Cerrar' }))
-    await waitFor(() => expect((screen.getByRole('button', { name: 'Elegir Básico' }) as HTMLButtonElement).disabled).toBe(false))
+    expect((screen.getByRole('button', { name: 'Elegir Básico' }) as HTMLButtonElement).disabled).toBe(true)
     elegir('Básico')
-    await waitFor(() => expect(window.location.hash).toBe(CHECKOUT))
-    expect(creates().at(-1)).toMatchObject({ plan: 'basico', mp_payer_email: 'cuenta@mp.invalid' })
-    expect(creates()).toHaveLength(3)
+    expect(creates()).toHaveLength(2)
   })
 
   it('el email vive sólo en la pantalla: no se guarda en el navegador', async () => {
@@ -565,6 +563,106 @@ describe('E · Planes: el email de Mercado Pago se pide sólo si hace falta', ()
     const guardado = JSON.stringify({ ...window.localStorage }) + JSON.stringify({ ...window.sessionStorage }) + document.cookie
     expect(guardado).not.toContain('cuenta@mp.invalid')
     expect(h.from).not.toHaveBeenCalled()
+  })
+
+  it('opción discreta antes del checkout: guarda en memoria y el plan envía mp_payer_email', async () => {
+    servidor(() => ({ status: 200, body: { init_point: CHECKOUT } }))
+    montarPlanes()
+    fireEvent.click(screen.getByRole('button', { name: '¿Usás otro correo en Mercado Pago?' }))
+    expect(screen.getByRole('dialog').textContent).toContain('No podemos detectarlo automáticamente')
+    expect(creates()).toHaveLength(0)
+    escribir('cuenta@mp.invalid')
+    fireEvent.click(screen.getByRole('button', { name: 'Usar este correo' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(creates()).toHaveLength(0)
+    elegir('Pro')
+    await waitFor(() => expect(window.location.hash).toBe(CHECKOUT))
+    expect(creates()).toHaveLength(1)
+    expect(creates()[0].mp_payer_email).toBe('cuenta@mp.invalid')
+    expect(JSON.stringify({ ...localStorage, ...sessionStorage })).not.toContain('cuenta@mp.invalid')
+  })
+
+  it('correo opcional inválido: no crea ni redirige; Cancelar conserva el camino directo', async () => {
+    servidor(() => ({ status: 200, body: { init_point: CHECKOUT } }))
+    montarPlanes()
+    fireEvent.click(screen.getByRole('button', { name: '¿Usás otro correo en Mercado Pago?' }))
+    escribir('incorrecto')
+    fireEvent.click(screen.getByRole('button', { name: 'Usar este correo' }))
+    expect(campo().getAttribute('aria-invalid')).toBe('true')
+    expect(creates()).toHaveLength(0)
+    expect(window.location.hash).toBe('')
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }))
+    elegir('Pro')
+    await waitFor(() => expect(window.location.hash).toBe(CHECKOUT))
+    expect(creates()[0].mp_payer_email).toBeUndefined()
+  })
+
+  it('puede volver al correo autenticado antes de elegir un plan', async () => {
+    servidor(() => ({ status: 200, body: { init_point: CHECKOUT } }))
+    montarPlanes()
+    fireEvent.click(screen.getByRole('button', { name: '¿Usás otro correo en Mercado Pago?' }))
+    escribir('cuenta@mp.invalid')
+    fireEvent.click(screen.getByRole('button', { name: 'Usar este correo' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Usar el correo de TechRepair Pro' }))
+    elegir('Pro')
+    await waitFor(() => expect(window.location.hash).toBe(CHECKOUT))
+    expect(creates()[0].mp_payer_email).toBeUndefined()
+  })
+
+  it.each(['checkout_already_authorized', 'checkout_replacement_blocked'])('%s con correo explícito ofrece verificar pago sin otro formulario', async code => {
+    servidor(() => ({ status: 409, body: { code, error: 'Verificá el pago antes de continuar.' } }))
+    montarPlanes()
+    fireEvent.click(screen.getByRole('button', { name: '¿Usás otro correo en Mercado Pago?' }))
+    escribir('cuenta@mp.invalid')
+    fireEvent.click(screen.getByRole('button', { name: 'Usar este correo' }))
+    elegir('Pro')
+    await screen.findByRole('alert')
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Verificar pago' })).not.toBeNull()
+    expect(creates()).toHaveLength(1)
+    expect(window.location.hash).toBe('')
+  })
+
+  it('doble activación del formulario mientras espera: un solo create, y el error libera el reintento', async () => {
+    let resolve: (value: unknown) => void = () => undefined
+    h.invoke.mockImplementation(() => new Promise(r => { resolve = r }))
+    montarPlanes()
+    fireEvent.click(screen.getByRole('button', { name: '¿Usás otro correo en Mercado Pago?' }))
+    escribir('cuenta@mp.invalid')
+    fireEvent.click(screen.getByRole('button', { name: 'Usar este correo' }))
+    elegir('Pro')
+    elegir('Full')
+    await waitFor(() => expect(creates()).toHaveLength(1))
+    await act(async () => { resolve({ data: null, error: new Error('red') }) })
+    expect((screen.getByRole('button', { name: 'Elegir Pro' }) as HTMLButtonElement).disabled).toBe(false)
+    expect(window.location.hash).toBe('')
+  })
+})
+
+describe('BETA-MP-EMAIL: regreso desde un checkout rechazado', () => {
+  it('fallo no afirma que el trial siga vigente y corregir no genera solicitudes de cobro', async () => {
+    suscripcion('suspended')
+    render(<MemoryRouter initialEntries={['/subscription/failure']}><Routes>
+      <Route path="/subscription/failure" element={<SubscriptionFailure />} />
+      <Route path="/subscription/plans" element={<Plans />} />
+    </Routes></MemoryRouter>)
+    expect(screen.queryByText(/Trial sigue activa/)).toBeNull()
+    expect(screen.getByText(/Otros errores pueden tener otra causa/)).not.toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Corregir correo de Mercado Pago' }))
+    expect(await screen.findByRole('dialog')).not.toBeNull()
+    expect(screen.getByLabelText('Email de tu cuenta de Mercado Pago')).not.toBeNull()
+    expect(h.invoke).not.toHaveBeenCalled()
+  })
+
+  it('pending ofrece corregir sin convertir el retorno ni el correo en confirmación', async () => {
+    render(<MemoryRouter initialEntries={['/subscription/pending']}><Routes>
+      <Route path="/subscription/pending" element={<PaymentPending />} />
+      <Route path="/subscription/plans" element={<Plans />} />
+    </Routes></MemoryRouter>)
+    fireEvent.click(screen.getByRole('button', { name: 'Corregir correo de Mercado Pago' }))
+    expect(await screen.findByRole('dialog')).not.toBeNull()
+    expect(h.invoke).not.toHaveBeenCalled()
+    expect(h.refresh).not.toHaveBeenCalled()
   })
 })
 

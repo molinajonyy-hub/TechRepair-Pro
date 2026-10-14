@@ -223,7 +223,8 @@ describe('sólo ese rechazo dispara el pedido de email', () => {
   it('Mercado Pago caído tampoco, ni en el reintento', async () => {
     w.mp.down = true
     expect((await create()).body.code).toBe('mp_unavailable')
-    expect((await create({ mp_payer_email: CUENTA_MP })).body.code).toBe('mp_unavailable')
+    expect((await create({ mp_payer_email: CUENTA_MP })).body.code).toBe('checkout_in_progress')
+    expect(posts()).toHaveLength(1)
   })
 
   it('un 400 que nombra `payer_email` también es un rechazo del pagador', async () => {

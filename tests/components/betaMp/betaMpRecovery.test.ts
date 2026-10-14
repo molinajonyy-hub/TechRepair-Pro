@@ -174,7 +174,7 @@ describe('confirmed cancellation and retryable plan replacement', () => {
   it('a newer authorized checkout without approval stays open while the older approved plan activates', async () => {
     await w.openCheckout(OWNER_A, BIZ_A, 'basico', 'monthly', 'paid')
     w.advance(HOUR)
-    await w.openCheckout(OWNER_A, BIZ_A, 'pro', 'monthly', 'awaiting')
+    await w.openLegacyCheckout(OWNER_A, BIZ_A, 'pro', 'monthly', 'awaiting')
     w.pay('paid'); w.mp.authorize('awaiting')
     const r = await reconcile()
     expect(r.body.confirmed).toBe(false) // latest checkout still awaits its own first fee
@@ -184,6 +184,7 @@ describe('confirmed cancellation and retryable plan replacement', () => {
   })
   it('a late older unconsumed checkout cannot cancel or replace the already active newer paid intent', async () => {
     await w.openCheckout(OWNER_A, BIZ_A, 'basico', 'monthly', 'old_unconsumed')
+    w.sessionOf('old_unconsumed').status = 'expired' // historical local retirement
     w.advance(HOUR)
     await w.subscribe(OWNER_A, BIZ_A, 'pro', 'active_new')
     // Simulate provider evidence arriving after the old pending link was retired.
@@ -197,7 +198,7 @@ describe('confirmed cancellation and retryable plan replacement', () => {
   it('a contradicting older known checkout is not cancelled or guessed from its amount/email', async () => {
     await w.openCheckout(OWNER_A, BIZ_A, 'basico', 'monthly', 'mismatch')
     w.advance(HOUR)
-    await w.openCheckout(OWNER_A, BIZ_A, 'pro', 'monthly', 'winner')
+    await w.openLegacyCheckout(OWNER_A, BIZ_A, 'pro', 'monthly', 'winner')
     w.mp.preapprovals.get('mismatch')!.external_reference = 'foreign'
     w.pay('winner')
     expect((await reconcile()).body.confirmed).toBe(false)
@@ -206,7 +207,7 @@ describe('confirmed cancellation and retryable plan replacement', () => {
   })
   it('a different pending checkout is cancelled in MP before its local label is expired', async () => {
     await w.openCheckout(OWNER_A, BIZ_A, 'basico', 'monthly', 'unused')
-    await w.openCheckout(OWNER_A, BIZ_A, 'pro', 'monthly', 'winner')
+    await w.openLegacyCheckout(OWNER_A, BIZ_A, 'pro', 'monthly', 'winner')
     w.pay('winner')
     expect((await reconcile()).body.confirmed).toBe(true)
     expect(w.mp.preapprovals.get('unused')!.status).toBe('cancelled')
@@ -216,7 +217,7 @@ describe('confirmed cancellation and retryable plan replacement', () => {
   })
   it('two paid unbound checkouts converge to the newest known intent, with both fees booked and the older contract cancelled', async () => {
     await w.openCheckout(OWNER_A, BIZ_A, 'basico', 'monthly', 'one')
-    await w.openCheckout(OWNER_A, BIZ_A, 'pro', 'monthly', 'two')
+    await w.openLegacyCheckout(OWNER_A, BIZ_A, 'pro', 'monthly', 'two')
     w.pay('one'); w.pay('two')
     const otherTenant = w.snapshot(BIZ_B)
     const r = await reconcile()
@@ -231,7 +232,7 @@ describe('confirmed cancellation and retryable plan replacement', () => {
   })
   it('an ignored cancellation of an unused known checkout blocks first activation and is retryable', async () => {
     await w.openCheckout(OWNER_A, BIZ_A, 'basico', 'monthly', 'unused')
-    await w.openCheckout(OWNER_A, BIZ_A, 'pro', 'monthly', 'winner')
+    await w.openLegacyCheckout(OWNER_A, BIZ_A, 'pro', 'monthly', 'winner')
     w.pay('winner'); w.mp.cancelIsIgnored = true
     expect((await reconcile()).body.confirmed).toBe(false)
     expect(w.db.business(BIZ_A).subscription_status).toBe('trialing')

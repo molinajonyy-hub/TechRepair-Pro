@@ -330,13 +330,13 @@ describe('pedir dos veces el mismo checkout', () => {
     expect(w.mp.preapprovals.size).toBe(1)
   })
 
-  it('una sesión vencida no se reutiliza: se marca expired y se emite otra, con otro preapproval', async () => {
+  it('una sesión vencida se cancela en MP antes de emitir otra, con otro preapproval', async () => {
     const primero = await w.openCheckout(OWNER_A, BIZ_A, 'pro')
     w.advance(3 * DAY)
     const segundo = await w.openCheckout(OWNER_A, BIZ_A, 'pro')
     expect(segundo.reference).not.toBe(primero.reference)
     expect(segundo.preapprovalId).not.toBe(primero.preapprovalId)
-    expect(sessions().map((s) => s.status).sort()).toEqual(['expired', 'pending'])
+    expect(sessions().map((s) => s.status).sort()).toEqual(['canceled', 'pending'])
   })
 
   it('si el precio del catálogo cambió, el checkout abierto con el precio anterior no se reutiliza', async () => {
@@ -348,7 +348,7 @@ describe('pedir dos veces el mismo checkout', () => {
     expect(nuevo.preapprovalId).not.toBe(viejo.preapprovalId)
     expect(nuevo.session.amount).toBe(30000)
     expect((w.mp.preapprovals.get(nuevo.preapprovalId)!.auto_recurring as Record<string, unknown>).transaction_amount).toBe(30000)
-    expect(viejo.session.status).toBe('expired')
+    expect(viejo.session.status).toBe('canceled')
   })
 
   it('otro usuario del negocio (otro email de pagador) recibe su propio preapproval', async () => {
@@ -401,11 +401,12 @@ describe('pedir dos veces el mismo checkout', () => {
     expect(res.body.code).toBe('checkout_in_progress')
     expect(w.mp.created()).toEqual([])
 
-    // Pasado el margen, esa sesión quedó huérfana: se cierra y se emite otra.
+    // Sin id no se puede demostrar si MP llegó a crear un recurso remoto.
     w.advance(CHECKOUT_LINK_GRACE_MS + 1000)
     const reintento = await create('pro')
-    expect(reintento.status).toBe(200)
-    expect(sessions().map((s) => s.status).sort()).toEqual(['expired', 'pending'])
+    expect(reintento.status).toBe(409)
+    expect(reintento.body.code).toBe('checkout_replacement_blocked')
+    expect(sessions().map((s) => s.status)).toEqual(['pending'])
   })
 
   it('dos pedidos simultáneos: el índice único deja pasar una sola sesión pending', async () => {
@@ -469,7 +470,7 @@ describe('plan y ciclo: validados por el servidor, fail-closed', () => {
     expect(catalog.termsFor('basico', 'monthly')).toBeNull()
   })
 
-  it('Mercado Pago caído → 502, la sesión queda failed y el negocio no cambia', async () => {
+  it('Mercado Pago caído → 502, conserva reserva por resultado incierto y el negocio no cambia', async () => {
     w.mp.down = true
     const antes = w.snapshot(BIZ_A)
     const res = await create('pro')
@@ -477,12 +478,13 @@ describe('plan y ciclo: validados por el servidor, fail-closed', () => {
     expect(res.status).toBe(502)
     expect(res.body.code).toBe('mp_unavailable')
     expect(res.body.init_point).toBeUndefined()
-    expect(sessions().map((s) => s.status)).toEqual(['failed'])
+    expect(sessions().map((s) => s.status)).toEqual(['pending'])
     expect(w.snapshot(BIZ_A)).toEqual(antes)
 
-    // Y no deja trabado el siguiente intento.
+    // Sin id del proveedor no se arriesga un segundo recurso en un reintento.
     w.mp.down = false
-    expect((await create('pro')).status).toBe(200)
+    expect((await create('pro')).status).toBe(409)
+    expect(w.mp.created()).toHaveLength(1)
   })
 
   it('Mercado Pago rechaza el POST (400): 502 sin detalle para el navegador; el motivo va al log, sin emails', async () => {

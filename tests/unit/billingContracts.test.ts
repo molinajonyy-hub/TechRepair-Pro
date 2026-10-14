@@ -136,7 +136,7 @@ test('sólo el rechazo medido del pagador pide otro email (lista cerrada)', () =
   assert.equal(isPayerRejection(new Error('User bad request')), false)
 })
 
-test('Planes pide el email sólo por el código del servidor, sin precargar el del login ni guardarlo', () => {
+test('Planes conserva fallback por código y correo opcional sin precargar el del login ni guardarlo', () => {
   const plans = sinComentarios(plansPage)
   const dialog = sinComentarios(read('../../src/components/subscription/MercadoPagoEmailDialog.tsx'))
   assert.match(plans, /subscriptionErrorCode\(e\) === MP_PAYER_EMAIL_REQUIRED/)
@@ -145,7 +145,7 @@ test('Planes pide el email sólo por el código del servidor, sin precargar el d
   assert.doesNotMatch(plans + dialog, /localStorage|sessionStorage|document\.cookie/)
   assert.doesNotMatch(plans + dialog, /user\??\.email/)
   assert.match(dialog, /label="Email de tu cuenta de Mercado Pago"/)
-  assert.match(dialog, /title="Necesitamos un dato de Mercado Pago"/)
+  assert.match(dialog, /title=\{optionalEmail \? 'Correo de Mercado Pago' : 'Necesitamos un dato de Mercado Pago'\}/)
 })
 
 // ── Frontend: no direct writes to subscription columns ──────────────────────

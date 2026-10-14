@@ -98,8 +98,15 @@ function inspectEdge(s) {
   const discard = tramo(actions, 'async function discardUnlinkedPreapproval', 'function sessionAgeMs')
   if (!create || !openCheckout || !discard) f.push('no se encontro createCheckout / findOpenCheckout / discardUnlinkedPreapproval')
   if (/updateBusinessBilling|applyPreapprovalEvidence/.test(create + openCheckout + discard)) f.push('create escribe businesses o aplica evidencia (abrir un checkout no cambia el acceso)')
-  if (/business\.mp_preapproval_id/.test(create + openCheckout + discard)) f.push('create mira o toca la suscripcion vigente del negocio')
-  if (/cancelPreapproval\(/.test(create + openCheckout)) f.push('create cancela un preapproval fuera de discardUnlinkedPreapproval')
+  if (/cancelPreapproval\(business\.mp_preapproval_id\)/.test(create + openCheckout + discard)) f.push('create cancela la suscripcion vigente del negocio')
+  if (/cancelPreapproval\(/.test(create)) f.push('create cancela un preapproval fuera del cierre verificado')
+  if (!openCheckout.includes("if (state === 'authorized') return { kind: 'already_authorized' }")
+      || !openCheckout.includes('business.mp_preapproval_id === pre.id')
+      || !openCheckout.includes("if (state !== 'pending' && state !== 'cancelled') return { kind: 'blocked' }")
+      || !openCheckout.includes("if (!confirmed) return { kind: 'blocked' }")
+      || !openCheckout.includes('ctx.store.closePendingCheckout(pending, nowIso)')) {
+    f.push('el reemplazo dejo de exigir recurso pendiente propio, cancelacion confirmada y cierre condicional')
+  }
   if (!/if \(reported !== '' && reported !== reference\) return\n[\s\S]*if \(await ctx\.store\.findCheckoutSessionByPreapprovalId\(createdId\)\) return\n\s*await ctx\.mp\.cancelPreapproval\(createdId\)/.test(discard)) {
     f.push('discardUnlinkedPreapproval puede cancelar un preapproval que no es el recien creado (otra referencia o ya vinculado a otra sesion)')
   }
@@ -133,7 +140,7 @@ function inspectEdge(s) {
   }
   if (!/const payer = resolvePayerEmail\(req\)\n\s*if \(!payer\.ok\) return payer\.response\n\s*const payerEmail = payer\.email\n/.test(create)) f.push('create dejo de tomar el pagador de resolvePayerEmail')
   if (!/payer_email: payerEmail,\s*\}\)/.test(create)) f.push('la sesion dejo de registrar el payer_email que se le mando a Mercado Pago')
-  if (!/\} catch \(error\) \{\s*await closeSession\(ctx, session\.id, 'failed'\)\s*if \(isPayerRejection\(error\)\) \{[\s\S]{0,420}return payer\.explicit\s*\? fail\(422, 'mp_payer_email_rejected',[^\n]*\n\s*: PAYER_EMAIL_REQUIRED\(\)\s*\}\s*throw error\s*\}/.test(create)) {
+  if (!/\} catch \(error\) \{\s*if \(error instanceof MpApiError && error\.status >= 400 && error\.status < 500 && error\.status !== 408\) \{\s*await closeSession\(ctx, session\.id, 'failed'\)\s*\}\s*if \(isPayerRejection\(error\)\) \{[\s\S]{0,420}return payer\.explicit\s*\? fail\(422, 'mp_payer_email_rejected',[^\n]*\n\s*: PAYER_EMAIL_REQUIRED\(\)\s*\}\s*throw error\s*\}/.test(create)) {
     f.push('el pedido de otro email dejo de salir solo del rechazo del pagador en POST /preapproval (o un email ya indicado vuelve a pedirse en loop, o se tapan otros errores de Mercado Pago)')
   }
   if ((actions.match(/PAYER_EMAIL_REQUIRED\(\)/g) ?? []).length !== 2) f.push('mp_payer_email_required se responde en un lugar que no es «sin email en el JWT» ni «Mercado Pago rechazo el del JWT»')
@@ -269,13 +276,13 @@ function inspectFrontend(s) {
   if (/catch|getSubscription\(/.test(reconcile)) f.push('reconcilePayment vuelve a tapar el error con una lectura local')
   if (!/activated: result\.activated === true/.test(reconcile)) f.push('reconcilePayment no exige un true literal del servidor')
 
-  // Planes: el email de Mercado Pago se pide SOLO si el servidor lo requiere, no
-  // se precarga con el del login y no se guarda en el navegador.
+  // Planes: correo opcional previo o fallback por rechazo explícito del servidor.
+  // El camino normal sigue directo, sin precarga ni persistencia del dato.
   const plans = codigo(s.plansPage), dialog = codigo(s.emailDialog)
   if (!/const handleSelect = \(planId: SubscriptionPlan\) => startCheckout\(planId, mpPayerEmail\)/.test(plans) || !/const \[mpPayerEmail, setMpPayerEmail\] = useState\(''\)/.test(plans)) {
     f.push('Planes dejo de intentar primero sin email (el flujo normal no pide nada)')
   }
-  if (!/\} else if \(subscriptionErrorCode\(e\) === MP_PAYER_EMAIL_REQUIRED\) \{\s*setPayerPrompt\(/.test(plans) || (plans.match(/setPayerPrompt\(\{/g) ?? []).length !== 2) {
+  if (!/\} else if \(subscriptionErrorCode\(e\) === MP_PAYER_EMAIL_REQUIRED\) \{\s*setPayerPrompt\(/.test(plans)) {
     f.push('Planes abre el pedido de email por algo que no es el codigo mp_payer_email_required del servidor')
   }
   if (!/if \(email\) \{\s*setPayerPrompt\(\{ plan: planId, email, error: messageOf\(e\) \}\)\s*\} else if/.test(plans)) f.push('Planes reintenta solo cuando falla el email indicado (tiene que mostrar el error y esperar al usuario)')
@@ -394,6 +401,8 @@ if (process.argv.includes('--self-test')) {
     ['create: escribe el negocio', con('actions', "  ctx.log({\n    event: 'checkout_opened'", "  await ctx.store.updateBusinessBilling(businessId, { subscription_plan: plan }, ctx.now().toISOString())\n  ctx.log({\n    event: 'checkout_opened'"), 'abrir un checkout'],
     ['create: activa al abrir el checkout', con('actions', "  ctx.log({\n    event: 'checkout_opened'", "  await applyPreapprovalEvidence(ctx, created, { source: 'reconcile' })\n  ctx.log({\n    event: 'checkout_opened'"), 'abrir un checkout'],
     ['create: cancela la suscripcion vigente', con('actions', "  ctx.log({\n    event: 'checkout_opened'", "  if (business.mp_preapproval_id) await ctx.mp.cancelPreapproval(business.mp_preapproval_id)\n  ctx.log({\n    event: 'checkout_opened'"), 'suscripcion vigente'],
+    ['reemplazo: libera sin confirmar cancelacion', con('actions', "    if (!confirmed) return { kind: 'blocked' }", ''), 'cancelacion confirmada'],
+    ['reemplazo: ignora suscripcion autorizada', con('actions', "  if (state === 'authorized') return { kind: 'already_authorized' }", ''), 'recurso pendiente propio'],
     ['create: email del campo viejo del body', con('actions', '  const payerEmail = payer.email\n', '  const payerEmail = String(req.body.payer_email)\n'), 'dato del navegador'],
     ['email: mp_payer_email sin pasar por la validacion', con('actions', '  const payerEmail = payer.email\n', '  const payerEmail = typeof req.body.mp_payer_email === "string" ? req.body.mp_payer_email : payer.email\n'), 'fuera de resolvePayerEmail'],
     ['email: pide otro sin haber intentado con el del JWT', con('actions', '  if (raw === undefined || raw === null) {', '  if (raw === undefined) return { ok: false, response: PAYER_EMAIL_REQUIRED() }\n  if (raw === null) {'), 'primer intento'],
@@ -413,7 +422,7 @@ if (process.argv.includes('--self-test')) {
     ['email: rechazo del pagador en cualquier operacion', con('mpClient', 'error.operation !== CREATE_PREAPPROVAL_OPERATION || error.status !== 400', 'error.status !== 400'), 'isPayerRejection se amplio'],
     ['Planes: pide el email a todos', con('plansPage', '  const handleSelect = (planId: SubscriptionPlan) => startCheckout(planId, mpPayerEmail)', "  const handleSelect = (planId: SubscriptionPlan) => setPayerPrompt({ plan: planId, email: '', error: '' })"), 'intentar primero sin email'],
     ['Planes: abre el pedido ante cualquier error', con('plansPage', '      } else if (subscriptionErrorCode(e) === MP_PAYER_EMAIL_REQUIRED) {', '      } else if (e) {'), 'no es el codigo'],
-    ['Planes: reintenta solo cuando falla el email', con('plansPage', '        setPayerPrompt({ plan: planId, email, error: messageOf(e) })\n', '        void startCheckout(planId, email)\n'), 'no es el codigo'],
+    ['Planes: reintenta solo cuando falla el email', con('plansPage', '        setPayerPrompt({ plan: planId, email, error: messageOf(e) })\n', '        void startCheckout(planId, email)\n'), 'reintenta solo'],
     ['Planes: guarda el email en el navegador', con('plansPage', '      if (email) setMpPayerEmail(email)\n', "      if (email) { setMpPayerEmail(email); localStorage.setItem('mp_payer_email', email) }\n"), 'se guarda en el navegador'],
     ['Planes: manda el email del login como email de MP', con('plansPage', '  const { businessId } = useAuth()', '  const { businessId, user } = useAuth()\n  const loginEmail = user?.email'), 'email del login'],
     ['Dialogo: precarga el email del login', con('emailDialog', "import { AppButton, AppInput, AppModal } from '../../ui'", "import { AppButton, AppInput, AppModal } from '../../ui'\nimport { useAuth } from '../../contexts/AuthContext'"), 'email del login'],
@@ -421,7 +430,7 @@ if (process.argv.includes('--self-test')) {
     ['create: importe del body', con('actions', '  const terms = ctx.catalog.termsFor(plan, billingCycle)\n', '  const terms = { ...ctx.catalog.termsFor(plan, billingCycle)!, amount: Number(req.body.amount) }\n'), 'dato del navegador'],
     ['create: importe fijo, sin catalogo', con('actions', '  const terms = ctx.catalog.termsFor(plan, billingCycle)\n', "  const terms = { amount: 1, currency: 'ARS', frequency: 1, frequencyType: 'months' as const }\n"), 'catalogo del servidor'],
     ['create: referencia del body', con('actions', '      externalReference: reference,\n', '      externalReference: String(req.body.external_reference),\n'), 'dato del navegador'],
-    ['create: cobra otro importe que el de la sesion', con('actions', '      amount: terms.amount,\n      currency: terms.currency,\n    })\n  } catch (error) {\n    await closeSession', '      amount: 1,\n      currency: terms.currency,\n    })\n  } catch (error) {\n    await closeSession'), 'condiciones que fija el servidor'],
+    ['create: cobra otro importe que el de la sesion', con('actions', '      amount: terms.amount,\n      currency: terms.currency,\n    })\n  } catch (error) {', '      amount: 1,\n      currency: terms.currency,\n    })\n  } catch (error) {'), 'condiciones que fija el servidor'],
     ['create: entrega el checkout sin guardar el id', con('actions', '    await ctx.store.updateCheckoutSession(session.id, { mp_preapproval_id: created.id }, ctx.now().toISOString())\n', '    await Promise.resolve()\n'), 'perdio un paso'],
     ['create: guarda el id DESPUES de armar la respuesta', {
       ...base,
