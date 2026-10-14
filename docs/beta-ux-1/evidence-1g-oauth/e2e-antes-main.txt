@@ -1,0 +1,15 @@
+m7/google-oauth-return.spec.ts contra src/pages/Login.tsx de main (fccce50) · Chromium completo con bfcache · stack local
+
+  x  1 [m7-local] › google-oauth-return.spec.ts:93:1 › @m7 1. salir hacia Google y volver con «Atrás» deja el login usable, sin el destino del intento (6.9s)
+  x  2 [m7-local] › google-oauth-return.spec.ts:107:1 › @m7 2. un segundo intento de Google después de volver (12.0s)
+  x  3 [m7-local] › google-oauth-return.spec.ts:120:1 › @m7 3. contraseña después de volver: entra y respeta el destino pedido (7.0s)
+  ok 4 [m7-local] › google-oauth-return.spec.ts:141:1 › @m7 4. cancelar: el callback lo explica, y el login vuelve a estar usable y a ofrecer Google (2.9s)
+  x  5 [m7-local] › google-oauth-return.spec.ts:165:1 › @m7 5. la carga hacia Google se detiene antes de salir: el login vuelve a estar usable (6.7s)
+    Expected: "Continuar con Google"
+    Received: "Redirigiendo a Google…"
+    Expected: "Continuar con Google"
+    Received: "Redirigiendo a Google…"
+    Expected: "Continuar con Google"
+    Received: "Redirigiendo a Google…"
+  4 failed
+  1 passed (1.2m)
