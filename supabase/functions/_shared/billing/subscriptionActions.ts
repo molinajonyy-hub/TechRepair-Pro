@@ -371,11 +371,11 @@ async function findOpenCheckout(ctx: ActionContext, intent: CheckoutIntent): Pro
   const nowIso = now.toISOString()
 
   if (!pending.mp_preapproval_id) {
-    // Insertada y todavía sin preapproval: otro request la está completando, o
-    // se cortó a mitad de camino (y entonces nadie recibió un checkout).
+    // Puede ser un request Plan B en curso/interrumpido, o una sesión histórica
+    // Plan A: ese flujo sí entregaba checkout sin vincular el preapproval.
     if (sessionAgeMs(pending, now) < CHECKOUT_LINK_GRACE_MS) return { kind: 'in_progress' }
-    // El POST puede haber llegado a MP aunque su respuesta se haya perdido.
-    // Sin id no podemos confirmar la cancelación: requiere revisión de soporte.
+    // NULL/antigüedad no prueban ausencia de contrato. Sin id no podemos confirmar
+    // la cancelación ni asociar recursos: requiere revisión por identidad.
     return { kind: 'blocked' }
   }
 

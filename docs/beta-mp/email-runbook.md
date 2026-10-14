@@ -4,6 +4,65 @@ Fecha: 14/10/2026. Rama: `codex/beta-mp-email`. Base: `origin/main` actualizado,
 `fccce50` (PR #179, BETA-MP-RECOVERY). Esta entrega prepara código y PR; no habilita
 una intervención en producción.
 
+## Revisión posterior del PR #180
+
+El commit inicial `eefb51d` terminó con **CI 14/14 verde**; se verificó también la
+ejecución [38620624466](https://github.com/molinajonyy-hub/TechRepair-Pro/actions/runs/38620624466).
+Ese resultado certifica los tests de ese commit, no resuelve por sí solo la carrera
+de estado del proveedor descubierta en la revisión posterior.
+
+La migración candidata se reasignó a **`20261016120000`**, posterior a
+`20261015120000`, última versión productiva reportada, y a todas las demás
+migraciones versionadas del repositorio. El SQL es idéntico al candidato inicial:
+la revisión sólo cambia su versión y referencias. Un contrato de tests comprueba
+el orden y la unicidad del archivo; el guard impide una versión anterior o DML de
+limpieza. No se ejecutó reparación de historial ni migración productiva.
+
+El [informe de la reserva antigua](email-reservation-audit.md) registra los conteos
+reportados por el usuario, la procedencia posible Plan A/Plan B y el procedimiento
+por identidad. La fila del 02/10 se conserva sin modificación ni asociación. NULL y
+antigüedad no prueban que no exista un contrato remoto. Una única reserva sin ID
+es compatible con el índice y queda aislada por negocio.
+
+La revisión independiente reprodujo con mocks una autorización —con y sin pago
+remoto aprobado— entre GET `pending` y PUT de cancelación: el candidato inicial
+cancelaba el contrato ya autorizado y creaba otro. Dos pruebas de regresión
+expresan la invariante segura; una segunda lectura por sí sola no elimina esa
+ventana. La [API de actualización revisada](https://www.mercadopago.com.ar/developers/es/reference/online-payments/subscriptions/update-preapproval/put)
+documenta `version` en la respuesta, pero no una precondición de estado que nuestro
+cliente pueda usar para cancelar sólo si sigue pendiente. No se ejecutó esta
+reproducción contra Mercado Pago real.
+
+**Decisión pendiente antes de certificar:** se propone conservar la reutilización
+compatible y bloquear un pendiente incompatible sin enviar PUT, permitiendo el
+reemplazo sólo si la lectura por ID ya confirma cancelación. Ese cambio elimina
+la cancelación automática por diferencia de correo y requiere confirmar la
+política de recuperación. No presentar una relectura adicional como garantía
+atómica ni certificar el flujo anterior por tener CI verde.
+
+### Validaciones de esta revisión
+
+- Migración renumerada con SQL idéntico; referencias de runner, CI y documentación
+  actualizadas. Test de orden/versionado aprobado, y guard con **103 sabotajes**
+  aprobados sin falsos positivos.
+- `npm run test:beta-mp`: **34 unitarios aprobados; 509 tests de billing aprobados
+  y 2 fallidos de la carrera nueva**. Las dos regresiones se conservan activas
+  para bloquear la certificación: el servidor responde 200 donde se exige 409.
+  No se omiten ni se cambian sus expectativas para obtener verde.
+- Frontend y aislamiento de reserva legacy: **71/71 aprobados**. Incluye checkout
+  directo sin campo adicional, correo opcional y un NULL antiguo intacto que
+  bloquea sólo su negocio, sin consulta real ni asociación de Mercado Pago.
+- `npm run test:beta-mp:recovery:local`: **74 comprobaciones aprobadas** en
+  PostgreSQL/PostgREST temporal con la versión nueva, sin datos comerciales ni MP
+  real. Ese conjunto no elimina la carrera detectada por los tests nuevos.
+- TypeScript real, ESLint, Deno check, build y guard de SQL de sólo lectura
+  aprobados. Persisten los avisos de build ya descritos en la evidencia inicial.
+- No se repitió la revisión visual: esta revisión no modifica UI, estilos ni
+  componentes. Se preserva la evidencia inicial y se reejecutaron sus tests.
+
+**Resultado de la revisión: no certificable mientras las dos regresiones de
+carrera sigan fallando y no se confirme la política conservadora propuesta.**
+
 ## Discovery y resultado
 
 `Plans` ya enviaba el checkout sin correo explícito; el servidor tomaba el correo
@@ -60,7 +119,7 @@ Los bloqueos de reemplazo ofrecen «Verificar pago».
 | `src/pages/SubscriptionFailure.tsx`, `src/pages/PaymentPending.tsx` | Regreso para corregir y mensajes que dependen de evidencia. |
 | `src/services/subscriptionService.ts` | Documentación del contrato existente, sin persistencia ni cambio de payload. |
 | `supabase/functions/_shared/billing/subscriptionActions.ts`, `store.ts` | Verificación/cancelación confirmada, reserva por negocio y cierre condicional. |
-| `supabase/migrations/20261014184750_beta_mp_email_one_pending_business.sql` | Índice único por negocio pendiente; cero limpieza de datos, permisos o RLS. |
+| `supabase/migrations/20261016120000_beta_mp_email_one_pending_business.sql` | Índice único por negocio pendiente; cero limpieza de datos, permisos o RLS. |
 | `tests/components/betaMp/*`, `tests/unit/billingContracts.test.ts` | Casos nuevos y regresión; fixtures históricos explícitos para Recovery. |
 | `tests/sql/beta_mp_checkout_authority.test.sql`, `scripts/billing/*` | Restricciones y CAS contra PostgreSQL/PostgREST reales, MP simulado. |
 | `scripts/guards/beta-mp-billing-authority.mjs` | Conserva autoridad, admite la opción UX y exige cierre confirmado. |
@@ -70,7 +129,7 @@ Los bloqueos de reemplazo ofrecen «Verificar pago».
 No hay rediseño general, cambios de catálogo/precios, webhook, ledger, algoritmo de
 activación, POS, Mi Guita, dependencias ni contratos de facturación.
 
-## Evidencia de validación
+## Evidencia inicial de validación (`eefb51d`)
 
 - `npm run test:beta-mp`: guard + self-test (101 sabotajes), SQL operativo de sólo
   lectura, 33 tests unitarios y 507 tests de billing/Recovery, todos aprobados.
@@ -106,14 +165,16 @@ migraciones productivas, merge ni deploy.
   operación de Mercado Pago. Mantener la rama sin preview automático.
 - [ ] Confirmar que BETA-MP-RECOVERY está desplegado con su migración de identidad
   de pagos, configuración y firma de webhook. Este cambio no sustituye Recovery.
-- [ ] Ejecutar `email-preflight-readonly.sql` con acceso autorizado. Si hay
-  pendientes duplicados, huérfanos sin ID o contratos retirados localmente cuyo
-  estado remoto no se conoce, detener la habilitación y revisar por ID. No borrar
-  pagos ni cancelar contratos automáticamente para hacer pasar el índice.
+- [ ] Ejecutar `email-preflight-readonly.sql` con acceso autorizado. Duplicados
+  bloquean la instalación del índice. Reservas sin ID se conservan y aíslan por
+  negocio hasta revisar su identidad; no requieren limpieza para instalarlo.
+  Contratos retirados localmente con estado remoto incierto requieren revisión
+  por ID. No borrar pagos ni cancelar contratos para hacer pasar el índice.
 - [ ] Revisar duplicados históricos antes de aplicar el índice. La migración falla
   si existen duplicados o no consigue el lock en 5 segundos; no modifica filas.
-  Revisar el orden de versiones: el archivo generado el 14/10 precede al timestamp
-  de Recovery del 15/10 ya presente en main. No ejecutar un push remoto ciego.
+  Verificar que la versión candidata `20261016120000` siga siendo posterior a
+  todas las versiones aplicadas al momento del release; no ejecutar un push
+  remoto ciego ni reparar historial para adaptar el orden anterior.
 - [ ] En la ventana autorizada, coordinar la restricción de nuevas contrataciones
   mientras se instala y verifica el índice, luego actualizar `mp-subscription` y
   el frontend. No habilitar el backend nuevo sin la protección del índice.

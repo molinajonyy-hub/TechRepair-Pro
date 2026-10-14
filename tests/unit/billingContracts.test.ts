@@ -10,7 +10,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { CREATE_PREAPPROVAL_OPERATION, MpApiError, isPayerRejection } from '../../supabase/functions/_shared/billing/mpClient.ts'
 import { PLAN_PRICES, buildPlanCatalog } from '../../supabase/functions/_shared/billing/planCatalog.ts'
 
@@ -31,6 +31,19 @@ const trigger   = read('../../supabase/migrations/_legacy/20260623140000_billing
 const adminRpc  = read('../../supabase/migrations/_legacy/20260623121000_billing_stageC_admin_rpcs.sql')
 const entRpc    = read('../../supabase/migrations/_legacy/20260623101000_billing_stageA_entitlements_rpc.sql')
 const platform  = read('../../supabase/migrations/_legacy/20260623120000_billing_stageC_admin_roles_audit.sql')
+
+test('Email: la migración candidata sucede a Recovery y a las demás versiones del repositorio', () => {
+  const files = readdirSync(new URL('../../supabase/migrations/', import.meta.url)).filter(n => /^\d{14}_.*\.sql$/.test(n))
+  const email = files.filter(n => n.endsWith('_beta_mp_email_one_pending_business.sql'))
+  assert.equal(email.length, 1, 'sólo debe existir una versión de la migración candidata')
+  const candidate = email[0]
+  const version = candidate.slice(0, 14)
+  assert.ok(version > '20261015120000', 'debe ser posterior a la última versión productiva reportada')
+  assert.ok(files.filter(n => n !== candidate).every(n => n.slice(0, 14) < version), 'la candidata debe aplicar al final')
+  for (const path of ['../../.github/workflows/ci.yml', '../../scripts/billing/beta-mp-recovery-local.mjs', '../../docs/beta-mp/email-runbook.md']) {
+    assert.ok(read(path).includes(candidate), `${path} debe referenciar la versión candidata vigente`)
+  }
+})
 
 // ── Webhook: reliability + mandatory signature + idempotency ────────────────
 test('webhook AWAIT-ea el procesamiento (sin fire-and-forget)', () => {

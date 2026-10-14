@@ -28,6 +28,7 @@ import { join } from 'node:path'
 const MIG_DIR = 'supabase/migrations'
 const MIGRATION = '20261012120000_beta_mp_checkout_session_server_authority.sql'
 const PLAN_B_MIGRATION = '20261013120000_beta_mp_plan_b_session_preapproval_unique.sql'
+const EMAIL_MIGRATION = '20261016120000_beta_mp_email_one_pending_business.sql'
 const BILLING = 'supabase/functions/_shared/billing'
 
 const read = (p) => readFileSync(p, 'utf8')
@@ -305,6 +306,14 @@ function inspectConfig(config) {
 
 function inspectMigraciones(s) {
   const f = []
+  const email = s.migraciones.find(m => m.nombre === EMAIL_MIGRATION)
+  if (!email || email.nombre.slice(0, 14) <= '20261015120000') {
+    f.push('Email: falta la version posterior a la ultima migracion aplicada reportada')
+  } else {
+    const candidate = sinComentariosSql(email.sql)
+    if (!/CREATE UNIQUE INDEX uq_scs_pending_business\s+ON public\.subscription_checkout_sessions \(business_id\)\s+WHERE status = 'pending';/.test(candidate)) f.push('Email: falta unicidad de pendientes por negocio')
+    if (/\b(UPDATE|DELETE FROM|INSERT INTO)\s+public\./i.test(candidate)) f.push('Email: la migracion no puede limpiar ni asociar filas')
+  }
   const sql = sinComentariosSql(s.migration)
   if (!/REVOKE ALL ON TABLE public\.subscription_checkout_sessions FROM PUBLIC, anon, authenticated;/.test(sql)) f.push('la migracion no revoca la tabla de checkout a PUBLIC/anon/authenticated')
   if (!/GRANT SELECT, INSERT, UPDATE ON TABLE public\.subscription_checkout_sessions TO service_role;/.test(sql)) f.push('la migracion no da SELECT/INSERT/UPDATE a service_role')
@@ -492,6 +501,8 @@ if (process.argv.includes('--self-test')) {
     ['posterior: dedupe por recurso', posterior('CREATE UNIQUE INDEX uq_x ON public.subscription_events (provider, event_type, external_id) WHERE external_id IS NOT NULL;'), 'por recurso'],
     ['posterior: borra el dedupe', posterior('DROP INDEX public.uq_subscription_events_notification;'), 'dedupe por notificacion'],
     ['Plan B: el indice deja de ser unico', con('planBMigration', 'CREATE UNIQUE INDEX IF NOT EXISTS uq_scs_mp_preapproval', 'CREATE INDEX IF NOT EXISTS uq_scs_mp_preapproval'), 'falta el indice unico'],
+    ['Email: version candidata antes de las aplicadas', { ...base, migraciones: base.migraciones.map(m => m.nombre === EMAIL_MIGRATION ? { ...m, nombre: '20261001000000_beta_mp_email_one_pending_business.sql' } : m) }, 'version posterior'],
+    ['Email: limpieza de filas en migracion', { ...base, migraciones: base.migraciones.map(m => m.nombre === EMAIL_MIGRATION ? { ...m, sql: m.sql.replace('COMMIT;', "UPDATE public.subscription_checkout_sessions SET status = 'expired';\nCOMMIT;") } : m) }, 'limpiar ni asociar'],
     ['Plan B: la migracion vincula a mano el smoke', con('planBMigration', 'COMMIT;\n', "UPDATE public.businesses SET mp_preapproval_id = '33b5f5ad' WHERE name = 'x';\nCOMMIT;\n"), 'Plan B: la migracion hace DML'],
     ['Plan B: la migracion abre la tabla', con('planBMigration', 'COMMIT;\n', 'GRANT SELECT ON TABLE public.subscription_checkout_sessions TO authenticated;\nCOMMIT;\n'), 'toca grants o policies'],
     ['posterior: borra la unicidad preapproval → sesion', posterior('DROP INDEX IF EXISTS public.uq_scs_mp_preapproval;'), 'unicidad preapproval'],
