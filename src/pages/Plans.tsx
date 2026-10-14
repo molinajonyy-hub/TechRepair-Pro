@@ -92,13 +92,13 @@ export function Plans() {
     checkoutBusy.current = true
     setError(''); setLoading(planId)
     try {
+      if (email) setMpPayerEmail(email)
       const res = await createSubscription({
         business_id:   businessId,
         plan:          planId,
         billing_cycle: cycle,
         ...(email ? { mp_payer_email: email } : {}),
       })
-      if (email) setMpPayerEmail(email)
       window.location.href = res.init_point
     } catch (e: unknown) {
       checkoutBusy.current = false
@@ -107,14 +107,15 @@ export function Plans() {
       if (code === 'checkout_already_authorized' || code === 'checkout_replacement_blocked') {
         setPayerPrompt(null)
         setError(messageOf(e))
-      } else if (email) {
-        // El reintento falló: se muestra el motivo y NO se reintenta solo. El
-        // usuario corrige el email o cierra.
+      } else if (email && (code === 'mp_payer_email_rejected' || code === 'invalid_payer_email' || code === MP_PAYER_EMAIL_REQUIRED)) {
+        // Sólo un rechazo específico del correo pide corregirlo. Un fallo de
+        // red o del proveedor no demuestra que ese correo sea incorrecto.
         setPayerPrompt({ plan: planId, email, error: messageOf(e) })
       } else if (subscriptionErrorCode(e) === MP_PAYER_EMAIL_REQUIRED) {
         // Mercado Pago no aceptó el email del login: recién ahí se pide el suyo.
         setPayerPrompt({ plan: planId, email: '', error: '' })
       } else {
+        setPayerPrompt(null)
         setError(messageOf(e))
       }
     }

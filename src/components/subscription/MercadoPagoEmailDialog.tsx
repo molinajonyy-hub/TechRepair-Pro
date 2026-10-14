@@ -86,7 +86,9 @@ export function MercadoPagoEmailDialog({
         <p style={{ margin: 0, fontSize: '0.875rem', lineHeight: 1.55, color: 'var(--text-secondary)' }}>
           {optionalEmail
             ? 'Si usás un correo diferente en Mercado Pago, ingresalo acá. No podemos detectarlo automáticamente. Se usará sólo para este checkout.'
-            : 'Mercado Pago no pudo iniciar la suscripción con el email de tu cuenta de TechRepair Pro. Ingresá el email asociado a tu cuenta de Mercado Pago.'}
+            : attemptedEmail
+              ? 'Mercado Pago no pudo iniciar la suscripción con el correo indicado. Revisá el email de tu cuenta de Mercado Pago.'
+              : 'Mercado Pago no pudo iniciar la suscripción con el email de tu cuenta de TechRepair Pro. Ingresá el email asociado a tu cuenta de Mercado Pago.'}
         </p>
         <AppInput
           ref={inputRef}

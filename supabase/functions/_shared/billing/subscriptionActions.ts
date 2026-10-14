@@ -309,8 +309,7 @@ async function createCheckout(ctx: ActionContext, req: ActionRequest, businessId
   const checkoutUrl = problem ? null : preapprovalCheckoutUrl(created)
   if (!checkoutUrl) {
     ctx.log({ event: 'preapproval_rejected', business_id: businessId, session_id: session.id, problem: problem ?? 'no_init_point' })
-    await discardUnlinkedPreapproval(ctx, created, reference)
-    await closeSession(ctx, session.id, 'failed')
+    if (await discardUnlinkedPreapproval(ctx, created, reference)) await closeSession(ctx, session.id, 'failed')
     return fail(502, 'checkout_unavailable', 'Mercado Pago no devolvió un checkout válido. Probá de nuevo en unos minutos.')
   }
 
@@ -319,8 +318,7 @@ async function createCheckout(ctx: ActionContext, req: ActionRequest, businessId
   try {
     await ctx.store.updateCheckoutSession(session.id, { mp_preapproval_id: created.id }, ctx.now().toISOString())
   } catch (error) {
-    await discardUnlinkedPreapproval(ctx, created, reference)
-    await closeSession(ctx, session.id, 'failed')
+    if (await discardUnlinkedPreapproval(ctx, created, reference)) await closeSession(ctx, session.id, 'failed')
     throw error
   }
 
@@ -402,21 +400,11 @@ async function findOpenCheckout(ctx: ActionContext, intent: CheckoutIntent): Pro
     if (checkoutUrl) return { kind: 'reuse', session: pending, checkoutUrl }
   }
 
-  if (state !== 'pending' && state !== 'cancelled') return { kind: 'blocked' }
-  if (state === 'pending') {
-    // Nunca se cancela un recurso autorizado/activo por cambiar el email.
-    await ctx.mp.cancelPreapproval(pre.id)
-    let confirmed = false
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      const checked = await ctx.mp.getPreapproval(pre.id)
-      if (!checked || checked.id !== pre.id || referenceConflicts(checked, pending)) return { kind: 'blocked' }
-      const checkedState = preapprovalState(checked.status)
-      if (checkedState === 'authorized') return { kind: 'already_authorized' }
-      if (checkedState === 'cancelled') { confirmed = true; break }
-      if (checkedState !== 'pending') return { kind: 'blocked' }
-    }
-    if (!confirmed) return { kind: 'blocked' }
-  }
+  // GET pending → PUT cancelled no es condicional en MP: otra pestaña puede
+  // autorizar/pagar entre ambas llamadas. Cambiar correo, precio o vigencia no
+  // autoriza cancelar ese contrato. Soporte debe resolverlo por identidad;
+  // sólo un contrato que YA vuelve cancelado permite reemplazar esta reserva.
+  if (state !== 'cancelled') return { kind: 'blocked' }
   // CAS: dos reintentos pueden releer el mismo recurso cancelado. Sólo uno
   // libera ESTA sesión; uq_scs_pending_business protege la nueva inserción.
   return await ctx.store.closePendingCheckout(pending, nowIso) ? { kind: 'none' } : { kind: 'in_progress' }
@@ -432,25 +420,25 @@ async function closeSession(ctx: ActionContext, sessionId: string, status: Check
 }
 
 /**
- * Un preapproval recién creado que no quedó vinculado a su sesión no puede
- * activar nada: se cancela para que tampoco se pueda pagar.
- *
- * Sólo se cancela el que creó ESTE request — nunca la suscripción vigente del
- * negocio ni el preapproval de otro checkout. Si Mercado Pago lo devolvió con
- * otra referencia, o si su id ya pertenece a otra sesión, no es nuestro y se
- * deja como está.
+ * ¿Se puede cerrar localmente una intención cuyo recurso no quedó vinculado?
+ * Sólo si una lectura por el ID recién creado ya confirma cancelación. Sin
+ * confirmación se conserva pending sin ID, como ante un timeout: no se entregó
+ * checkout, pero tampoco se probó que sea seguro emitir otro POST.
+ * No se cancela automáticamente ni se asocia un recurso de identidad incierta.
  */
-async function discardUnlinkedPreapproval(ctx: ActionContext, created: MpPreapproval | null, reference: string): Promise<void> {
+async function discardUnlinkedPreapproval(ctx: ActionContext, created: MpPreapproval | null, reference: string): Promise<boolean> {
   const createdId = typeof created?.id === 'string' ? created.id.trim() : ''
-  if (!created || !createdId) return
+  if (!created || !createdId) return false
   const reported = reportedReference(created)
-  if (reported !== '' && reported !== reference) return
+  if (reported !== '' && reported !== reference) return false
   try {
-    if (await ctx.store.findCheckoutSessionByPreapprovalId(createdId)) return
-    await ctx.mp.cancelPreapproval(createdId)
-  } catch {
-    ctx.log({ event: 'unlinked_preapproval_not_cancelled', preapproval_id: createdId })
-  }
+    if (await ctx.store.findCheckoutSessionByPreapprovalId(createdId)) return false
+    const checked = await ctx.mp.getPreapproval(createdId)
+    if (checked?.id === createdId && (reportedReference(checked) === '' || reportedReference(checked) === reference)
+      && preapprovalState(checked.status) === 'cancelled') return true
+  } catch { /* Un error no prueba que el recurso remoto esté cerrado. */ }
+  ctx.log({ event: 'unlinked_preapproval_not_cancelled', preapproval_id: createdId })
+  return false
 }
 
 function sessionAgeMs(session: CheckoutSessionRow, now: Date): number {

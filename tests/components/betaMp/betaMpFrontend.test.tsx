@@ -376,6 +376,22 @@ describe('E · Planes: el email de Mercado Pago se pide sólo si hace falta', ()
     return { status: 422, body: RECHAZADO }
   })
 
+  const elegirOtroCorreo = () => {
+    fireEvent.click(screen.getByRole('button', { name: '¿Usás otro correo en Mercado Pago?' }))
+    escribir('cuenta@mp.invalid')
+    fireEvent.click(screen.getByRole('button', { name: 'Usar este correo' }))
+  }
+  async function errorGeneral(tipo: 'mp_unavailable' | 'red') {
+    if (tipo === 'red') {
+      const { FunctionsFetchError } = await import('@supabase/supabase-js')
+      h.invoke.mockResolvedValue({ data: null, error: new FunctionsFetchError(new Error('red interrumpida')) })
+      return 'No pudimos enviar la solicitud al servicio de pago. Revisá tu conexión e intentá de nuevo.'
+    }
+    const mensaje = 'No pudimos consultar a Mercado Pago. Probá de nuevo en unos minutos.'
+    servidor(() => ({ status: 502, body: { error: mensaje, code: 'mp_unavailable' } }))
+    return mensaje
+  }
+
   beforeEach(() => { window.location.hash = '' })
   afterEach(() => { window.location.hash = '' })
 
@@ -499,6 +515,73 @@ describe('E · Planes: el email de Mercado Pago se pide sólo si hace falta', ()
     expect(await screen.findByText('No pudimos consultar a Mercado Pago. Probá de nuevo en unos minutos.')).not.toBeNull()
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(screen.queryByLabelText(ETIQUETA)).toBeNull()
+  })
+
+  it.each(['mp_unavailable', 'red'] as const)('correo opcional y error %s: muestra la causa general sin pedir otro correo ni reintentar solo', async tipo => {
+    const mensaje = await errorGeneral(tipo)
+    montarPlanes()
+    elegirOtroCorreo()
+    elegir('Pro')
+
+    const alerta = await screen.findByRole('alert')
+    expect(alerta.textContent).toContain(mensaje)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.queryByLabelText(ETIQUETA)).toBeNull()
+    expect(screen.queryByText(/Mercado Pago no pudo iniciar la suscripción con el email/)).toBeNull()
+    expect(window.location.hash).toBe('')
+    await act(async () => { await new Promise(r => setTimeout(r, 30)) })
+    expect(creates()).toHaveLength(1)
+    expect(creates()[0].mp_payer_email).toBe('cuenta@mp.invalid')
+
+    // El error libera el bloqueo. Sólo una acción nueva del usuario vuelve a
+    // solicitar checkout, conservando el correo opcional indicado en memoria.
+    servidor(() => ({ status: 200, body: { init_point: CHECKOUT } }))
+    elegir('Full')
+    elegir('Pro')
+    await waitFor(() => expect(window.location.hash).toBe(CHECKOUT))
+    expect(creates()).toHaveLength(2)
+    expect(creates()[1]).toMatchObject({ plan: 'full', mp_payer_email: 'cuenta@mp.invalid' })
+  })
+
+  it.each(['mp_unavailable', 'red'] as const)('corrección ya abierta y error %s: cierra el formulario y permite sólo un reintento manual', async tipo => {
+    servidor(() => ({ status: 422, body: REQUERIDO }))
+    montarPlanes()
+    elegir('Pro')
+    await screen.findByRole('dialog')
+    escribir('cuenta@mp.invalid')
+    const mensaje = await errorGeneral(tipo)
+    continuar()
+
+    expect((await screen.findByRole('alert')).textContent).toContain(mensaje)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.queryByLabelText(ETIQUETA)).toBeNull()
+    expect(screen.queryByText(/Mercado Pago no pudo iniciar la suscripción con el email/)).toBeNull()
+    expect((screen.getByRole('button', { name: 'Elegir Pro' }) as HTMLButtonElement).disabled).toBe(false)
+    expect(window.location.hash).toBe('')
+    await act(async () => { await new Promise(r => setTimeout(r, 30)) })
+    expect(creates()).toHaveLength(2)
+
+    servidor(() => ({ status: 200, body: { init_point: CHECKOUT } }))
+    elegir('Pro')
+    elegir('Full')
+    await waitFor(() => expect(window.location.hash).toBe(CHECKOUT))
+    expect(creates()).toHaveLength(3)
+    expect(creates()[2].plan).toBe('pro')
+  })
+
+  it.each(['mp_payer_email_rejected', 'invalid_payer_email', 'mp_payer_email_required'])('correo opcional y código específico %s: mantiene la corrección con el correo intentado', async code => {
+    const mensaje = 'Revisá el correo indicado para Mercado Pago.'
+    servidor(() => ({ status: code === 'invalid_payer_email' ? 400 : 422, body: { error: mensaje, code } }))
+    montarPlanes()
+    elegirOtroCorreo()
+    elegir('Pro')
+
+    const dialogo = await screen.findByRole('dialog')
+    expect(dialogo.textContent).toContain(mensaje)
+    expect(campo().value).toBe('cuenta@mp.invalid')
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(creates()).toHaveLength(1)
+    expect(window.location.hash).toBe('')
   })
 
   it.each([
@@ -635,7 +718,16 @@ describe('E · Planes: el email de Mercado Pago se pide sólo si hace falta', ()
     await waitFor(() => expect(creates()).toHaveLength(1))
     await act(async () => { resolve({ data: null, error: new Error('red') }) })
     expect((screen.getByRole('button', { name: 'Elegir Pro' }) as HTMLButtonElement).disabled).toBe(false)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.queryByLabelText(ETIQUETA)).toBeNull()
+    expect(screen.getByRole('alert').textContent).toContain('Error en la función de pago.')
+    expect(creates()).toHaveLength(1)
     expect(window.location.hash).toBe('')
+    servidor(() => ({ status: 200, body: { init_point: CHECKOUT } }))
+    elegir('Pro')
+    elegir('Full')
+    await waitFor(() => expect(window.location.hash).toBe(CHECKOUT))
+    expect(creates()).toHaveLength(2)
   })
 })
 

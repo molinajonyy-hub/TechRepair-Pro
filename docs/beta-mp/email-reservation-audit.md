@@ -1,9 +1,10 @@
 # BETA-MP-EMAIL — auditoría de la reserva antigua sin preapproval
 
-Fecha: 14/10/2026. Alcance: historia del repositorio y procedimiento propuesto para
-el PR #180. Esta auditoría no consultó producción ni Mercado Pago y no modificó
-sesiones, contratos, pagos, acceso o datos comerciales. No certifica el circuito
-real ni autoriza operaciones posteriores.
+Fecha: 14/10/2026. Alcance: historia del repositorio, lecturas productivas
+expresamente autorizadas por identidad y procedimiento propuesto para el PR #180.
+Esta auditoría no invocó Mercado Pago ni modificó sesiones, contratos, pagos,
+acceso o datos comerciales. No certifica el circuito real ni autoriza operaciones
+posteriores.
 
 ## Preflight informado
 
@@ -18,9 +19,40 @@ real ni autoriza operaciones posteriores.
 | Índice nuevo `uq_scs_pending_business` | Aún no instalado |
 | Última migración aplicada | `20261015120000` |
 
-No se proporcionaron el ID de esa sesión, su negocio, referencia, hora completa
-ni logs. Los conteos no permiten identificarla ni concluir por qué quedó así.
-Tampoco prueban la ausencia de contratos o pagos fuera del vínculo local.
+Estos conteos globales no se repitieron durante la auditoría. Posteriormente el
+usuario aportó identidad y timestamps exactos y autorizó exclusivamente lecturas
+productivas acotadas a esos datos y a la ventana de logs indicada abajo. Los
+conteos no prueban la ausencia de contratos o pagos fuera del vínculo local.
+
+## Lecturas autorizadas efectuadas
+
+Evidencia obtenida el 14/10/2026 a las 20:21 UTC (17:21 de Argentina), mediante el
+conector Supabase del proyecto de TechRepair Pro. No se usaron secretos locales,
+correos del pagador, `reconcile`, el checkout ni APIs de Mercado Pago. Los IDs
+completos y las consultas quedaron sólo en un archivo local ignorado por Git:
+`test-results/artifacts/beta-mp-email-reservation-audit/read-only-evidence.json`.
+Los resultados siguientes están anonimizados para el PR.
+
+| Lectura acotada | Observación |
+|---|---|
+| Sesión por ID + negocio + referencia + timestamp completo + plan MP + `pending` + ID NULL, todos aportados por el usuario | Una sola fila coincide. Creada el 02/10 a las 12:45:25.317394 UTC y actualizada a las 12:48:18.453 UTC; Básico mensual, ARS 15.000; `mp_preapproval_plan_id` presente; `mp_preference_id`, `mp_preapproval_id` y `confirmed_at` NULL. |
+| Negocio por su ID exacto | `trialing`, sin plan, `access_source`, preapproval vinculado, último pago ni períodos de suscripción. `subscription_provider = mercadopago` es metadata local y no demuestra un contrato o cobro real. |
+| Eventos por el negocio exacto o por ID/referencia exactos de esa sesión | Cero coincidencias. No se amplió la búsqueda a otros negocios o referencias. |
+| Logs entre `2026-10-02T12:40:00Z` y `2026-10-02T12:55:00Z`, exigiendo uno de los IDs aportados en los atributos y restringiendo luego a billing/funciones | Dos GET de sesiones por ese negocio, a las 12:45:24.807 y 12:48:18.462 UTC; un PATCH histórico de esa sesión exacta a las 12:48:18.935 UTC, respuesta 204. Cliente Deno/Supabase Edge Runtime. |
+
+El PATCH es evidencia de una operación histórica; esta auditoría sólo leyó sus
+logs. No se obtuvo su cuerpo, la respuesta del request original de checkout ni
+la versión desplegada que lo atendió. Una consulta inicial de logs por identidad
+de negocio alcanzó el límite de 50 filas de tráfico genérico; la consulta
+posterior restringida a billing devolvió las tres filas de arriba. No se guardan
+headers, información de autenticación ni IPs en el artefacto privado.
+
+No se recuperó un mensaje de creación correlacionado por ID en los atributos
+seleccionados. Esto no equivale a ausencia de invocaciones: un mensaje sin esos
+IDs en los atributos queda fuera del filtro. Tampoco se consultó el proveedor,
+ni se estableció que no haya un recurso remoto. El snapshot refuerza la
+compatibilidad con Plan A; no demuestra qué contrato, si alguno, se originó en
+ese checkout.
 
 ## Qué explica la historia del repositorio
 
@@ -51,17 +83,23 @@ Tampoco prueban la ausencia de contratos o pagos fuera del vínculo local.
    Un timeout o la pérdida de respuesta no demuestra que el proveedor no creó el
    recurso. Ver [secuencia de creación y vínculo](https://github.com/molinajonyy-hub/TechRepair-Pro/blob/70564d737d4aa05b79f53fbb5ab50320b8cfd8de/supabase/functions/_shared/billing/subscriptionActions.ts#L178).
 
-**Conclusión limitada:** una reserva Plan A es una explicación compatible con la
-fecha y el discovery histórico. Una ejecución Plan B interrumpida es otra
-posibilidad. No hay evidencia suficiente para atribuir esta fila a ninguna de
-ellas ni para asociarla con el contrato del smoke histórico. Las versiones de
-archivo de migración tampoco establecen cuándo se ejecutó cada request o qué
-versión de función lo atendió.
+**Conclusión limitada:** el plan MP presente, el ID nulo, los accesos desde Deno
+y la ventana de creación son compatibles con el flujo servidor de Plan A y con
+el discovery histórico. No se recuperó evidencia directa del handler original
+que permita cerrar la procedencia; una interrupción de Plan B es otra categoría
+posible para reservas NULL en general, no una causa demostrada para esta fila.
+No se asocia esta fila con el contrato del smoke histórico ni con otro recurso
+de MP. Las versiones de archivo de migración tampoco establecen qué versión de
+función atendió cada request.
 
 ## Evidencia necesaria, acotada por identidad
 
-Preparar un expediente privado; el PR sólo debe conservar resultados anonimizados.
-No copiar correos, payloads con datos personales ni IDs comerciales reales al PR.
+Mantener el expediente privado; el PR sólo conserva resultados anonimizados. El
+snapshot de sesión y negocio y las lecturas de eventos/logs descritas arriba ya
+se obtuvieron. Siguen faltando evidencia directa del request original, versión
+de función, autorización del owner para cualquier intervención y, si se decide
+investigarlo con autorización separada, evidencia del proveedor. No copiar
+correos, payloads con datos personales ni IDs comerciales reales al PR.
 
 - Identidad exacta de `subscription_checkout_sessions`: `id`, `business_id`,
   `user_id`, `external_reference`, `status`, `created_at`, `updated_at`,
@@ -92,10 +130,11 @@ debe registrarse como incertidumbre, no como permiso para liberar la reserva.
 
 ## Procedimiento propuesto — no ejecutado
 
-1. Obtener el snapshot anterior mediante lecturas estrictamente acotadas al ID de
-   sesión y al negocio reportados. Registrar quién aportó cada evidencia y su
-   momento de observación. Si falta identidad o la evidencia es contradictoria,
-   mantener el bloqueo y derivar al owner.
+1. Conservar el snapshot ya obtenido y su alcance autorizado. Cualquier futura
+   relectura o ampliación requiere respetar la identidad y autorización de ese
+   momento. Registrar quién aportó cada evidencia y su momento de observación.
+   Si falta evidencia o es contradictoria, mantener el bloqueo y derivar al
+   owner.
 2. Clasificar la procedencia con columnas y logs originales. Una referencia
    `trpcs_…` por sí sola no distingue Plan A de Plan B. Nunca asignar un
    preapproval a esta sesión por email, importe, plan, fecha o cercanía de logs.
