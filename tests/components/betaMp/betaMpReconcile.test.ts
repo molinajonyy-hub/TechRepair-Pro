@@ -78,7 +78,7 @@ describe('reconcile sin webhook recupera la compra', () => {
   it('con dos intenciones pagas queda vigente la más nueva, y la anterior se cancela en Mercado Pago', async () => {
     const vieja = await w.openCheckout(OWNER_A, BIZ_A, 'basico')
     w.advance(HOUR)
-    const nueva = await w.openCheckout(OWNER_A, BIZ_A, 'full')
+    const nueva = await w.openLegacyCheckout(OWNER_A, BIZ_A, 'full')
     w.pay(vieja.preapprovalId)
     w.pay(nueva.preapprovalId)
 

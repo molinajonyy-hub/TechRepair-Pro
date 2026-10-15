@@ -18,7 +18,8 @@
 // crea el preapproval en `POST /preapproval` (Plan B) y puede omitir la
 // `external_reference`, como se midió en el smoke real del 2026-10-02.
 //
-// Requiere las migraciones 20261012120000, 20261013120000 y 20261015120000 y Node >= 22.18 (importa los
+// Requiere las migraciones 20261012120000, 20261013120000, 20261015120000,
+// 20261016120000 y Node >= 22.18 (importa los
 // módulos .ts tal cual). Deja la base como la encontró.
 //
 //   node scripts/billing/beta-mp-local.mjs
@@ -67,8 +68,9 @@ const main = async () => {
   const applied = sql(`SELECT (to_regclass('public.uq_subscription_events_notification') IS NOT NULL)::int
     + (SELECT count(*) FROM pg_attribute WHERE attrelid = 'public.subscription_checkout_sessions'::regclass AND attname = 'mp_preapproval_id')
     + (to_regclass('public.uq_scs_mp_preapproval') IS NOT NULL)::int
-    + (to_regclass('public.uq_payments_mp_payment_id') IS NOT NULL)::int;`)
-  assert(applied === '4', 'Las tres migraciones BETA-MP, Plan B y Recovery no estan aplicadas en la base local')
+    + (to_regclass('public.uq_payments_mp_payment_id') IS NOT NULL)::int
+    + (to_regclass('public.uq_scs_pending_business') IS NOT NULL)::int;`)
+  assert(applied === '5', 'Falta una de las cuatro migraciones BETA-MP, Plan B, Recovery o Email en la base local')
 
   let signingKey = Buffer.from(vars.PGRST_JWT_SECRET)
   if (vars.PGRST_JWT_SECRET.trim().startsWith('{')) {
@@ -243,13 +245,49 @@ const main = async () => {
 
   // El índice único real: el preapproval de A no se puede vincular a una sesión de C.
   const preA = mp.preapprovals.get(pre('a'))
+  const putsBeforeLinkFailure = mp.calls.filter(c => c.method === 'PUT').length
   mp.tamperCreated = (row) => { row.id = pre('a'); row.init_point = `https://www.mercadopago.com.ar/subscriptions/checkout?preapproval_id=${pre('a')}` }
   r = await call('ownerC', { action: 'create', business_id: ids.C, plan: 'pro', billing_cycle: 'annual' })
   mp.tamperCreated = null
   check(r.status === 503 && r.body.init_point === undefined && session(pre('a')).business_id === ids.A
-    && count('subscription_checkout_sessions', `business_id = '${ids.C}' AND status = 'failed' AND mp_preapproval_id IS NULL`) === 1,
-  'el preapproval de A no se vincula a una sesión de C: 23505 real, 503 sin checkout, sesión failed')
+    && count('subscription_checkout_sessions', `business_id = '${ids.C}' AND status = 'pending' AND mp_preapproval_id IS NULL`) === 1
+    && mp.calls.filter(c => c.method === 'PUT').length === putsBeforeLinkFailure,
+  'el preapproval de A no se vincula a C: 23505 real, 503 sin checkout, reserva pending sin cancelar el recurso ajeno')
   mp.preapprovals.set(pre('a'), preA)
+  const postsAfterLinkFailure = mp.created().length
+  r = await call('ownerC', { action: 'create', business_id: ids.C, plan: 'pro', billing_cycle: 'annual' })
+  check(r.status === 409 && r.body.init_point === undefined && mp.created().length === postsAfterLinkFailure
+    && mp.calls.filter(c => c.method === 'PUT').length === putsBeforeLinkFailure
+    && huella('C') === antesC && count('payments', `business_id = '${ids.C}'`) === 0
+    && mp.preapprovals.get(pre('a')).status === 'authorized',
+  'retry tras fallo de vínculo: sin segundo POST, PUT, ledger ni cambios de acceso; A sigue authorized')
+  const unlinkedFixtureId = sql(`SELECT id FROM public.subscription_checkout_sessions WHERE business_id = '${ids.C}' AND status = 'pending' AND mp_preapproval_id IS NULL;`)
+  // Reset only the synthetic local fixture so later scenarios can run independently.
+  // This is not a recovery procedure for a production reservation with an unknown remote outcome.
+  sql(`DELETE FROM public.subscription_checkout_sessions WHERE id = '${unlinkedFixtureId}' AND business_id = '${ids.C}' AND mp_preapproval_id IS NULL;`)
+
+  // An invalid creation response is also uncertain: a remote contract may exist.
+  const putsBeforeInvalidResponse = mp.calls.filter(c => c.method === 'PUT').length
+  mp.nextIds.push(pre('invalid_checkout'))
+  mp.tamperCreated = (row) => { row.init_point = 'https://untrusted.invalid/checkout' }
+  r = await call('ownerC', { action: 'create', business_id: ids.C, plan: 'pro', billing_cycle: 'annual' })
+  mp.tamperCreated = null
+  check(r.status === 502 && r.body.init_point === undefined
+    && count('subscription_checkout_sessions', `business_id = '${ids.C}' AND status = 'pending' AND mp_preapproval_id IS NULL`) === 1
+    && mp.preapprovals.get(pre('invalid_checkout')).status === 'pending'
+    && mp.calls.filter(c => c.method === 'PUT').length === putsBeforeInvalidResponse,
+  'respuesta de creación inválida: reserva pending sin enlace, sin cancelar automáticamente el contrato')
+  const postsAfterInvalidResponse = mp.created().length
+  r = await call('ownerC', { action: 'create', business_id: ids.C, plan: 'pro', billing_cycle: 'annual' })
+  check(r.status === 409 && r.body.init_point === undefined && mp.created().length === postsAfterInvalidResponse
+    && mp.calls.filter(c => c.method === 'PUT').length === putsBeforeInvalidResponse
+    && huella('C') === antesC && count('payments', `business_id = '${ids.C}'`) === 0,
+  'retry tras respuesta incierta: sin segundo POST ni cambios de acceso o ledger')
+  const invalidResponseFixtureId = sql(`SELECT id FROM public.subscription_checkout_sessions WHERE business_id = '${ids.C}' AND status = 'pending' AND mp_preapproval_id IS NULL;`)
+  // Retire only this in-memory provider fixture before removing its local fixture.
+  // No recovery action or provider cancellation API is executed.
+  mp.preapprovals.get(pre('invalid_checkout')).status = 'cancelled'
+  sql(`DELETE FROM public.subscription_checkout_sessions WHERE id = '${invalidResponseFixtureId}' AND business_id = '${ids.C}' AND mp_preapproval_id IS NULL;`)
 
   // Condiciones distintas de las de la sesión: no activa.
   mp.nextIds.push(pre('c0'))
@@ -259,6 +297,8 @@ const main = async () => {
   mp.preapprovals.get(pre('c0')).auto_recurring.transaction_amount = 1
   n = await notify('subscription_preapproval', pre('c0'))
   check(n.detail === 'not_applied:terms_mismatch' && huella('C') === antesC, 'authorized con otro importe que el de la sesión: no activa (sin drift silencioso)')
+  // Historical locally retired checkout, before one-pending-per-business protection.
+  sql(`UPDATE public.subscription_checkout_sessions SET status = 'expired' WHERE mp_preapproval_id = '${pre('c0')}';`)
 
   // Lo medido en el smoke real: Mercado Pago no devuelve la referencia.
   mp.dropsExternalReference = true
@@ -392,6 +432,78 @@ const main = async () => {
     && !mp.calls.some((c) => c.path.includes(pre('mismo_email'))),
   'reconcile ignora el email: sólo relee los recursos vinculados por id a las sesiones de B')
   mp.payerAccounts = null
+
+  section('10. BETA-MP-EMAIL: bloqueo seguro y cierre condicional en PostgREST real')
+  const emailCreate = email => call('ownerB', { action: 'create', business_id: ids.B, plan: 'basico', billing_cycle: 'monthly', mp_payer_email: email })
+  const postsBeforeEmail = mp.created().length
+  const putsBeforeEmail = mp.calls.filter(c => c.method === 'PUT').length
+  const paymentsBeforeEmail = count('payments', `business_id = '${ids.B}'`)
+  r = await emailCreate(cuentaMp)
+  check(r.status === 200 && preOf(r) === pre('d') && mp.created().length === postsBeforeEmail,
+    'mismo email: reutiliza el recurso sin crear otro')
+  r = await emailCreate(`corregido@${TAG}`)
+  check(r.status === 409 && r.body.code === 'checkout_replacement_blocked' && session(pre('d')).status === 'pending'
+    && mp.created().length === postsBeforeEmail && mp.calls.filter(c => c.method === 'PUT').length === putsBeforeEmail,
+    'pending con otro email: conserva la reserva sin PUT de cancelacion ni segundo POST')
+  mp.preapprovals.get(pre('d')).status = 'unknown'
+  r = await emailCreate(`corregido@${TAG}`)
+  check(r.status === 409 && r.body.code === 'checkout_replacement_blocked' && session(pre('d')).status === 'pending'
+    && mp.created().length === postsBeforeEmail && mp.calls.filter(c => c.method === 'PUT').length === putsBeforeEmail,
+    'estado desconocido: no libera la reserva, no cancela ni crea otro contrato')
+  mp.preapprovals.get(pre('d')).status = 'pending'
+
+  // The GET has already encoded pending when authorization happens at the provider.
+  // An unconditional cancellation here could cancel an authorized contract.
+  const originalFetch = mp.fetchImpl
+  let racedAuthorization = false
+  mp.fetchImpl = async (input, init) => {
+    const response = await originalFetch(input, init)
+    if (!racedAuthorization && (init?.method ?? 'GET').toUpperCase() === 'GET'
+      && new URL(input).pathname === `/preapproval/${pre('d')}`) {
+      mp.authorize(pre('d'))
+      racedAuthorization = true
+    }
+    return response
+  }
+  try { r = await emailCreate(`corregido@${TAG}`) } finally { mp.fetchImpl = originalFetch }
+  check(racedAuthorization && r.status === 409 && r.body.init_point === undefined
+    && session(pre('d')).status === 'pending' && mp.preapprovals.get(pre('d')).status === 'authorized'
+    && mp.created().length === postsBeforeEmail && mp.calls.filter(c => c.method === 'PUT').length === putsBeforeEmail
+    && huella('B') === antesPagador && count('payments', `business_id = '${ids.B}'`) === paymentsBeforeEmail,
+    'GET pending seguido de authorized: no PUT, no segundo contrato, sin cambios de acceso ni ledger')
+  r = await emailCreate(`corregido@${TAG}`)
+  check(r.status === 409 && r.body.code === 'checkout_already_authorized' && mp.created().length === postsBeforeEmail
+    && mp.calls.filter(c => c.method === 'PUT').length === putsBeforeEmail,
+    'reintento ya authorized: bloquea el reemplazo sin cancelar el contrato')
+
+  // Simulate a cancellation already completed outside this checkout request.
+  // This changes only the in-memory provider fixture; no cancellation API is called.
+  mp.preapprovals.get(pre('d')).status = 'cancelled'
+  r = await emailCreate(`corregido@${TAG}`)
+  check(r.status === 200 && session(pre('d')).status === 'canceled' && mp.preapprovals.get(pre('d')).status === 'cancelled'
+    && mp.created().length === postsBeforeEmail + 1 && huella('B') === antesPagador
+    && mp.calls.filter(c => c.method === 'PUT').length === putsBeforeEmail,
+    'contrato ya cancelled + CAS real: permite un reemplazo sin PUT ni cambio de acceso')
+  const replacement = session(preOf(r))
+  const store = createSupabaseBillingStore(serviceClient)
+  const cas = await Promise.all([store.closePendingCheckout(replacement, new Date().toISOString()),
+    store.closePendingCheckout(replacement, new Date().toISOString())])
+  check(cas.filter(Boolean).length === 1, 'dos cierres condicionales concurrentes: gana exactamente uno')
+  // Restore this purely local fixture before testing the provider state protection.
+  sql(`UPDATE public.subscription_checkout_sessions SET status = 'pending' WHERE id = '${replacement.id}';`)
+  mp.authorize(replacement.mp_preapproval_id)
+  r = await emailCreate(`tercero@${TAG}`)
+  check(r.status === 409 && r.body.code === 'checkout_already_authorized' && mp.created().length === postsBeforeEmail + 1
+    && mp.calls.filter(c => c.method === 'PUT').length === putsBeforeEmail
+    && count('payments', `business_id = '${ids.B}'`) === paymentsBeforeEmail,
+    'authorized sin pago: no cancela, no duplica, no activa')
+
+  // Real unique index: two different plans/cycles cannot reserve a second pending row.
+  const duplicate = await serviceClient.from('subscription_checkout_sessions').insert({
+    business_id: ids.B, user_id: ids.ownerB, plan_id: 'full', billing_cycle: 'annual', amount: 432000,
+    currency: 'ARS', payer_email: cuentaMp, external_reference: `trpcs_${randomUUID()}`, status: 'pending',
+  })
+  check(duplicate.error?.code === '23505', 'indice real por negocio bloquea otro plan/ciclo pendiente')
 }
 
 const cleanup = () => {

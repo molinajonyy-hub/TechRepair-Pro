@@ -78,6 +78,10 @@ export function PaymentPending() {
   const accessNote = isAllowed
     ? 'Mientras tanto seguís usando TechRepair Pro con tu acceso actual.'
     : 'Tu acceso se habilita cuando Mercado Pago confirme el pago.'
+  const correctEmail = {
+    label: 'Corregir correo de Mercado Pago', primary: false,
+    onClick: () => navigate('/subscription/plans', { state: { correctMpEmail: true } }),
+  }
 
   if (isPaid) {
     return (
@@ -103,6 +107,7 @@ export function PaymentPending() {
           : 'Mercado Pago informó que la suscripción no se concretó.'} No se cambió nada en tu cuenta. Podés intentarlo de nuevo.`}
         actions={[
           { label: 'Intentar nuevamente', primary: true, onClick: () => navigate('/subscription/plans') },
+          correctEmail,
           { label: 'Ir al inicio', primary: false, onClick: () => navigate('/') },
         ]}
       />
@@ -137,6 +142,7 @@ export function PaymentPending() {
           { label: 'Verificar ahora', primary: true, onClick: doCheck },
           { label: 'Ir al inicio', primary: false, onClick: () => navigate('/') },
           { label: 'Necesito ayuda', primary: false, onClick: () => navigate('/ayuda') },
+          correctEmail,
         ]}
       />
     )
@@ -148,7 +154,8 @@ export function PaymentPending() {
       icon={<Loader2 size={36} color="#6366f1" style={{ animation: 'tr-spin 0.7s linear infinite' }} />}
       color="rgba(99,102,241,0.1)"
       title="Verificando tu pago..."
-      message={`Esperando la confirmación de Mercado Pago. ${accessNote}`}
+      message={`${error || message || 'Esperando la confirmación de Mercado Pago.'} ${accessNote} Si Mercado Pago indicó que el e-mail no coincide, podés corregirlo antes de continuar.`}
+      actions={[correctEmail]}
     />
   )
 }
@@ -179,7 +186,7 @@ function StatusScreen({ icon, color, title, message, actions, testId }: {
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center' }}>
           {actions.map(a => (
             <button key={a.label} onClick={a.onClick}
-              className={a.primary ? 'btn btn-primary btn-lift' : 'btn btn-ghost'}
+              className={a.primary ? 'btn btn-primary btn-lift' : 'btn btn-ghost'} style={{ minHeight: 44 }}
             >
               {a.label}
             </button>

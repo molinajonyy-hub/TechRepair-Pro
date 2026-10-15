@@ -1,9 +1,8 @@
 /**
  * MercadoPagoEmailDialog — fallback de Planes.
  *
- * Aparece SÓLO cuando el servidor respondió que Mercado Pago no pudo iniciar la
- * suscripción con el email del login. Pide un único dato: el email de la cuenta
- * de Mercado Pago de quien va a pagar.
+ * Opción previa al checkout y fallback si el servidor rechaza el pagador.
+ * Pide un único dato: el email que el usuario usa en Mercado Pago.
  *
  * Ese email es un parámetro que Mercado Pago exige para crear la suscripción.
  * No identifica al negocio, no otorga acceso y no se guarda en el navegador:
@@ -14,12 +13,12 @@ import { AppButton, AppInput, AppModal } from '../../ui'
 
 // Validación de forma, para avisar de un error de tipeo antes de ir al servidor.
 // La regla que vale es la del servidor; si es una cuenta real lo decide Mercado Pago.
-const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@.]{2,}$/
+const EMAIL_SHAPE = /^[^\s@\u0000-\u001f\u007f<>"]+@[^\s@\u0000-\u001f\u007f<>"]+\.[^\s@\u0000-\u001f\u007f<>".]{2,}$/
 
 export function payerEmailProblem(value: string): string | null {
   const email = value.trim()
   if (email === '') return 'Ingresá el email de tu cuenta de Mercado Pago.'
-  if (email.length > 254 || !EMAIL_SHAPE.test(email)) return 'Revisá el email: no tiene un formato válido.'
+  if (email.length > 254 || email.indexOf('@') > 64 || !EMAIL_SHAPE.test(email)) return 'Revisá el email: no tiene un formato válido.'
   return null
 }
 
@@ -31,12 +30,14 @@ export interface MercadoPagoEmailDialogProps {
   submitting: boolean
   /** Por qué no funcionó `attemptedEmail` (motivo del servidor). */
   error?: string
+  /** Selección voluntaria antes de elegir el plan; no supone un rechazo de MP. */
+  optionalEmail?: boolean
   onSubmit: (email: string) => void
   onClose: () => void
 }
 
 export function MercadoPagoEmailDialog({
-  planName, attemptedEmail = '', submitting, error, onSubmit, onClose,
+  planName, attemptedEmail = '', submitting, error, optionalEmail = false, onSubmit, onClose,
 }: MercadoPagoEmailDialogProps) {
   const [email, setEmail] = useState(attemptedEmail)
   const [localError, setLocalError] = useState('')
@@ -68,23 +69,26 @@ export function MercadoPagoEmailDialog({
     <AppModal
       isOpen
       onClose={onClose}
-      title="Necesitamos un dato de Mercado Pago"
-      subtitle={`Plan ${planName}`}
+      title={optionalEmail ? 'Correo de Mercado Pago' : 'Necesitamos un dato de Mercado Pago'}
+      subtitle={planName ? `Plan ${planName}` : undefined}
       size="sm"
       mobilePresentation="sheet"
       footer={
-        <div style={{ display: 'flex', gap: '0.625rem', justifyContent: 'flex-end', width: '100%' }}>
-          <AppButton variant="secondary" onClick={onClose} disabled={submitting}>Cancelar</AppButton>
-          <AppButton variant="indigo" type="submit" form="mp-payer-email-form" loading={submitting}>
-            Continuar con Mercado Pago
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.625rem', justifyContent: 'flex-end', width: '100%' }}>
+          <AppButton variant="secondary" onClick={onClose} disabled={submitting} style={{ minHeight: 44 }}>Cancelar</AppButton>
+          <AppButton variant="indigo" type="submit" form="mp-payer-email-form" loading={submitting} style={{ minHeight: 44 }}>
+            {optionalEmail ? 'Usar este correo' : 'Continuar con Mercado Pago'}
           </AppButton>
         </div>
       }
     >
       <form id="mp-payer-email-form" onSubmit={submit} noValidate style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
         <p style={{ margin: 0, fontSize: '0.875rem', lineHeight: 1.55, color: 'var(--text-secondary)' }}>
-          Mercado Pago no pudo iniciar la suscripción con el email de tu cuenta de TechRepair Pro.
-          Ingresá el email asociado a tu cuenta de Mercado Pago.
+          {optionalEmail
+            ? 'Si usás un correo diferente en Mercado Pago, ingresalo acá. No podemos detectarlo automáticamente. Se usará sólo para este checkout.'
+            : attemptedEmail
+              ? 'Mercado Pago no pudo iniciar la suscripción con el correo indicado. Revisá el email de tu cuenta de Mercado Pago.'
+              : 'Mercado Pago no pudo iniciar la suscripción con el email de tu cuenta de TechRepair Pro. Ingresá el email asociado a tu cuenta de Mercado Pago.'}
         </p>
         <AppInput
           ref={inputRef}
@@ -92,6 +96,7 @@ export function MercadoPagoEmailDialog({
           data-testid="mp-payer-email-input"
           label="Email de tu cuenta de Mercado Pago"
           semantic="email"
+          style={{ fontSize: '1rem' }}
           name="mp_payer_email"
           value={email}
           onChange={e => { setEmail(e.target.value); if (localError) setLocalError('') }}

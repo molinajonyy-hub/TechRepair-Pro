@@ -148,8 +148,11 @@ export interface BillingStore {
   findCheckoutSessionByPreapprovalId(preapprovalId: string): Promise<CheckoutSessionRow | null>
   findCheckoutSessionByReference(reference: string): Promise<CheckoutSessionRow | null>
   listCheckoutSessions(businessId: string, limit: number): Promise<CheckoutSessionRow[]>
+  listPendingCheckouts(businessId: string): Promise<CheckoutSessionRow[]>
   insertCheckoutSession(row: NewCheckoutSession): Promise<CheckoutSessionRow>
   updateCheckoutSession(sessionId: string, patch: CheckoutSessionPatch, nowIso: string): Promise<void>
+  /** Cierra sólo la sesión pendiente leída: un único reemplazo gana la carrera. */
+  closePendingCheckout(session: CheckoutSessionRow, nowIso: string): Promise<boolean>
 
   /**
    * Reclama una notificación. La clave única es
@@ -275,9 +278,25 @@ export function createSupabaseBillingStore(client: SupabaseLike): BillingStore {
         .select(SESSION_COLUMNS).single())
     },
 
+    async listPendingCheckouts(businessId) {
+      // Two are sufficient to reject ambiguous legacy duplicates; history cannot hide an open checkout.
+      return unwrap<CheckoutSessionRow[] | null>('listar checkouts pendientes', await client
+        .from('subscription_checkout_sessions').select(SESSION_COLUMNS)
+        .eq('business_id', businessId).eq('status', 'pending').limit(2)) ?? []
+    },
+
     async updateCheckoutSession(sessionId, patch, nowIso) {
       unwrap('actualizar sesión de checkout', await client
         .from('subscription_checkout_sessions').update({ ...patch, updated_at: nowIso }).eq('id', sessionId))
+    },
+
+    async closePendingCheckout(session, nowIso) {
+      const rows = unwrap<{ id: string }[]>('cerrar checkout pendiente confirmado', await client
+        .from('subscription_checkout_sessions').update({ status: 'canceled', updated_at: nowIso })
+        .eq('id', session.id).eq('business_id', session.business_id).eq('status', 'pending')
+        .eq('mp_preapproval_id', session.mp_preapproval_id).eq('external_reference', session.external_reference)
+        .select('id'))
+      return rows.length === 1
     },
 
     async claimEvent(event) {

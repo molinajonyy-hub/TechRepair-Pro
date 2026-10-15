@@ -274,7 +274,13 @@ describe('un preapproval no se cruza entre negocios', () => {
     expect(w.sessionOf(a.preapprovalId).business_id).toBe(BIZ_A)
     // Ese preapproval es de la sesión de A: el request de B no lo cancela.
     expect(w.mp.callsTo('PUT', '/preapproval/')).toEqual([])
-    expect(sessions().find((s) => s.business_id === BIZ_B)).toMatchObject({ status: 'failed', mp_preapproval_id: null })
+    expect(sessions().find((s) => s.business_id === BIZ_B)).toMatchObject({ status: 'pending', mp_preapproval_id: null })
+    const posts = w.mp.created().length
+    const retry = await w.call(OWNER_B, { action: 'create', business_id: BIZ_B, plan: 'pro', billing_cycle: 'monthly' })
+    expect(retry.status).toBe(409)
+    expect(retry.body.init_point).toBeUndefined()
+    expect(w.mp.created()).toHaveLength(posts)
+    expect(w.mp.callsTo('PUT', '/preapproval/')).toEqual([])
   })
 
   it('dos sesiones con el mismo preapproval (base sin el índice único) → error, no activa a ninguna', async () => {
@@ -326,10 +332,11 @@ describe('plan y monto: lo que cobra Mercado Pago tiene que ser lo de la sesión
     expect(biz().subscription_status).toBe('trialing')
   })
 
-  it('pagó Básico: recibe Básico aunque después pida Full', async () => {
+  it('dos intenciones históricas: pagó Básico y recibe Básico aunque después pidiera Full', async () => {
     const basico = await w.openCheckout(OWNER_A, BIZ_A, 'basico')
     w.advance(HOUR)
-    await w.openCheckout(OWNER_A, BIZ_A, 'full')         // otra intención, sin pagar
+    // Historial previo al índice: otra intención abierta, sin pagar.
+    await w.openLegacyCheckout(OWNER_A, BIZ_A, 'full')
     w.pay(basico.preapprovalId)
     await notify(basico.preapprovalId)
 
@@ -456,7 +463,9 @@ describe('estados del preapproval', () => {
   it('un checkout vencido que igual se paga: el pago es real y activa', async () => {
     const { preapprovalId, session } = await w.openCheckout(OWNER_A, BIZ_A, 'pro')
     w.advance(3 * DAY)
-    await w.openCheckout(OWNER_A, BIZ_A, 'pro')          // el viejo quedó expired
+    // Sesión histórica expirada localmente (antes del microfix): su pago real
+    // sigue siendo evidencia válida. No fingimos pagar un recurso cancelado.
+    session.status = 'expired'
     expect(session.status).toBe('expired')
 
     w.pay(preapprovalId)

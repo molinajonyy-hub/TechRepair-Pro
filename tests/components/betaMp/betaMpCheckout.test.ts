@@ -68,17 +68,19 @@ describe('create crea el preapproval en el servidor y lo vincula antes de respon
     expect(new URL(String(res.body.init_point)).searchParams.get('preapproval_id')).toBe(session.mp_preapproval_id)
   })
 
-  it('si el vínculo no se puede escribir, NO se entrega el checkout y el preapproval se cancela', async () => {
+  it('si el vínculo no se puede escribir, no entrega checkout ni cancela: conserva la reserva sin ID', async () => {
     w.db.failOn = { table: 'subscription_checkout_sessions', op: 'update', code: 'XX000' }
     const res = await create('pro')
 
     expect(res.status).toBe(503)
     expect(res.body.code).toBe('billing_unavailable')
     expect(res.body.init_point).toBeUndefined()
-    // Un preapproval que el servidor no pudo vincular no queda pagable.
+    // No se conoce una cancelación remota: el request conserva la reserva y
+    // bloquea otro POST aunque no haya llegado a entregar el primer checkout.
     const [pre] = [...w.mp.preapprovals.values()]
-    expect(pre.status).toBe('cancelled')
-    expect(sessions()[0]).toMatchObject({ status: 'failed', mp_preapproval_id: null })
+    expect(pre.status).toBe('pending')
+    expect(sessions()[0]).toMatchObject({ status: 'pending', mp_preapproval_id: null })
+    expect(w.mp.callsTo('PUT', '/preapproval/')).toHaveLength(0)
     expect(w.db.writesTo('businesses')).toEqual([])
   })
 
@@ -296,12 +298,15 @@ describe('external_reference: una referencia inequívoca por checkout', () => {
     expect(reference).not.toContain(BIZ_A)
   })
 
-  it('cada negocio y cada plan tienen su propia referencia y su propio preapproval', async () => {
+  it('cada nueva intención tras cancelación confirmada tiene referencia y preapproval propios, aislados por negocio', async () => {
     const a = await w.openCheckout(OWNER_A, BIZ_A, 'pro')
     const b = await w.openCheckout(OWNER_B, BIZ_B, 'pro')
+    w.mp.preapprovals.get(a.preapprovalId)!.status = 'cancelled'
     const a2 = await w.openCheckout(OWNER_A, BIZ_A, 'full')
     expect(new Set([a.reference, b.reference, a2.reference]).size).toBe(3)
     expect(new Set([a.preapprovalId, b.preapprovalId, a2.preapprovalId]).size).toBe(3)
+    expect(w.mp.preapprovals.get(b.preapprovalId)!.status).toBe('pending')
+    expect(w.mp.callsTo('PUT', '/preapproval/')).toHaveLength(0)
   })
 
   it.each([
@@ -330,37 +335,48 @@ describe('pedir dos veces el mismo checkout', () => {
     expect(w.mp.preapprovals.size).toBe(1)
   })
 
-  it('una sesión vencida no se reutiliza: se marca expired y se emite otra, con otro preapproval', async () => {
+  it('una sesión vencida cuyo preapproval sigue pending bloquea sin cancelar ni emitir otra', async () => {
     const primero = await w.openCheckout(OWNER_A, BIZ_A, 'pro')
     w.advance(3 * DAY)
-    const segundo = await w.openCheckout(OWNER_A, BIZ_A, 'pro')
-    expect(segundo.reference).not.toBe(primero.reference)
-    expect(segundo.preapprovalId).not.toBe(primero.preapprovalId)
-    expect(sessions().map((s) => s.status).sort()).toEqual(['expired', 'pending'])
+    const segundo = await create('pro')
+    expect(segundo.status).toBe(409)
+    expect(segundo.body.code).toBe('checkout_replacement_blocked')
+    expect(segundo.body.init_point).toBeUndefined()
+    expect(primero.session.status).toBe('pending')
+    expect(w.mp.preapprovals.get(primero.preapprovalId)!.status).toBe('pending')
+    expect(w.mp.created()).toHaveLength(1)
+    expect(w.mp.callsTo('PUT', '/preapproval/')).toHaveLength(0)
   })
 
-  it('si el precio del catálogo cambió, el checkout abierto con el precio anterior no se reutiliza', async () => {
+  it('si el precio cambió, el pending anterior no se reutiliza ni se cancela automáticamente', async () => {
     const viejo = await w.openCheckout(OWNER_A, BIZ_A, 'pro')
     w.prices.pro.monthly = 30000
     w.advance(HOUR)
-    const nuevo = await w.openCheckout(OWNER_A, BIZ_A, 'pro')
+    const nuevo = await create('pro')
 
-    expect(nuevo.preapprovalId).not.toBe(viejo.preapprovalId)
-    expect(nuevo.session.amount).toBe(30000)
-    expect((w.mp.preapprovals.get(nuevo.preapprovalId)!.auto_recurring as Record<string, unknown>).transaction_amount).toBe(30000)
-    expect(viejo.session.status).toBe('expired')
+    expect(nuevo.status).toBe(409)
+    expect(nuevo.body.code).toBe('checkout_replacement_blocked')
+    expect(nuevo.body.init_point).toBeUndefined()
+    expect(viejo.session.status).toBe('pending')
+    expect(viejo.session.amount).toBe(25000)
+    expect((w.mp.preapprovals.get(viejo.preapprovalId)!.auto_recurring as Record<string, unknown>).transaction_amount).toBe(25000)
+    expect(w.mp.created()).toHaveLength(1)
+    expect(w.mp.callsTo('PUT', '/preapproval/')).toHaveLength(0)
   })
 
-  it('otro usuario del negocio (otro email de pagador) recibe su propio preapproval', async () => {
+  it('otro usuario del negocio con otro correo no reemplaza el preapproval pending', async () => {
     const CO_OWNER = 'aaaaaaaa-0000-4000-8000-0000000000a3'
     w.addMember({ userId: CO_OWNER, businessId: BIZ_A, role: 'owner' })
     const primero = await w.openCheckout(OWNER_A, BIZ_A, 'pro')
     w.advance(HOUR)
     const res = await w.call(CO_OWNER, { action: 'create', business_id: BIZ_A, plan: 'pro', billing_cycle: 'monthly' }, { email: 'socio@invalid.test' })
 
-    expect(res.status).toBe(200)
-    expect(String(res.body.init_point)).not.toBe(String(primero.res.body.init_point))
-    expect(w.mp.created().map((c) => c.body?.payer_email)).toEqual(['aaaaaaaa@invalid.test', 'socio@invalid.test'])
+    expect(res.status).toBe(409)
+    expect(res.body.code).toBe('checkout_replacement_blocked')
+    expect(res.body.init_point).toBeUndefined()
+    expect(w.mp.created().map((c) => c.body?.payer_email)).toEqual(['aaaaaaaa@invalid.test'])
+    expect(primero.session.status).toBe('pending')
+    expect(w.mp.callsTo('PUT', '/preapproval/')).toHaveLength(0)
   })
 
   it('el preapproval del checkout abierto fue cancelado en Mercado Pago: se emite uno nuevo', async () => {
@@ -371,6 +387,7 @@ describe('pedir dos veces el mismo checkout', () => {
 
     expect(segundo.preapprovalId).not.toBe(primero.preapprovalId)
     expect(primero.session.status).toBe('canceled')
+    expect(w.mp.callsTo('PUT', '/preapproval/')).toHaveLength(0)
   })
 
   it('el checkout abierto YA está pago en Mercado Pago: no abre otro (cobraría dos veces) ni activa desde `create`', async () => {
@@ -401,11 +418,12 @@ describe('pedir dos veces el mismo checkout', () => {
     expect(res.body.code).toBe('checkout_in_progress')
     expect(w.mp.created()).toEqual([])
 
-    // Pasado el margen, esa sesión quedó huérfana: se cierra y se emite otra.
+    // Sin id no se puede demostrar si MP llegó a crear un recurso remoto.
     w.advance(CHECKOUT_LINK_GRACE_MS + 1000)
     const reintento = await create('pro')
-    expect(reintento.status).toBe(200)
-    expect(sessions().map((s) => s.status).sort()).toEqual(['expired', 'pending'])
+    expect(reintento.status).toBe(409)
+    expect(reintento.body.code).toBe('checkout_replacement_blocked')
+    expect(sessions().map((s) => s.status)).toEqual(['pending'])
   })
 
   it('dos pedidos simultáneos: el índice único deja pasar una sola sesión pending', async () => {
@@ -469,7 +487,7 @@ describe('plan y ciclo: validados por el servidor, fail-closed', () => {
     expect(catalog.termsFor('basico', 'monthly')).toBeNull()
   })
 
-  it('Mercado Pago caído → 502, la sesión queda failed y el negocio no cambia', async () => {
+  it('Mercado Pago caído → 502, conserva reserva por resultado incierto y el negocio no cambia', async () => {
     w.mp.down = true
     const antes = w.snapshot(BIZ_A)
     const res = await create('pro')
@@ -477,12 +495,13 @@ describe('plan y ciclo: validados por el servidor, fail-closed', () => {
     expect(res.status).toBe(502)
     expect(res.body.code).toBe('mp_unavailable')
     expect(res.body.init_point).toBeUndefined()
-    expect(sessions().map((s) => s.status)).toEqual(['failed'])
+    expect(sessions().map((s) => s.status)).toEqual(['pending'])
     expect(w.snapshot(BIZ_A)).toEqual(antes)
 
-    // Y no deja trabado el siguiente intento.
+    // Sin id del proveedor no se arriesga un segundo recurso en un reintento.
     w.mp.down = false
-    expect((await create('pro')).status).toBe(200)
+    expect((await create('pro')).status).toBe(409)
+    expect(w.mp.created()).toHaveLength(1)
   })
 
   it('Mercado Pago rechaza el POST (400): 502 sin detalle para el navegador; el motivo va al log, sin emails', async () => {
@@ -509,7 +528,7 @@ describe('la respuesta de Mercado Pago se valida antes de entregar el checkout',
     ['devuelve un init_point que no es de Mercado Pago', (row: Record<string, unknown>) => { row.init_point = 'https://evil.example/pagar' }, 'no_init_point'],
     ['devuelve el init_point de OTRO preapproval', (row: Record<string, unknown>) => { row.init_point = 'https://www.mercadopago.com.ar/subscriptions/checkout?preapproval_id=pre_de_otro' }, 'no_init_point'],
     ['no devuelve init_point', (row: Record<string, unknown>) => { row.init_point = null }, 'no_init_point'],
-  ])('Mercado Pago %s → 502, sin checkout, sin vínculo y el preapproval cancelado', async (_caso, alterar, problema) => {
+  ])('Mercado Pago %s → 502, sin checkout, conserva reserva y no cancela automáticamente', async (_caso, alterar, problema) => {
     w.mp.tamperCreated = alterar
     const antes = w.snapshot(BIZ_A)
     const res = await create('pro')
@@ -518,9 +537,14 @@ describe('la respuesta de Mercado Pago se valida antes de entregar el checkout',
     expect(res.body.code).toBe('checkout_unavailable')
     expect(res.body.init_point).toBeUndefined()
     expect(w.logs.find((l) => l.event === 'preapproval_rejected')).toMatchObject({ problem: problema })
-    expect(sessions()[0]).toMatchObject({ status: 'failed', mp_preapproval_id: null })
-    expect([...w.mp.preapprovals.values()].every((p) => p.status === 'cancelled')).toBe(true)
+    expect(sessions()[0]).toMatchObject({ status: 'pending', mp_preapproval_id: null })
+    expect(w.mp.callsTo('PUT', '/preapproval/')).toHaveLength(0)
+    expect([...w.mp.preapprovals.values()].every((p) => p.status === 'cancelled')).toBe(false)
     expect(w.snapshot(BIZ_A)).toEqual(antes)
+    w.advance(CHECKOUT_LINK_GRACE_MS + 1000)
+    expect((await create('pro')).body.code).toBe('checkout_replacement_blocked')
+    expect(w.mp.created()).toHaveLength(1)
+    expect(w.db.tables.payments).toHaveLength(0)
   })
 
   it('Mercado Pago devuelve un preapproval con OTRA referencia → 502, sin vínculo, y no se cancela (no es de este checkout)', async () => {
@@ -530,7 +554,7 @@ describe('la respuesta de Mercado Pago se valida antes de entregar el checkout',
     expect(res.status).toBe(502)
     expect(res.body.init_point).toBeUndefined()
     expect(w.logs.find((l) => l.event === 'preapproval_rejected')).toMatchObject({ problem: 'reference_mismatch' })
-    expect(sessions()[0]).toMatchObject({ status: 'failed', mp_preapproval_id: null })
+    expect(sessions()[0]).toMatchObject({ status: 'pending', mp_preapproval_id: null })
     expect(w.mp.callsTo('PUT', '/preapproval/')).toEqual([])
   })
 
@@ -539,7 +563,7 @@ describe('la respuesta de Mercado Pago se valida antes de entregar el checkout',
     const res = await create('pro')
     expect(res.status).toBe(502)
     expect(w.logs.find((l) => l.event === 'preapproval_rejected')).toMatchObject({ problem: 'no_id' })
-    expect(sessions()[0]).toMatchObject({ status: 'failed', mp_preapproval_id: null })
+    expect(sessions()[0]).toMatchObject({ status: 'pending', mp_preapproval_id: null })
   })
 
   it('Mercado Pago NO devuelve la referencia (como en el smoke real): el checkout se abre igual, vinculado por id', async () => {

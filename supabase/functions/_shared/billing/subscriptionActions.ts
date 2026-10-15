@@ -21,7 +21,8 @@
  * `mp_payer_email` NO es autoridad. Mercado Pago exige un `payer_email` para
  * crear el preapproval y el email del login de TechRepair Pro no siempre es el de
  * una cuenta de Mercado Pago (medido en producción el 2026-10-02: 400 «User bad
- * request»). El primer intento usa el email del JWT; si Mercado Pago lo rechaza,
+ * request»). Por defecto usa el email del JWT; el usuario puede indicar otro
+ * antes del checkout. Si Mercado Pago rechaza el predeterminado,
  * `create` responde `mp_payer_email_required` y el usuario indica el suyo. Ese
  * email se le manda a Mercado Pago y se anota en la sesión, y nada más: no
  * resuelve un negocio, no vincula un preapproval, no participa en `reconcile` ni
@@ -212,12 +213,33 @@ async function createCheckout(ctx: ActionContext, req: ActionRequest, businessId
   const business = await ctx.store.getBusinessBilling(businessId)
   if (!business) return fail(404, 'business_not_found', 'No encontramos el negocio.')
 
+  // Una suscripción ya vinculada del MISMO plan/ciclo tampoco se contrata otra
+  // vez por cambiar el correo. Los cambios de plan/ciclo mantienen Recovery.
+  if (business.mp_preapproval_id && business.subscription_plan === plan) {
+    const origin = await ctx.store.findCheckoutSessionByPreapprovalId(business.mp_preapproval_id)
+    if (!origin || origin.business_id !== businessId) {
+      return fail(409, 'checkout_replacement_blocked', 'No pudimos verificar la suscripción actual. Contactanos desde Ayuda antes de volver a contratar.')
+    }
+    if (origin.plan_id === plan && origin.billing_cycle === billingCycle) {
+      const current = await ctx.mp.getPreapproval(business.mp_preapproval_id)
+      if (!current || current.id !== origin.mp_preapproval_id || referenceConflicts(current, origin)) {
+        return fail(409, 'checkout_replacement_blocked', 'No pudimos verificar la suscripción actual. Probá «Verificar pago» antes de continuar.')
+      }
+      if (preapprovalState(current.status) !== 'cancelled') {
+        return fail(409, 'checkout_already_authorized', 'Ya existe una suscripción para este plan y ciclo. Verificá el pago o actualizá el medio de pago desde Mi suscripción.')
+      }
+    }
+  }
+
   const intent: CheckoutIntent = { businessId, plan, billingCycle, payerEmail, terms }
   const summary = { status: 'pending', plan, billing_cycle: billingCycle }
 
-  // 1. ¿Ya hay un checkout abierto para este plan y ciclo?
+  // 1. Un solo checkout pendiente por negocio, incluso entre planes/ciclos.
   const open = await findOpenCheckout(ctx, intent)
   if (open.kind === 'in_progress') return IN_PROGRESS()
+  if (open.kind === 'blocked') {
+    return fail(409, 'checkout_replacement_blocked', 'No pudimos confirmar el cierre del checkout anterior en Mercado Pago. No abrimos otro para evitar cobros duplicados. Verificá el pago o contactanos desde Ayuda.')
+  }
   if (open.kind === 'already_authorized') {
     // Abrir otro checkout cobraría dos veces. La activación no ocurre acá: la
     // hacen el webhook y `reconcile`, por el camino canónico.
@@ -242,7 +264,7 @@ async function createCheckout(ctx: ActionContext, req: ActionRequest, businessId
       payer_email: payerEmail,
     })
   } catch (error) {
-    // Dos pedidos simultáneos: `idx_scs_pending_unique` deja pasar uno solo.
+    // uq_scs_pending_business protege incluso pedidos de planes/ciclos distintos.
     if (error instanceof BillingStoreError && error.code === '23505') return IN_PROGRESS()
     throw error
   }
@@ -263,7 +285,11 @@ async function createCheckout(ctx: ActionContext, req: ActionRequest, businessId
       currency: terms.currency,
     })
   } catch (error) {
-    await closeSession(ctx, session.id, 'failed')
+    // Un timeout/5xx puede ocurrir DESPUÉS de crear el recurso remoto. Sin id
+    // para consultarlo no liberamos la reserva ni permitimos otro POST.
+    if (error instanceof MpApiError && error.status >= 400 && error.status < 500 && error.status !== 408) {
+      await closeSession(ctx, session.id, 'failed')
+    }
     if (isPayerRejection(error)) {
       // Mercado Pago no creó nada: no hay checkout ni preapproval que vincular.
       // Al log va el motivo de MP (sin emails), nunca el email que se intentó.
@@ -283,8 +309,7 @@ async function createCheckout(ctx: ActionContext, req: ActionRequest, businessId
   const checkoutUrl = problem ? null : preapprovalCheckoutUrl(created)
   if (!checkoutUrl) {
     ctx.log({ event: 'preapproval_rejected', business_id: businessId, session_id: session.id, problem: problem ?? 'no_init_point' })
-    await discardUnlinkedPreapproval(ctx, created, reference)
-    await closeSession(ctx, session.id, 'failed')
+    if (await discardUnlinkedPreapproval(ctx, created, reference)) await closeSession(ctx, session.id, 'failed')
     return fail(502, 'checkout_unavailable', 'Mercado Pago no devolvió un checkout válido. Probá de nuevo en unos minutos.')
   }
 
@@ -293,8 +318,7 @@ async function createCheckout(ctx: ActionContext, req: ActionRequest, businessId
   try {
     await ctx.store.updateCheckoutSession(session.id, { mp_preapproval_id: created.id }, ctx.now().toISOString())
   } catch (error) {
-    await discardUnlinkedPreapproval(ctx, created, reference)
-    await closeSession(ctx, session.id, 'failed')
+    if (await discardUnlinkedPreapproval(ctx, created, reference)) await closeSession(ctx, session.id, 'failed')
     throw error
   }
 
@@ -329,35 +353,45 @@ type OpenCheckout =
   | { kind: 'reuse'; session: CheckoutSessionRow; checkoutUrl: string }
   | { kind: 'in_progress' }
   | { kind: 'already_authorized' }
+  | { kind: 'blocked' }
 
 /**
- * Una sesión `pending` por (negocio, plan, ciclo): pedir dos veces el mismo
- * checkout devuelve el MISMO preapproval. Una sesión que ya no sirve (vencida,
- * de otro precio o pagador, o cuyo preapproval Mercado Pago ya no tiene
- * pendiente) deja de estar `pending` para que se pueda emitir otra.
+ * Una sesión `pending` por negocio: pedir dos veces el mismo
+ * checkout devuelve el MISMO preapproval. Para reemplazarla, su cancelación
+ * debe estar confirmada por MP. Vencer localmente NO cierra el recurso remoto.
  */
 async function findOpenCheckout(ctx: ActionContext, intent: CheckoutIntent): Promise<OpenCheckout> {
-  const sessions = await ctx.store.listCheckoutSessions(intent.businessId, 20)
-  const pending = sessions.find((s) => s.status === 'pending' && s.plan_id === intent.plan && s.billing_cycle === intent.billingCycle)
+  const sessions = await ctx.store.listPendingCheckouts(intent.businessId)
+  if (sessions.length > 1) return { kind: 'blocked' }
+  const [pending] = sessions
   if (!pending) return { kind: 'none' }
   const now = ctx.now()
   const nowIso = now.toISOString()
 
   if (!pending.mp_preapproval_id) {
-    // Insertada y todavía sin preapproval: otro request la está completando, o
-    // se cortó a mitad de camino (y entonces nadie recibió un checkout).
+    // Puede ser un request Plan B en curso/interrumpido, o una sesión histórica
+    // Plan A: ese flujo sí entregaba checkout sin vincular el preapproval.
     if (sessionAgeMs(pending, now) < CHECKOUT_LINK_GRACE_MS) return { kind: 'in_progress' }
-    await ctx.store.updateCheckoutSession(pending.id, { status: 'expired' }, nowIso)
-    return { kind: 'none' }
+    // NULL/antigüedad no prueban ausencia de contrato. Sin id no podemos confirmar
+    // la cancelación ni asociar recursos: requiere revisión por identidad.
+    return { kind: 'blocked' }
   }
 
   const reference = parseCheckoutReference(pending.external_reference)
   const pre = await ctx.mp.getPreapproval(pending.mp_preapproval_id)
   const state = pre ? preapprovalState(pre.status) : 'unknown'
 
-  if (pre && state === 'authorized' && !referenceConflicts(pre, pending)) return { kind: 'already_authorized' }
+  // El id viene de la sesión del servidor; ni el email ni datos del navegador
+  // prueban pertenencia. MP puede omitir la referencia, pero no contradecirla.
+  if (!reference || pending.business_id !== intent.businessId || !pre
+    || pre.id !== pending.mp_preapproval_id || referenceConflicts(pre, pending)) return { kind: 'blocked' }
+  if (state === 'authorized') return { kind: 'already_authorized' }
+  const business = await ctx.store.getBusinessBilling(intent.businessId)
+  if (!business || business.mp_preapproval_id === pre.id
+    || await ctx.store.getApprovedPaymentByPreapprovalId(pre.id)) return { kind: 'blocked' }
 
-  const sameIntent = reference !== null && isWithinTtl(pending, now) && pending.payer_email === intent.payerEmail
+  const sameIntent = pending.plan_id === intent.plan && pending.billing_cycle === intent.billingCycle
+    && isWithinTtl(pending, now) && pending.payer_email?.trim().toLowerCase() === intent.payerEmail.trim().toLowerCase()
   if (sameIntent && pre) {
     // Se revalida contra el catálogo de HOY: si el precio cambió, el preapproval
     // abierto con el precio anterior ya no es el checkout de esta intención.
@@ -366,9 +400,14 @@ async function findOpenCheckout(ctx: ActionContext, intent: CheckoutIntent): Pro
     if (checkoutUrl) return { kind: 'reuse', session: pending, checkoutUrl }
   }
 
-  const closed: CheckoutSessionStatus = state === 'cancelled' ? 'canceled' : 'expired'
-  await ctx.store.updateCheckoutSession(pending.id, { status: closed }, nowIso)
-  return { kind: 'none' }
+  // GET pending → PUT cancelled no es condicional en MP: otra pestaña puede
+  // autorizar/pagar entre ambas llamadas. Cambiar correo, precio o vigencia no
+  // autoriza cancelar ese contrato. Soporte debe resolverlo por identidad;
+  // sólo un contrato que YA vuelve cancelado permite reemplazar esta reserva.
+  if (state !== 'cancelled') return { kind: 'blocked' }
+  // CAS: dos reintentos pueden releer el mismo recurso cancelado. Sólo uno
+  // libera ESTA sesión; uq_scs_pending_business protege la nueva inserción.
+  return await ctx.store.closePendingCheckout(pending, nowIso) ? { kind: 'none' } : { kind: 'in_progress' }
 }
 
 /** Cierra una sesión que no llegó a abrir un checkout. No tapa el error original si falla. */
@@ -381,25 +420,25 @@ async function closeSession(ctx: ActionContext, sessionId: string, status: Check
 }
 
 /**
- * Un preapproval recién creado que no quedó vinculado a su sesión no puede
- * activar nada: se cancela para que tampoco se pueda pagar.
- *
- * Sólo se cancela el que creó ESTE request — nunca la suscripción vigente del
- * negocio ni el preapproval de otro checkout. Si Mercado Pago lo devolvió con
- * otra referencia, o si su id ya pertenece a otra sesión, no es nuestro y se
- * deja como está.
+ * ¿Se puede cerrar localmente una intención cuyo recurso no quedó vinculado?
+ * Sólo si una lectura por el ID recién creado ya confirma cancelación. Sin
+ * confirmación se conserva pending sin ID, como ante un timeout: no se entregó
+ * checkout, pero tampoco se probó que sea seguro emitir otro POST.
+ * No se cancela automáticamente ni se asocia un recurso de identidad incierta.
  */
-async function discardUnlinkedPreapproval(ctx: ActionContext, created: MpPreapproval | null, reference: string): Promise<void> {
+async function discardUnlinkedPreapproval(ctx: ActionContext, created: MpPreapproval | null, reference: string): Promise<boolean> {
   const createdId = typeof created?.id === 'string' ? created.id.trim() : ''
-  if (!created || !createdId) return
+  if (!created || !createdId) return false
   const reported = reportedReference(created)
-  if (reported !== '' && reported !== reference) return
+  if (reported !== '' && reported !== reference) return false
   try {
-    if (await ctx.store.findCheckoutSessionByPreapprovalId(createdId)) return
-    await ctx.mp.cancelPreapproval(createdId)
-  } catch {
-    ctx.log({ event: 'unlinked_preapproval_not_cancelled', preapproval_id: createdId })
-  }
+    if (await ctx.store.findCheckoutSessionByPreapprovalId(createdId)) return false
+    const checked = await ctx.mp.getPreapproval(createdId)
+    if (checked?.id === createdId && (reportedReference(checked) === '' || reportedReference(checked) === reference)
+      && preapprovalState(checked.status) === 'cancelled') return true
+  } catch { /* Un error no prueba que el recurso remoto esté cerrado. */ }
+  ctx.log({ event: 'unlinked_preapproval_not_cancelled', preapproval_id: createdId })
+  return false
 }
 
 function sessionAgeMs(session: CheckoutSessionRow, now: Date): number {

@@ -10,7 +10,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { CREATE_PREAPPROVAL_OPERATION, MpApiError, isPayerRejection } from '../../supabase/functions/_shared/billing/mpClient.ts'
 import { PLAN_PRICES, buildPlanCatalog } from '../../supabase/functions/_shared/billing/planCatalog.ts'
 
@@ -31,6 +31,19 @@ const trigger   = read('../../supabase/migrations/_legacy/20260623140000_billing
 const adminRpc  = read('../../supabase/migrations/_legacy/20260623121000_billing_stageC_admin_rpcs.sql')
 const entRpc    = read('../../supabase/migrations/_legacy/20260623101000_billing_stageA_entitlements_rpc.sql')
 const platform  = read('../../supabase/migrations/_legacy/20260623120000_billing_stageC_admin_roles_audit.sql')
+
+test('Email: la migración candidata sucede a Recovery y a las demás versiones del repositorio', () => {
+  const files = readdirSync(new URL('../../supabase/migrations/', import.meta.url)).filter(n => /^\d{14}_.*\.sql$/.test(n))
+  const email = files.filter(n => n.endsWith('_beta_mp_email_one_pending_business.sql'))
+  assert.equal(email.length, 1, 'sólo debe existir una versión de la migración candidata')
+  const candidate = email[0]
+  const version = candidate.slice(0, 14)
+  assert.ok(version > '20261015120000', 'debe ser posterior a la última versión productiva reportada')
+  assert.ok(files.filter(n => n !== candidate).every(n => n.slice(0, 14) < version), 'la candidata debe aplicar al final')
+  for (const path of ['../../.github/workflows/ci.yml', '../../scripts/billing/beta-mp-recovery-local.mjs', '../../docs/beta-mp/email-runbook.md']) {
+    assert.ok(read(path).includes(candidate), `${path} debe referenciar la versión candidata vigente`)
+  }
+})
 
 // ── Webhook: reliability + mandatory signature + idempotency ────────────────
 test('webhook AWAIT-ea el procesamiento (sin fire-and-forget)', () => {
@@ -136,7 +149,7 @@ test('sólo el rechazo medido del pagador pide otro email (lista cerrada)', () =
   assert.equal(isPayerRejection(new Error('User bad request')), false)
 })
 
-test('Planes pide el email sólo por el código del servidor, sin precargar el del login ni guardarlo', () => {
+test('Planes conserva fallback por código y correo opcional sin precargar el del login ni guardarlo', () => {
   const plans = sinComentarios(plansPage)
   const dialog = sinComentarios(read('../../src/components/subscription/MercadoPagoEmailDialog.tsx'))
   assert.match(plans, /subscriptionErrorCode\(e\) === MP_PAYER_EMAIL_REQUIRED/)
@@ -145,7 +158,7 @@ test('Planes pide el email sólo por el código del servidor, sin precargar el d
   assert.doesNotMatch(plans + dialog, /localStorage|sessionStorage|document\.cookie/)
   assert.doesNotMatch(plans + dialog, /user\??\.email/)
   assert.match(dialog, /label="Email de tu cuenta de Mercado Pago"/)
-  assert.match(dialog, /title="Necesitamos un dato de Mercado Pago"/)
+  assert.match(dialog, /title=\{optionalEmail \? 'Correo de Mercado Pago' : 'Necesitamos un dato de Mercado Pago'\}/)
 })
 
 // ── Frontend: no direct writes to subscription columns ──────────────────────
