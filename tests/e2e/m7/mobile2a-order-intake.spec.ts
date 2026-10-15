@@ -59,21 +59,26 @@ test.describe('@mobile2a MOBILE-2A · recepción OWNER',()=>{
     }
   })
 
+  // BETA-UX-2: la recepción pasó de 10 pasos a 4 (Cliente · Equipo · Ingreso ·
+  // Confirmar). Las capturas conservan sus nombres de archivo; lo que muestran
+  // ahora es el paso donde vive cada cosa.
   test('flujo completo USD, foto, checklist, secreto enmascarado e idempotencia visual',async({page})=>{
     await page.setViewportSize({width:390,height:844})
     await page.addInitScript(()=>{localStorage.setItem('theme','dark');localStorage.setItem('techrepair_theme','dark')})
     await page.goto('/orders/new')
-    await expect(page.getByText('Nueva orden · Paso 1 de 10')).toBeVisible()
+    const stepper=page.getByTestId('intake-stepper')
+    await expect(stepper.getByRole('listitem')).toHaveCount(4)
+    await expect(stepper.locator('[aria-current="step"]')).toContainText('Cliente')
     await noOverflow(page)
     await page.getByLabel('Buscar cliente').fill('Cliente E2E')
     await expect(page.getByRole('button',{name:/Cliente E2E/})).toBeVisible()
     await page.screenshot({path:`${EVIDENCE}/390x844-01-cliente.png`})
     await page.getByRole('button',{name:/Cliente E2E/}).click();await continueStep(page)
 
+    // ── Equipo: tipo, marca/modelo, serie/IMEI y acceso en el mismo paso ──
     await page.getByLabel('Marca').fill('Samsung')
     await page.getByLabel('Modelo').fill('Galaxy S24')
     await page.screenshot({path:`${EVIDENCE}/390x844-02-equipo.png`})
-    await continueStep(page)
 
     await page.getByRole('button',{name:'Escanear'}).first().click()
     // ORDERS-V2-0.1: el diálogo dice QUÉ se escanea. El primer botón
@@ -83,23 +88,6 @@ test.describe('@mobile2a MOBILE-2A · recepción OWNER',()=>{
     await page.getByRole('dialog').getByRole('button',{name:'Cerrar'}).last().click()
     await page.getByLabel('Número de serie').fill('SERIAL-E2E-M2A')
     await page.getByLabel('IMEI (opcional)').fill('490154203237518')
-    await continueStep(page)
-
-    await page.locator('input[type=file]').setInputFiles({name:'recepcion-e2e.png',mimeType:'image/png',buffer:Buffer.from('89504e470d0a1a0a','hex')})
-    await expect(page.getByAltText('Foto de recepción 1')).toBeVisible()
-    await page.screenshot({path:`${EVIDENCE}/390x844-04-estado-fotos.png`})
-    await continueStep(page)
-
-    // ORDERS-V2-0: el checklist dejó de ser `<select>` y pasó a radios en
-    // segmented control. El resultado guardado es el mismo `CheckResult`.
-    await page.getByRole('radio',{name:'Pantalla: OK'}).check()
-    await page.getByRole('radio',{name:'Táctil: Falla'}).check()
-    await expect(page.getByRole('radio',{name:'Pantalla: OK'})).toBeChecked()
-    await expect(page.getByRole('radio',{name:'Táctil: Falla'})).toBeChecked()
-    await page.screenshot({path:`${EVIDENCE}/390x844-05-checklist.png`})
-    await page.setViewportSize({width:320,height:568});await noOverflow(page)
-    await page.screenshot({path:`${EVIDENCE}/320x568-checklist-denso.png`})
-    await page.setViewportSize({width:390,height:844});await continueStep(page)
 
     await page.getByRole('button',{name:/PIN Código numérico/}).click()
     await page.getByLabel('PIN').fill('4826')
@@ -111,11 +99,27 @@ test.describe('@mobile2a MOBILE-2A · recepción OWNER',()=>{
     await page.getByRole('button',{name:/PIN Código numérico/}).click();await page.getByLabel('PIN').fill('4826')
     await continueStep(page)
 
+    // ── Ingreso: problema, estado, fotos y checklist (plegado) ──
     await page.getByLabel('Problema informado por el cliente').fill('No carga de forma estable')
     await page.getByLabel('Observaciones de recepción').fill('Llega con funda')
-    await continueStep(page)
+    await page.locator('input[type=file]').setInputFiles({name:'recepcion-e2e.png',mimeType:'image/png',buffer:Buffer.from('89504e470d0a1a0a','hex')})
+    await expect(page.getByAltText('Foto de recepción 1')).toBeVisible()
+    await page.screenshot({path:`${EVIDENCE}/390x844-04-estado-fotos.png`})
+
+    // ORDERS-V2-0: el checklist dejó de ser `<select>` y pasó a radios en
+    // segmented control. El resultado guardado es el mismo `CheckResult`.
+    await page.getByTestId('intake-checklist').locator('summary').click()
+    await page.getByRole('radio',{name:'Pantalla: OK'}).check()
+    await page.getByRole('radio',{name:'Táctil: Falla'}).check()
+    await expect(page.getByRole('radio',{name:'Pantalla: OK'})).toBeChecked()
+    await expect(page.getByRole('radio',{name:'Táctil: Falla'})).toBeChecked()
+    await page.screenshot({path:`${EVIDENCE}/390x844-05-checklist.png`})
+    await page.setViewportSize({width:320,height:568});await noOverflow(page)
+    await page.screenshot({path:`${EVIDENCE}/320x568-checklist-denso.png`})
+    await page.setViewportSize({width:390,height:844});await continueStep(page)
+
+    // ── Confirmar: asignación y presupuesto opcionales + resumen ──
     await page.getByLabel('Prioridad').selectOption('high')
-    await continueStep(page)
     // ORDERS-V2-0.1: moneda y monto son una sola unidad (AppMoneyInput). El
     // grupo lleva el nombre del campo, así que el monto se toma por testid.
     await page.getByTestId('intake-budget').fill('150,50')
@@ -123,7 +127,6 @@ test.describe('@mobile2a MOBILE-2A · recepción OWNER',()=>{
     await page.getByTestId('intake-budget-currency').selectOption('USD')
     await expect(page.locator('.app-money-prefix')).toHaveText('US$')
     await page.screenshot({path:`${EVIDENCE}/390x844-08-presupuesto-usd.png`})
-    await continueStep(page)
 
     await expect(page.getByText('PIN configurado')).toBeVisible()
     await expect(page.getByText('4826')).toHaveCount(0)
@@ -140,13 +143,57 @@ test.describe('@mobile2a MOBILE-2A · recepción OWNER',()=>{
     await page.setViewportSize({width:360,height:800})
     await page.addInitScript(()=>{localStorage.setItem('theme','light');localStorage.setItem('techrepair_theme','light')})
     await page.goto('/orders/new');await expect(page.locator('html')).toHaveAttribute('data-theme','light');await selectSeedCustomer(page)
-    await page.getByLabel('Marca').fill('Motorola');await page.getByLabel('Modelo').fill('Moto G');await continueStep(page)
-    await continueStep(page);await continueStep(page);await continueStep(page)
+    // BETA-UX-2: tres «Continuar» y «Crear orden» (antes eran nueve).
+    await page.getByLabel('Marca').fill('Motorola');await page.getByLabel('Modelo').fill('Moto G')
     await page.getByRole('button',{name:/Sin bloqueo/}).click();await continueStep(page)
     await page.getByLabel('Problema informado por el cliente').fill('No enciende');await continueStep(page)
-    await continueStep(page);await continueStep(page)
     await expect(page.getByText('Sin presupuesto')).toBeVisible();await expect(page.getByText('Sin bloqueo')).toBeVisible()
     await page.getByTestId('mobile-action-bar').getByRole('button',{name:'Crear orden'}).click()
     await expect(page).toHaveURL(/\/orders\/[0-9a-f-]+$/,{timeout:20_000})
+  })
+
+  /**
+   * BETA-UX-2 — el patrón no bloquea la orden. Contra la base REAL.
+   *
+   * La grilla numera 1–9; el servidor (`private.mobile2a_legacy_from_access`)
+   * acepta 0–8. Hasta este lote un patrón con el punto 9 hacía fallar TODA la
+   * creación con `INVALID_ACCESS_PATTERN`, y el spec anterior no lo veía: dibujaba
+   * 1-5-9 pero volvía a PIN antes de crear. Acá se crea con el patrón, se lo
+   * revela desde el detalle y tiene que leerse igual a lo que se dibujó.
+   */
+  test('un patrón con el punto 9 crea la orden y se revela con la misma numeración',async({page})=>{
+    await page.setViewportSize({width:390,height:844})
+    await page.goto('/orders/new');await selectSeedCustomer(page)
+    await page.getByLabel('Marca').fill('Motorola');await page.getByLabel('Modelo').fill('Moto G')
+    await page.getByRole('button',{name:/Patrón Secuencia/}).click()
+    for(const punto of [1,5,9])await page.getByRole('button',{name:`Punto ${punto}`}).click()
+    // Tres puntos: ayuda, no bloqueo.
+    await expect(page.getByTestId('intake-access-notice')).toHaveAttribute('data-level','info')
+    await continueStep(page)
+    await page.getByLabel('Problema informado por el cliente').fill('Pantalla bloqueada');await continueStep(page)
+    await expect(page.getByText('Patrón configurado')).toBeVisible()
+    await page.getByTestId('mobile-action-bar').getByRole('button',{name:'Crear orden'}).click()
+    await expect(page).toHaveURL(/\/orders\/[0-9a-f-]+$/,{timeout:20_000})
+    await expect(page.getByRole('alert')).toHaveCount(0)
+
+    await expect(page.getByTestId('device-lock-status')).toHaveText('Patrón configurado')
+    await page.getByRole('button',{name:'Revelar'}).click()
+    await expect(page.getByText('Patrón: 1 → 5 → 9')).toBeVisible()
+  })
+
+  test('un patrón sin dibujar no frena: la orden se crea como «No lo proporcionó»',async({page})=>{
+    await page.setViewportSize({width:390,height:844})
+    await page.goto('/orders/new');await selectSeedCustomer(page)
+    await page.getByLabel('Marca').fill('Motorola');await page.getByLabel('Modelo').fill('Moto G')
+    await page.getByRole('button',{name:/Patrón Secuencia/}).click()
+    await page.getByRole('button',{name:'Punto 5'}).click()
+    await expect(page.getByTestId('intake-access-notice')).toHaveAttribute('data-level','warning')
+    await continueStep(page)
+    await expect(page.getByRole('heading',{level:1})).toHaveText('Problema y estado')
+    await page.getByLabel('Problema informado por el cliente').fill('No enciende');await continueStep(page)
+    await expect(page.getByText(/No lo proporcionó \(el patrón quedó sin cargar\)/)).toBeVisible()
+    await page.getByTestId('mobile-action-bar').getByRole('button',{name:'Crear orden'}).click()
+    await expect(page).toHaveURL(/\/orders\/[0-9a-f-]+$/,{timeout:20_000})
+    await expect(page.getByTestId('device-lock-status')).toHaveText('No proporcionado')
   })
 })

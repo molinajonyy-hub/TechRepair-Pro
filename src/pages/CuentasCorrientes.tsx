@@ -607,17 +607,16 @@ export function CuentasCorrientes() {
 
   return (
     <div className="page-shell">
+      {/* BETA-UX-2: patrón compartido; acciones de página (44px). `indigo` era
+          el alias de `primary` que BUTTON-SYSTEM-1A pidió no usar en código nuevo. */}
       <AppPageHeader
-        icon={<CreditCard size={20} />}
-        iconColor="var(--accent-primary-subtle)"
+        icon={<CreditCard size={24} />}
         title="Cuentas Corrientes"
         description="Ledger contable de clientes y proveedores"
-        actions={
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <AppButton variant="ghost" size="sm" leftIcon={<RefreshCw size={14} />} onClick={loadAccounts}>Actualizar</AppButton>
-            <AppButton variant="indigo" size="sm" leftIcon={<AddIcon size={14} />} onClick={() => setShowNewModal(true)}>Nueva cuenta</AppButton>
-          </div>
-        }
+        actions={<>
+          <AppButton variant="ghost" size="page" leftIcon={<RefreshCw size={16} />} onClick={loadAccounts}>Actualizar</AppButton>
+          <AppButton variant="primary" size="page" leftIcon={<AddIcon size={16} />} onClick={() => setShowNewModal(true)}>Nueva cuenta</AppButton>
+        </>}
       />
 
       {/* Stats strip */}

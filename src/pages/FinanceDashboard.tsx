@@ -14,6 +14,7 @@ import { FinanceInsightsPanel } from '../components/finance/FinanceInsightsPanel
 import type { FinanceInsight } from '../services/insightsService'
 import { suppliersService } from '../services/suppliersService'
 import { getBusinessDateRange, type BusinessPeriodPreset } from '../lib/businessDate'
+import { AppPageHeader } from '../ui'
 
 // Charts L1 — Recharts pesa lo suyo, así que el bloque entero se carga bajo
 // demanda: sólo lo baja quien abre Finanzas, y en su propio chunk.
@@ -373,24 +374,17 @@ export function FinanceDashboard() {
   return (
     <div className="page-shell" data-testid="finance-dashboard-page">
 
-      <AccountingChangeBanner businessId={businessId} />
+      {/* ── Header ── BETA-UX-2: patrón compartido, y primero que el aviso de
+          cambio contable: la pantalla dice dónde estás antes de avisar algo. */}
+      <AppPageHeader
+        icon={<TrendingUp size={24} />}
+        title="Finanzas"
+        description={data
+          ? `${new Date(from + 'T12:00:00').toLocaleDateString('es-AR')} — ${new Date(to + 'T12:00:00').toLocaleDateString('es-AR')}`
+          : 'Dashboard financiero unificado'}
+      />
 
-      {/* ── Header ── */}
-      <div className="page-top">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
-          <div className="stat-icon" style={{ background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)' }}>
-            <TrendingUp size={20} style={{ color: '#818cf8' }} />
-          </div>
-          <div>
-            <h1 className="page-title">Finanzas</h1>
-            <p className="page-subtitle">
-              {data
-                ? `${new Date(from + 'T12:00:00').toLocaleDateString('es-AR')} — ${new Date(to + 'T12:00:00').toLocaleDateString('es-AR')}`
-                : 'Dashboard financiero unificado'}
-            </p>
-          </div>
-        </div>
-      </div>
+      <AccountingChangeBanner businessId={businessId} />
 
       {/* ── Tab bar ── */}
       <div className="tabs" style={{ marginBottom: '1.5rem' }}>

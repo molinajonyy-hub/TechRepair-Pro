@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   Building2,
@@ -17,9 +17,7 @@ import {
   AlertTriangle,
   Loader2,
   RefreshCw,
-  Printer,
-  MessageCircle,
-
+  ChevronLeft,
 } from 'lucide-react'
 import { ThemeToggle } from '../components/ui/ThemeToggle'
 import { OrderPrintSettings } from '../components/settings/OrderPrintSettings'
@@ -39,8 +37,9 @@ import { colors, radius } from '../lib/tokens'
 import { uploadBusinessLogo } from '../lib/storageSetup'
 import { businessSetupService, BusinessSetupError } from '../services/businessSetupService'
 import { CONDICIONES_FISCALES, normalizeCondicionFiscal } from '../lib/fiscalCondition'
+import { AppPageHeader } from '../ui'
+import { SettingsNav, isSettingsSection, settingsSectionLabel, type SettingsSection } from '../components/settings/SettingsNav'
 
-type TabType = 'datos' | 'puntos' | 'arca' | 'preferencias' | 'seguridad' | 'orden' | 'comprobante' | 'pagos' | 'comisiones' | 'whatsapp'
 
 interface BusinessSettings {
   id?: string
@@ -165,10 +164,35 @@ export default function Settings() {
     isActive: profile?.is_active,
     settingsSensitive: can('settings_sensitive'),
   })
-  const [searchParams]  = useSearchParams()
-  const [activeTab, setActiveTab] = useState<TabType>(
-    (searchParams.get('tab') as TabType) ?? 'datos'
-  )
+  // BETA-UX-2: la sección vive en la URL (`?tab=`). Sin parámetro, escritorio
+  // muestra «Datos del negocio» y el shell mobile, la lista de secciones. Un
+  // valor desconocido ya no deja la pantalla en blanco: cae a «datos».
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requestedTab = searchParams.get('tab')
+  const activeTab: SettingsSection = isSettingsSection(requestedTab) ? requestedTab : 'datos'
+  const sectionListOpen = !isSettingsSection(requestedTab)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const focusContentRef = useRef(false)
+  const selectSection = (section: SettingsSection) => {
+    // En el shell mobile la lista se reemplaza por la sección: el foco va al
+    // contenido para que el lector de pantalla no quede en un botón que ya no está.
+    focusContentRef.current = window.matchMedia('(max-width: 1023px)').matches
+    setSearchParams(previous => {
+      const next = new URLSearchParams(previous)
+      next.set('tab', section)
+      return next
+    })
+  }
+  useEffect(() => {
+    if (!focusContentRef.current || sectionListOpen) return
+    focusContentRef.current = false
+    contentRef.current?.focus()
+  }, [activeTab, sectionListOpen])
+  const backToSectionList = () => setSearchParams(previous => {
+    const next = new URLSearchParams(previous)
+    next.delete('tab')
+    return next
+  })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
@@ -602,19 +626,6 @@ export default function Settings() {
     }
   }
 
-  const tabs = [
-    { id: 'datos' as TabType, label: 'Datos del Negocio', icon: Building2 },
-    { id: 'puntos' as TabType, label: 'Puntos de Venta', icon: MapPin },
-    { id: 'arca' as TabType, label: 'Integración ARCA', icon: Server },
-    { id: 'preferencias' as TabType, label: 'Preferencias', icon: SettingsIcon },
-    { id: 'seguridad' as TabType, label: 'Seguridad', icon: Shield },
-    { id: 'orden' as TabType, label: 'Orden Impresa', icon: Printer },
-    { id: 'comprobante' as TabType, label: 'Comprobantes', icon: FileText },
-    { id: 'pagos' as TabType, label: 'Cobros y Pagos', icon: Shield },
-    { id: 'comisiones' as TabType, label: 'Comisiones', icon: Bell },
-    { id: 'whatsapp' as TabType, label: 'WhatsApp', icon: MessageCircle },
-  ]
-
   if (loading) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4rem', color: 'var(--text-muted)', gap: '0.75rem' }}>
@@ -625,32 +636,35 @@ export default function Settings() {
   }
 
   return (
-    <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-        <div className="page-hdr">
-          <div className="page-hdr-left">
-            <div className="page-hdr-icon"><SettingsIcon size={22} /></div>
-            <div>
-              <h1 className="page-hdr-title">Configuración General</h1>
-              <p className="page-hdr-subtitle">Administra los datos y preferencias del negocio</p>
-            </div>
-          </div>
-        </div>
+    <div className="settings-page" data-view={sectionListOpen ? 'list' : 'section'}>
+        <AppPageHeader
+          icon={<SettingsIcon size={24} />}
+          title="Configuración"
+          description="Datos del negocio, facturación, cobros y documentos"
+        />
 
-        {/* Tabs de navegación */}
-        <div className="tabs" style={{ marginBottom: '2rem', flexWrap: 'wrap' }}>
-          {tabs.map(tab => {
-            const Icon = tab.icon
-            return (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-                className={`tab${activeTab === tab.id ? ' tab-active' : ''}`}>
-                <Icon size={15} />
-                {tab.label}
+        {/* BETA-UX-2 — navegación agrupada (antes: diez pestañas en una fila).
+            `data-view` (en `.settings-page`) decide qué se ve en el shell
+            mobile: la lista o la sección. En escritorio se ven las dos. */}
+        <div className="settings-layout">
+          <SettingsNav active={activeTab} onSelect={selectSection} />
+
+          <div
+            ref={contentRef}
+            className="settings-content"
+            tabIndex={-1}
+            role="region"
+            aria-label={settingsSectionLabel(activeTab)}
+            data-testid="settings-content"
+          >
+            <div className="settings-content__bar">
+              <button type="button" className="btn btn-ghost settings-back" onClick={backToSectionList} data-testid="settings-back">
+                <ChevronLeft size={18} aria-hidden="true" /> Secciones
               </button>
-            )
-          })}
-        </div>
+              <span className="settings-content__current">{settingsSectionLabel(activeTab)}</span>
+            </div>
 
-        {/* Contenido de las pestañas */}
+        {/* Contenido de la sección */}
         {activeTab === 'datos' && (
           <div className="surface-raised" style={{ padding: '2rem' }}>
             <h2 className="heading-md" style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -1407,6 +1421,8 @@ export default function Settings() {
             <WhatsAppTemplatesSettings />
           </div>
         )}
+          </div>
+        </div>
 
         {/* Modal para crear/editar punto de venta */}
         {showSalesPointModal && (

@@ -79,7 +79,7 @@ test.describe('@webkit ORDERS-V2-0.1 · WebKit móvil', () => {
 
     await page.getByTestId('intake-brand').fill('Samsung')
     await page.getByTestId('intake-model').fill('A04e')
-    await continuar(page)
+    // BETA-UX-2: serie e IMEI están en el mismo paso que marca y modelo.
 
     await page.getByRole('button', { name: 'Escanear' }).first().click()
     await expect(page.getByTestId('barcode-scanner')).toBeVisible()
@@ -134,14 +134,10 @@ test.describe('@webkit ORDERS-V2-0.1 · WebKit móvil', () => {
 
     await page.getByTestId('intake-brand').fill('Samsung')
     await page.getByTestId('intake-model').fill('A04e')
-    await continuar(page)   // equipo → identificación
-    await continuar(page)   // → estado y fotos
-    await continuar(page)   // → checklist
-    await continuar(page)   // → acceso
-    await continuar(page)   // → problema
+    // BETA-UX-2: 4 pasos — Equipo → Ingreso → Confirmar (presupuesto).
+    await continuar(page)   // equipo → ingreso
     await page.getByLabel('Problema informado por el cliente').fill('No carga')
-    await continuar(page)   // → asignación
-    await continuar(page)   // → presupuesto
+    await continuar(page)   // → confirmar
 
     const amount = page.getByTestId('intake-budget')
     await expect(amount).toBeVisible()

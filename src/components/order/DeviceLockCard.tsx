@@ -3,6 +3,7 @@ import { Edit2, Eye, EyeOff, Lock, Save, Trash2 } from 'lucide-react'
 import { usePermissions } from '../../hooks/usePermissions'
 import { AppButton, AppInput, AppSelect } from '../../ui'
 import { PatternGrid } from '../../features/order-intake/PatternGrid'
+import { PATTERN_MIN_POINTS, PIN_MAX_DIGITS, parseRevealedPattern, patternToCanonical } from '../../features/order-intake/model'
 import { deleteDeviceAccess, revealDeviceAccess, setDeviceAccess } from '../../features/order-intake/service'
 
 type SecretMode = 'pin'|'pattern'|'password'
@@ -13,10 +14,18 @@ const LABELS: Record<string,string> = {
   not_provided:'No proporcionado',not_verifiable:'No verificable',
 }
 
+/**
+ * BETA-UX-2 — Vault guarda el patrón en el contrato del servidor (puntos 0–8);
+ * la grilla los numera 1–9. Antes se mostraba el JSON crudo: un patrón migrado
+ * del frontend viejo se leía «0 → 4 → 8», con un punto 0 que la grilla no tiene.
+ */
+function revealedPattern(mode: AccessMode, value: string): number[] | null {
+  return mode==='pattern' ? parseRevealedPattern(value) : null
+}
 function visibleSecret(mode: AccessMode, value: string) {
   if(mode!=='pattern') return value
-  try { const points=JSON.parse(value); return Array.isArray(points)?`Patrón: ${points.join(' → ')}`:'Patrón configurado' }
-  catch { return 'Patrón configurado' }
+  const points=parseRevealedPattern(value)
+  return points?`Patrón: ${points.join(' → ')}`:'Patrón configurado'
 }
 
 export function DeviceLockCard({ orderId, accessMode, onChanged }: { orderId:string; accessMode?:AccessMode; onChanged?:()=>Promise<void>|void }) {
@@ -30,13 +39,16 @@ export function DeviceLockCard({ orderId, accessMode, onChanged }: { orderId:str
   const [busy,setBusy] = useState(false)
   const [error,setError] = useState('')
   const hasSecret = accessMode==='pin'||accessMode==='pattern'||accessMode==='password'
+  const revealedPoints = revealed ? revealedPattern(accessMode??null,revealed) : null
 
   useEffect(()=>{setRevealed(null)},[orderId,accessMode])
   useEffect(()=>{if(!revealed)return;const timer=window.setTimeout(()=>setRevealed(null),30000);return()=>window.clearTimeout(timer)},[revealed])
   useEffect(()=>()=>{setSecret('');setPattern([]);setRevealed(null)},[])
 
   const reveal=async()=>{if(revealed){setRevealed(null);return}setBusy(true);setError('');try{setRevealed(await revealDeviceAccess(orderId))}catch(cause){setError(cause instanceof Error?cause.message:'No se pudo revelar el acceso.')}finally{setBusy(false)}}
-  const save=async()=>{const value=mode==='pattern'?JSON.stringify(pattern):secret;if(!value||(mode==='pattern'&&pattern.length<2)){setError('Completá el acceso.');return}setBusy(true);setError('');try{await setDeviceAccess(orderId,mode,value);setSecret('');setPattern([]);setEditing(false);await onChanged?.()}catch(cause){setError(cause instanceof Error?cause.message:'No se pudo guardar.')}finally{setBusy(false)}}
+  const save=async()=>{
+    if(mode==='pattern'&&pattern.length<PATTERN_MIN_POINTS){setError(`Marcá al menos ${PATTERN_MIN_POINTS} puntos del patrón.`);return}
+    const value=mode==='pattern'?JSON.stringify(patternToCanonical(pattern)):secret;if(!value){setError('Completá el acceso.');return}setBusy(true);setError('');try{await setDeviceAccess(orderId,mode,value);setSecret('');setPattern([]);setEditing(false);await onChanged?.()}catch(cause){setError(cause instanceof Error?cause.message:'No se pudo guardar.')}finally{setBusy(false)}}
   const remove=async()=>{if(!window.confirm('¿Eliminar el acceso guardado?'))return;setBusy(true);setError('');try{await deleteDeviceAccess(orderId);setRevealed(null);await onChanged?.()}catch(cause){setError(cause instanceof Error?cause.message:'No se pudo eliminar.')}finally{setBusy(false)}}
 
   // BETA-UX-1E — sólo presentación. Tres textos de esta tarjeta no declaraban
@@ -51,7 +63,10 @@ export function DeviceLockCard({ orderId, accessMode, onChanged }: { orderId:str
       {!allowed&&<p style={{margin:0,color:'var(--text-subtle)'}}>No tenés permiso para consultar el acceso del equipo.</p>}
       {allowed&&!editing&&<>
         <p data-testid="device-lock-status" style={{margin:0,color:'var(--text-primary)'}}>{LABELS[accessMode||'']||'Sin información'}{hasSecret?' configurado':''}</p>
-        {revealed&&<div className="intake-security-note" role="status"><span style={{fontFamily:'monospace',overflowWrap:'anywhere'}}>{visibleSecret(accessMode??null,revealed)}</span></div>}
+        {revealed&&<div className="intake-security-note" role="status" style={{flexDirection:'column',alignItems:'stretch'}}>
+          <span style={{fontFamily:'monospace',overflowWrap:'anywhere'}}>{visibleSecret(accessMode??null,revealed)}</span>
+          {revealedPoints&&<PatternGrid value={revealedPoints} onChange={()=>{}} readOnly/>}
+        </div>}
         <div style={{display:'flex',gap:'.5rem',flexWrap:'wrap'}}>
           {hasSecret&&<AppButton variant="secondary" loading={busy} leftIcon={revealed?<EyeOff size={16}/>:<Eye size={16}/>} onClick={reveal}>{revealed?'Ocultar':'Revelar'}</AppButton>}
           <AppButton variant="secondary" leftIcon={<Edit2 size={16}/>} onClick={()=>setEditing(true)}>Configurar</AppButton>
@@ -62,7 +77,7 @@ export function DeviceLockCard({ orderId, accessMode, onChanged }: { orderId:str
         <AppSelect label="Tipo" value={mode} onChange={event=>{setMode(event.target.value as SecretMode);setSecret('');setPattern([])}} options={[{value:'pin',label:'PIN'},{value:'pattern',label:'Patrón'},{value:'password',label:'Contraseña'}]}/>
         {mode==='pattern'
           ? <PatternGrid value={pattern} onChange={setPattern}/>
-          : <AppInput semantic="password" inputMode={mode==='pin'?'numeric':undefined} autoComplete="new-password" label={mode==='pin'?'PIN':'Contraseña'} value={secret} onChange={event=>setSecret(mode==='pin'?event.target.value.replace(/\D/g,'').slice(0,12):event.target.value.slice(0,256))}/>
+          : <AppInput semantic="password" inputMode={mode==='pin'?'numeric':undefined} autoComplete="new-password" label={mode==='pin'?'PIN':'Contraseña'} value={secret} onChange={event=>setSecret(mode==='pin'?event.target.value.replace(/\D/g,'').slice(0,PIN_MAX_DIGITS):event.target.value.slice(0,256))}/>
         }
         <div style={{display:'flex',gap:'.5rem'}}><AppButton variant="primary" className="btn-primary-aa" loading={busy} leftIcon={<Save size={16}/>} onClick={save}>Guardar</AppButton><AppButton variant="secondary" onClick={()=>{setEditing(false);setSecret('');setPattern([])}}>Cancelar</AppButton></div>
       </>}

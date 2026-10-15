@@ -9,11 +9,12 @@ const VIEWPORT_WIDTHS = [320, 390, 430, 1440]
 // BETA-UX-1F: Inicio dejó de ser una superficie de pestañas. Las suyas
 // (Comprobantes / Movimientos de Caja) se fueron con las finanzas, así que
 // `/dashboard` salió de esta lista. `AppTabs` hoy sólo vive en el detalle de una
-// tarea, que es un diálogo y no una ruta; las clases `.tab` / `.tab-active` que
-// mide este spec las siguen cubriendo las dos superficies que quedan.
+// tarea, que es un diálogo y no una ruta.
+// BETA-UX-2: Configuración tampoco usa ya `.tab`: su navegación es una lista
+// agrupada (`SettingsNav`) y la miden los estados, el contraste y el desborde
+// de `beta-ux-2-consistency.spec.ts`. Queda Ofertas.
 const LIVE_SURFACES = [
   { name: 'Ofertas · tabs de filtro', path: '/offers' },
-  { name: 'Configuración · tabs de navegación', path: '/settings' },
 ] as const
 
 async function openTabs(page: Page, path: string) {
