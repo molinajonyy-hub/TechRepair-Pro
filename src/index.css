@@ -3411,6 +3411,20 @@ tbody tr:hover td {
 .mobile-action-bar__spacer {
   height: calc(var(--mobile-cta-height) + 1.5rem + env(safe-area-inset-bottom, 0px));
 }
+/* BETA-UX-2 — el espaciador reserva lugar al FINAL de la página, pero no le
+   dice al navegador que el borde inferior de la pantalla está tapado. Sin
+   esto, el scroll al foco (Tab) o a `scrollIntoView` considera «visible» un
+   control que quedó debajo de la barra de acción y de la navegación inferior.
+   Medido en CI (320×568, recepción con la lista en «Buscando…»): «Crear
+   cliente rápido» terminaba 1–3 px debajo del borde de la barra y el navegador
+   no lo movía. Con el `scroll-padding` el área útil es la que queda encima de
+   las dos barras (WCAG 2.4.11, foco no tapado), más 0.5rem de aire: el scroll
+   va en píxeles enteros y con el alto justo quedaba una fracción tapada. */
+@media (max-width: 1023px) {
+  html:has(.mobile-action-bar) {
+    scroll-padding-bottom: calc(var(--mobile-bottom-nav-height) + var(--mobile-cta-height) + 1.5rem + 1px + 0.5rem + env(safe-area-inset-bottom, 0px));
+  }
+}
 
 .mobile-action-bar__inner {
   display: grid;
@@ -4267,7 +4281,13 @@ tbody tr:hover td {
    Caja, secundarias; Registrar gasto, `danger`. Actualizar es un ícono del
    mismo alto. El subtítulo ya no necesita regla propia: BETA-UX-2 llevó a
    `--text-secondary` el de todas las pantallas (`.page-hdr-subtitle`). */
-.dash-actions-slot { min-width: 0; max-width: 100%; }
+/* BETA-UX-2: el slot es `.page-hdr-right` (flex) desde que Inicio usa el
+   encabezado compartido. Como flex, `.dash-actions` pasaba a medir lo que su
+   contenido: «Nueva Orden» dejaba de ir de lado a lado en mobile y «Actualizar»
+   (absoluto, arriba a la derecha del encabezado) quedaba fuera de su fila
+   — CI, técnico a 375px: +194px. En bloque, `.dash-actions` vuelve a ocupar
+   el ancho del slot, como antes. */
+.dash-actions-slot { display: block; min-width: 0; max-width: 100%; }
 .dash-actions {
   display: flex;
   flex-wrap: wrap;

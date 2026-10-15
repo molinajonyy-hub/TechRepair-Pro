@@ -187,12 +187,32 @@ El último corre los specs REALES `m7/beta-ux-2-consistency`, `m7/mobile2a-order
 `create_order_intake`). No reemplaza al job `e2e-local` de CI; reescribe capturas versionadas de lotes
 anteriores (revertirlas con `git checkout -- docs/p0-mobile-evidence docs/orders-v2-0-evidence`).
 
-## 6. Pendiente / fuera de alcance
+## 6. Ronda 2 — los tres rojos del primer CI (run 38755788937, 378/381)
 
-- **Un patrón guardado en base 1 (21/09/2026, una orden).** Con el códec corregido se va a revelar corrido un
-  punto. Opciones: volver a cargarlo desde «Acceso del equipo → Configurar» de esa orden, o una corrección de
-  datos server-side identificando la orden por su auditoría (`stored` + `pattern` posterior a MOBILE-2A). Es
-  Vault: decisión del owner, en otra tarea. No se tocaron datos.
+Los tres fallaban también en el reintento y eran de este PR. Se reprodujeron con el runner simulado
+(`e2e-mock/serve.mjs` suma `MOCK_ROLE`, `MOCK_CUSTOMERS` y `MOCK_CUSTOMERS_DELAY_MS`) antes de corregir:
+
+1. **Inicio del técnico, 375 px — recorte real.** `AppPageHeader` pone las acciones en `.page-hdr-right`, que
+   es `flex`: `.dash-actions` pasó a medir su contenido. «Nueva Orden» quedó de 146 px en vez de ir de lado a
+   lado y «Actualizar» (absoluto, arriba a la derecha) 194–197 px fuera de su fila. Arreglo:
+   `.dash-actions-slot { display: block }` (lo que era antes). Control: con el slot en `flex` vuelven los
+   mismos recortes; con el arreglo, ninguno y 343 px de ancho.
+2. **Escáner (`dialog-touch-actions`) — spec desactualizado.** Hacía «Continuar» después de marca/modelo para
+   llegar a «Identificación»; ahora «Escanear» está en el mismo paso. Se ajustó el recorrido (y se asevera el
+   título del paso); las aserciones del contrato táctil no cambiaron.
+3. **«Crear cliente rápido» y la barra fija, 320×568 — superposición real.** Con la lista en «Buscando…» el
+   botón terminaba a 0,9 px del borde de la barra en Windows y 1–3 px debajo en CI (fuentes de Linux), y
+   `scrollIntoView` no lo movía porque el navegador no sabe que la barra tapa el borde. Arreglo:
+   `scroll-padding-bottom` en el documento cuando hay barra de acción (barra + navegación inferior + 8 px).
+   Control: simulando los píxeles de CI, sin la regla se superpone; con la regla el navegador scrollea 11 px
+   y queda 8 px por encima. A 390 y 430 px no cambia nada.
+
+## 7. Pendiente / fuera de alcance
+
+- **Patrones guardados en base 1** (1 al 2026-10-15; el frontend de producción sigue generándolos hasta que
+  se despliegue este lote). Con el códec corregido se revelarían corridos un punto. Plan completo —cómo
+  identificarlos sin tocar secretos, cómo evitar que la UI los muestre mal y cómo corregirlos— en
+  [`patron-historico-plan.md`](patron-historico-plan.md). Nada se ejecutó contra producción.
 - Migrar al componente el marcado de los encabezados que siguen escritos a mano (Clientes, Inventario,
   Mayorista, Ofertas, Usuarios, Suscripción, Moneda, Ayuda, Leads, Detalle de cliente). Ya se ven iguales por
   CSS; es refactor de marcado sin cambio visual.

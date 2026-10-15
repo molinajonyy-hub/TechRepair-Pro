@@ -32,7 +32,16 @@ export const user = {
   user_metadata: { full_name: 'QA' }, created_at: '2026-10-01T11:59:00Z', identities: [],
 }
 export const session = { access_token: jwt, token_type: 'bearer', expires_in: 86400, expires_at: now + 86400, refresh_token: 'fake-refresh', user }
-const profile = { id: USER_ID, user_id: USER_ID, business_id: BIZ_ID, email: user.email, full_name: 'QA Owner', role: 'owner', is_active: true, permissions: null, created_at: '2026-10-01T12:00:00Z' }
+// Perillas para reproducir lo que ve CI con la base real:
+//   MOCK_ROLE       rol del perfil (owner por defecto; `tech` = técnico sin finanzas).
+//   MOCK_CUSTOMERS  cuántos clientes devuelve la búsqueda (CI acumula decenas de
+//                   corridas: con uno solo la recepción no scrollea).
+//   MOCK_CUSTOMERS_DELAY_MS  demora de la búsqueda de clientes: en CI el spec mide
+//                   la recepción con la lista todavía en «Buscando…».
+const ROLE = process.env.MOCK_ROLE || 'owner'
+const EXTRA_CUSTOMERS = Number(process.env.MOCK_CUSTOMERS || 0)
+const CUSTOMERS_DELAY_MS = Number(process.env.MOCK_CUSTOMERS_DELAY_MS || 0)
+const profile = { id: USER_ID, user_id: USER_ID, business_id: BIZ_ID, email: user.email, full_name: `QA ${ROLE}`, role: ROLE, is_active: true, permissions: null, created_at: '2026-10-01T12:00:00Z' }
 const day = 86400e3
 const SUBSCRIPTION = {
   subscription_status: 'active', subscription_plan: 'full', access_source: 'admin_override',
@@ -41,6 +50,10 @@ const SUBSCRIPTION = {
   trial_ends_at: new Date(Date.now() - 40 * day).toISOString(), override_expires_at: null,
 }
 const CUSTOMER = { id: 'c0000000-0000-4000-8000-0000000000e2', business_id: BIZ_ID, name: 'Cliente E2E', phone: '3511234567', email: null, address: null, document: '30111222', customer_type: 'minorista', active: true, created_at: '2026-10-01T12:00:00Z' }
+const CUSTOMERS = [CUSTOMER, ...Array.from({ length: EXTRA_CUSTOMERS }, (_, i) => ({
+  ...CUSTOMER, id: `c0000000-0000-4000-8000-${String(1000 + i).padStart(12, '0')}`,
+  name: `Sintético ${i + 1}`, phone: `35100000${String(i).padStart(2, '0')}`, document: null,
+}))]
 const DEVICE = { id: 'd0000000-0000-4000-8000-0000000000aa', type: 'smartphone', brand: 'Motorola', model: 'Moto G', serial: null, imei: null, issue: 'No carga', diagnosis: null }
 const ORDER_ID = 'f0000000-0000-4000-8000-0000000000aa'
 const state = { accessMode: 'none', secret: null }
@@ -112,9 +125,12 @@ const api = http.createServer((req, res) => {
       const one = row => row ? send(200, row) : send(406, { code: 'PGRST116', message: 'mock: 0 rows' })
       if (table === 'businesses' && single) return send(200, SUBSCRIPTION)
       if (table === 'orders') return single ? one(order()) : list([order()])
-      if (table === 'customers') return single ? one(CUSTOMER) : list([CUSTOMER])
+      if (table === 'customers') {
+        if (single) return one(CUSTOMER)
+        return CUSTOMERS_DELAY_MS ? setTimeout(() => list(CUSTOMERS), CUSTOMERS_DELAY_MS) : list(CUSTOMERS)
+      }
       if (table === 'devices') return single ? one(DEVICE) : list([DEVICE])
-      if (table === 'business_users_view') return list([{ id: USER_ID, full_name: 'QA Owner', email: user.email, role: 'owner', is_active: true, permissions: null }])
+      if (table === 'business_users_view') return list([{ id: USER_ID, full_name: `QA ${ROLE}`, email: user.email, role: ROLE, is_active: true, permissions: null }])
       if (table === 'business_settings') { const row = { business_id: BIZ_ID, dolar_source: 'nacional', auto_update_rate: true, nombre_comercial: 'Taller QA', mayorista_enabled: true }; return single ? one(row) : list([row]) }
       if (table === 'exchange_rates') { const row = { rate: 1556, source: 'bluelytics', updated_at: new Date().toISOString() }; return single ? one(row) : list([row]) }
       return single ? one(null) : list([])

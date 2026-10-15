@@ -33,7 +33,7 @@ writeFileSync(storageState, JSON.stringify({
 
 export default defineConfig({
   testDir: '../../../../tests/e2e/m7',
-  testMatch: [/beta-ux-2-consistency\.spec\.ts$/, /mobile2a-order-intake\.spec\.ts$/, /ordersV20Desktop\.spec\.ts$/],
+  testMatch: [/beta-ux-2-consistency\.spec\.ts$/, /mobile2a-order-intake\.spec\.ts$/, /ordersV20Desktop\.spec\.ts$/, /dialog-touch-actions\.spec\.ts$/],
   timeout: 120_000,
   expect: { timeout: 15_000 },
   workers: 1,

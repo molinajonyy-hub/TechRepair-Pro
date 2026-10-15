@@ -133,6 +133,28 @@ describe('BETA-UX-2 · CSS del encabezado y del ritmo vertical', () => {
     expect(reglasDe('.dash-page.page-shell')).toEqual([])
   })
 
+  it('Inicio: el slot de acciones es bloque, para que la fila ocupe el ancho del encabezado', () => {
+    // CI (técnico, 375px): como flex, «Nueva Orden» medía 146px y «Actualizar»
+    // quedaba 194px fuera de su fila. `.page-hdr-right` sigue siendo flex.
+    expect(primeraDe('.dash-actions-slot').display).toBe('block')
+    expect(primeraDe('.page-hdr-right').display).toBe('flex')
+    const iSlot = REGLAS.findIndex(r => r.selectores.includes('.dash-actions-slot'))
+    const iDerecha = REGLAS.findIndex(r => r.selectores.includes('.page-hdr-right'))
+    expect(iSlot, 'la regla de Inicio va después y gana el empate').toBeGreaterThan(iDerecha)
+  })
+
+  it('con barra de acción fija, el scroll al foco descuenta la barra y la navegación inferior', () => {
+    // CI (320×568): «Crear cliente rápido» quedaba 1–3px debajo del borde de la
+    // barra y `scrollIntoView` no lo movía.
+    const regla = reglasDe('html:has(.mobile-action-bar)')
+    expect(regla).toHaveLength(1)
+    const padding = declaraciones(regla[0].cuerpo)['scroll-padding-bottom']
+    for (const parte of ['var(--mobile-bottom-nav-height)', 'var(--mobile-cta-height)', '1.5rem', '0.5rem', 'env(safe-area-inset-bottom, 0px)'])
+      expect(padding).toContain(parte)
+    const enMobile = css.indexOf('html:has(.mobile-action-bar)')
+    expect(css.slice(css.lastIndexOf('@media', enMobile), css.indexOf('{', css.lastIndexOf('@media', enMobile))).trim()).toBe('@media (max-width: 1023px)')
+  })
+
   it('la barra de progreso del gradiente índigo→cyan se retiró', () => {
     expect(reglasDe('.intake-progress')).toEqual([])
     expect(reglasDe('.intake-progress span')).toEqual([])
