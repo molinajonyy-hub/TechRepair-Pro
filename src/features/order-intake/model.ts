@@ -85,15 +85,51 @@ export function patternToCanonical(points: number[]): number[] { return points.m
 export function patternFromCanonical(points: number[]): number[] { return points.map(point => point + 1) }
 
 /**
- * Lee un patrón revelado de Vault y lo devuelve en la numeración de la grilla.
- * `null` si no es un patrón del contrato (texto legacy, JSON roto).
+ * BETA-UX-2 · hotfix — formato con el que se GUARDA un patrón desde ahora:
+ * contrato 0–8 como arreglo de STRINGS (`["0","4","8"]`).
+ *
+ * El servidor lo acepta igual que a los números: valida cada punto con
+ * `jsonb_array_elements_text(...) !~ '^[0-8]$'`, y el espejo legacy queda
+ * `pattern:0-4-8`. El tipo JSON es la marca de «formato actual»: antes se
+ * guardaban NÚMEROS, en dos numeraciones distintas (ver `readStoredPattern`).
  */
-export function parseRevealedPattern(value: string): number[] | null {
-  try {
-    const parsed: unknown = JSON.parse(value)
-    if (!Array.isArray(parsed) || !parsed.every(point => Number.isInteger(point) && point >= 0 && point <= 8)) return null
-    return patternFromCanonical(parsed as number[])
-  } catch { return null }
+export function serializePattern(points: number[]): string {
+  return JSON.stringify(patternToCanonical(points).map(String))
+}
+
+export type StoredPatternReading =
+  /** Se puede dibujar con certeza; `points` en la numeración de la grilla (1–9). */
+  | { kind: 'exact'; points: number[]; source: 'current' | 'legacy_zero_based' | 'legacy_one_based' }
+  /** Formato anterior sin forma de saber la numeración: NO dibujarlo. */
+  | { kind: 'ambiguous' }
+  /** No es un patrón del contrato (texto legacy, JSON roto, puntos repetidos…). */
+  | { kind: 'unreadable' }
+
+/**
+ * Lee un patrón revelado de Vault.
+ *
+ * - Strings `"0"`–`"8"`: formato actual (`serializePattern`) → exacto.
+ * - Números: formato anterior. Lo guardaron dos frontends: el viejo (migrado,
+ *   contrato 0–8) y el de MOBILE-2A (grilla 1–9 cruda). Un 0 sólo existe en
+ *   0–8 y un 9 sólo en 1–9; sin ninguno de los dos, la misma lista es DOS
+ *   patrones distintos → `ambiguous`. Recargarlo lo pasa al formato actual.
+ */
+export function readStoredPattern(value: string): StoredPatternReading {
+  let parsed: unknown
+  try { parsed = JSON.parse(value) } catch { return { kind: 'unreadable' } }
+  if (!Array.isArray(parsed) || parsed.length < 2 || parsed.length > 9) return { kind: 'unreadable' }
+  if (new Set(parsed.map(String)).size !== parsed.length) return { kind: 'unreadable' }
+  if (parsed.every(point => typeof point === 'string' && /^[0-8]$/.test(point)))
+    return { kind: 'exact', points: patternFromCanonical(parsed.map(Number)), source: 'current' }
+  if (!parsed.every(point => typeof point === 'number' && Number.isInteger(point) && point >= 0 && point <= 9))
+    return { kind: 'unreadable' }
+  const points = parsed as number[]
+  const conCero = points.includes(0)
+  const conNueve = points.includes(9)
+  if (conCero && conNueve) return { kind: 'unreadable' }
+  if (conCero) return { kind: 'exact', points: patternFromCanonical(points), source: 'legacy_zero_based' }
+  if (conNueve) return { kind: 'exact', points: [...points], source: 'legacy_one_based' }
+  return { kind: 'ambiguous' }
 }
 
 /** ¿El acceso elegido tiene un valor que el servidor puede guardar? */
@@ -134,7 +170,7 @@ export function accessNotice(draft: Pick<IntakeDraft, 'accessMode' | 'accessSecr
 
 export function accessSecretForRpc(draft: IntakeDraft): string | null {
   const mode = effectiveAccessMode(draft)
-  if (mode === 'pattern') return JSON.stringify(patternToCanonical(draft.pattern))
+  if (mode === 'pattern') return serializePattern(draft.pattern)
   if (mode === 'pin' || mode === 'password') return draft.accessSecret || null
   return null
 }

@@ -17,8 +17,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(here, '../../../..')
-const API_PORT = 59997
-const WEB_PORT = 5200
+// MOCK_API_PORT / MOCK_WEB_PORT: puertos propios, para levantar varios seguidos
+// sin esperar a que el anterior libere los suyos.
+const API_PORT = Number(process.env.MOCK_API_PORT || 59997)
+const WEB_PORT = Number(process.env.MOCK_WEB_PORT || 5200)
 const API = `http://127.0.0.1:${API_PORT}`
 
 const b64u = o => Buffer.from(JSON.stringify(o)).toString('base64url')
@@ -56,7 +58,10 @@ const CUSTOMERS = [CUSTOMER, ...Array.from({ length: EXTRA_CUSTOMERS }, (_, i) =
 }))]
 const DEVICE = { id: 'd0000000-0000-4000-8000-0000000000aa', type: 'smartphone', brand: 'Motorola', model: 'Moto G', serial: null, imei: null, issue: 'No carga', diagnosis: null }
 const ORDER_ID = 'f0000000-0000-4000-8000-0000000000aa'
-const state = { accessMode: 'none', secret: null }
+//   MOCK_ACCESS_MODE / MOCK_ACCESS_SECRET  acceso ya guardado en la orden (para
+//                   ver la tarjeta «Acceso del equipo» con un patrón SINTÉTICO de
+//                   formato anterior, p. ej. `[1,4,7,8]`, sin pasar por la recepción).
+const state = { accessMode: process.env.MOCK_ACCESS_MODE || 'none', secret: process.env.MOCK_ACCESS_SECRET ?? null }
 const order = () => ({
   id: ORDER_ID, business_id: BIZ_ID, status: 'new', priority: 'medium', customer_id: CUSTOMER.id, device_id: DEVICE.id,
   access_mode: state.accessMode, estimated_total: 0, estimated_total_currency: 'ARS', notes: null,
@@ -89,6 +94,13 @@ const api = http.createServer((req, res) => {
   }
   const list = arr => send(200, arr, { 'content-range': `${arr.length ? `0-${arr.length - 1}` : '*'}/${arr.length}` })
   if (req.method === 'OPTIONS') { res.writeHead(204, cors); return res.end() }
+  // Control del simulador (no existe en Supabase): cambia el acceso guardado sin
+  // reiniciar Vite. `?mode=pattern&secret=[1,2,5,8]`.
+  if (p === '/__mock/access') {
+    state.accessMode = url.searchParams.get('mode') || 'none'
+    state.secret = url.searchParams.get('secret')
+    return send(200, { ok: true })
+  }
   let raw = ''
   req.on('data', chunk => { raw += chunk })
   req.on('end', () => {
@@ -106,6 +118,13 @@ const api = http.createServer((req, res) => {
       if (fn === 'current_platform_admin_role') return send(200, null)
       if (fn === 'current_user_has_internal_tool_access') return send(200, false)
       if (fn === 'reveal_order_device_access') return send(200, state.secret)
+      if (fn === 'set_order_device_access_secret') {
+        // Misma validación de patrón que el servidor (acepta números o strings 0–8).
+        if (body.p_mode === 'pattern' && rejectsPattern(body.p_secret))
+          return send(400, { code: '22023', message: 'INVALID_ACCESS_PATTERN', details: null, hint: null })
+        state.accessMode = body.p_mode; state.secret = body.p_secret
+        return send(200, null)
+      }
       if (fn === 'create_order_intake') {
         const mode = body.p_payload?.access_mode
         const secret = body.p_access_secret ?? null

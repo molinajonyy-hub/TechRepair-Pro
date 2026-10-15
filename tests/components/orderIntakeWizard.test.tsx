@@ -230,7 +230,8 @@ describe('BETA-UX-2 · recepción en 4 pasos',()=>{
     await waitFor(()=>expect(mocks.create).toHaveBeenCalledTimes(1))
     const rpcDraft=mocks.create.mock.calls[0][1]
     expect(intakePayload(rpcDraft).access_mode).toBe('pattern')
-    expect(accessSecretForRpc(rpcDraft)).toBe('[0,4,8]')
+    // BETA-UX-2 · hotfix: contrato 0–8 como strings (el tipo marca el formato actual).
+    expect(accessSecretForRpc(rpcDraft)).toBe('["0","4","8"]')
   })
 
   it('un patrón sin dibujar NO bloquea: avisa, deja seguir y se registra «No lo proporcionó»',async()=>{

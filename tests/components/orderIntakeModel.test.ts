@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   accessNotice, accessSecretForRpc, effectiveAccessMode, intakeErrorMessage, intakePayload, isValidImei,
-  normalizeImei, parseLocalizedAmount, parseRevealedPattern, patternFromCanonical, patternToCanonical,
-  INITIAL_INTAKE_DRAFT, PIN_MAX_DIGITS,
+  normalizeImei, parseLocalizedAmount, patternFromCanonical, patternToCanonical, readStoredPattern,
+  serializePattern, INITIAL_INTAKE_DRAFT, PIN_MAX_DIGITS,
 } from '../../src/features/order-intake/model'
 
 describe('MOBILE-2A · modelo de recepción (unit)', () => {
@@ -25,9 +25,8 @@ describe('MOBILE-2A · modelo de recepción (unit)', () => {
     expect(JSON.stringify(intakePayload(pin))).not.toContain('4826')
     expect(accessSecretForRpc(pin)).toBe('4826')
     const pattern = { ...INITIAL_INTAKE_DRAFT, accessMode: 'pattern' as const, pattern: [1,5,9] }
-    expect(accessSecretForRpc(pattern)).toBe('[0,4,8]')
-    expect(JSON.stringify(intakePayload(pattern))).not.toContain('[0,4,8]')
-    expect(JSON.stringify(intakePayload(pattern))).not.toContain('[1,5,9]')
+    expect(accessSecretForRpc(pattern)).toBe('["0","4","8"]')
+    for (const forma of ['["0","4","8"]', '[0,4,8]', '[1,5,9]']) expect(JSON.stringify(intakePayload(pattern))).not.toContain(forma)
   })
 })
 
@@ -64,15 +63,45 @@ describe('BETA-UX-2 · patrón: la grilla (1–9) habla el contrato del servidor
     expect(servidorAcepta(JSON.stringify(patternToCanonical([1, 5, 9])))).toBe(true)
   })
 
-  it('ida y vuelta: lo que se revela se muestra con la numeración de la grilla', () => {
+  it('ida y vuelta: lo que se guarda hoy se lee exacto, en la numeración de la grilla', () => {
     expect(patternFromCanonical(patternToCanonical([3, 5, 7, 9]))).toEqual([3, 5, 7, 9])
-    expect(parseRevealedPattern('[0,4,8]')).toEqual([1, 5, 9])
-    // Un patrón migrado del frontend viejo (`pattern:0-1-2` → `[0,1,2]`).
-    expect(parseRevealedPattern('[0,1,2]')).toEqual([1, 2, 3])
-    expect(parseRevealedPattern('1234')).toBeNull()
-    expect(parseRevealedPattern('[9]')).toBeNull()
-    expect(parseRevealedPattern('no-json')).toBeNull()
+    // Formato actual: arreglo de STRINGS del contrato 0–8 (el tipo es la marca).
+    expect(serializePattern([1, 5, 9])).toBe('["0","4","8"]')
+    expect(servidorAcepta(serializePattern([1, 5, 9]))).toBe(true)
+    expect(readStoredPattern(serializePattern([3, 5, 7, 9]))).toEqual({ kind: 'exact', points: [3, 5, 7, 9], source: 'current' })
   })
+})
+
+/**
+ * BETA-UX-2 · hotfix — patrones guardados ANTES del formato actual.
+ *
+ * Dos poblaciones, las dos como arreglo de NÚMEROS: las migradas del frontend
+ * viejo (`pattern:0-1-2` → `[0,1,2]`, contrato 0–8) y las del wizard de
+ * MOBILE-2A (grilla 1–9 cruda). Un 0 sólo puede venir de 0–8 y un 9 sólo de
+ * 1–9; sin ninguno de los dos, la misma lista significa dos patrones distintos
+ * y NO se dibuja.
+ */
+describe('BETA-UX-2 · hotfix · lectura de un patrón guardado', () => {
+  it('formato anterior con un 0 → contrato 0–8, exacto', () => {
+    expect(readStoredPattern('[0,1,2]')).toEqual({ kind: 'exact', points: [1, 2, 3], source: 'legacy_zero_based' })
+  })
+
+  it('formato anterior con un 9 → grilla 1–9, exacto', () => {
+    expect(readStoredPattern('[1,5,9]')).toEqual({ kind: 'exact', points: [1, 5, 9], source: 'legacy_one_based' })
+  })
+
+  it('formato anterior sin 0 ni 9 → ambiguo: no se puede dibujar con certeza', () => {
+    for (const valor of ['[1,2,5,8]', '[3,5,7]', '[1, 4]']) expect(readStoredPattern(valor)).toEqual({ kind: 'ambiguous' })
+  })
+
+  it('lo que no es un patrón del contrato no se lee', () => {
+    for (const valor of ['1-5-9', 'no-json', '[]', '[4]', '[0,9]', '[1,1,2]', '["0",1]', '["9","1"]', '{"0":1}', '[0.5,2]'])
+      expect(readStoredPattern(valor), valor).toEqual({ kind: 'unreadable' })
+  })
+})
+
+describe('BETA-UX-2 · patrón: acceso que no bloquea', () => {
+  const conPatron = (pattern: number[]) => ({ ...INITIAL_INTAKE_DRAFT, accessMode: 'pattern' as const, pattern })
 
   it('un patrón de 0 o 1 punto NO frena la orden: viaja como «No lo proporcionó», sin secreto', () => {
     for (const pattern of [[], [5]]) {

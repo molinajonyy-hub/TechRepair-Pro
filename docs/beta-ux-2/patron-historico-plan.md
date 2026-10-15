@@ -48,6 +48,12 @@ WHERE s.access_mode = 'pattern'
 ORDER BY u.created_at;
 ```
 
+> **Actualización (hotfix, `patron-legacy-hotfix.md`):** la interfaz ya no muestra un patrón que no pueda
+> leerse con certeza, sin migración. Los patrones nuevos se guardan con una marca de formato (strings) y los
+> anteriores se dibujan sólo si un 0 o un 9 fija su numeración; el resto muestra «Patrón guardado con
+> formato anterior» y «Reconfigurar patrón». U1 queda como mejora opcional (dibujar exactos los ambiguos sin
+> recargarlos); el §4 «A» es el camino para corregirlos.
+
 ## 3. Evitar que la interfaz muestre un patrón corrido
 
 | Opción | Qué hace | Toca secretos | Precisión | Costo |

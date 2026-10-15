@@ -22,6 +22,9 @@ const user = {
 const jwt = `${b64u({ alg: 'HS256', typ: 'JWT' })}.${b64u({ sub: USER_ID, exp: now + 86400, role: 'authenticated', aud: 'authenticated', email: user.email })}.sig`
 const session = { access_token: jwt, token_type: 'bearer', expires_in: 86400, expires_at: now + 86400, refresh_token: 'fake-refresh', user }
 const BASE = 'http://127.0.0.1:5200'
+// Lo que `.env.e2e` le da a los specs que llaman una RPC por su cuenta.
+process.env.VITE_SUPABASE_URL = 'http://127.0.0.1:59997'
+process.env.VITE_SUPABASE_ANON_KEY = 'local-dummy-anon-key'
 const storageState = join(tmpdir(), 'beta-ux-2-mock-owner.json')
 writeFileSync(storageState, JSON.stringify({
   cookies: [],

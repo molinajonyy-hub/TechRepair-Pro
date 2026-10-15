@@ -5,6 +5,24 @@ const EVIDENCE='docs/p0-mobile-evidence/implementation-mobile-2a'
 async function noOverflow(page:Page){const size=await page.evaluate(()=>({scroll:document.documentElement.scrollWidth,client:document.documentElement.clientWidth}));expect(size.scroll).toBeLessThanOrEqual(size.client+1)}
 async function continueStep(page:Page){const button=page.getByTestId('mobile-action-bar').getByRole('button',{name:'Continuar'});await expect(button).toBeVisible();const box=await button.boundingBox();expect(box?.height).toBeGreaterThanOrEqual(44);await button.click()}
 async function selectSeedCustomer(page:Page){await page.getByLabel('Buscar cliente').fill('Cliente E2E');await page.getByRole('button',{name:/Cliente E2E/}).click();await continueStep(page)}
+/**
+ * Guarda el acceso de una orden por `set_order_device_access_secret` con la
+ * sesión de la página, tal como lo hacía el frontend anterior (que mandaba la
+ * grilla cruda como arreglo de números). Sólo stack local (.env.e2e).
+ */
+async function guardarComoFrontendAnterior(page:Page,orderId:string,secret:string){
+  const url=process.env.VITE_SUPABASE_URL,anon=process.env.VITE_SUPABASE_ANON_KEY
+  if(!url||!anon)throw new Error('Faltan VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY (.env.e2e)')
+  const status=await page.evaluate(async({url,anon,orderId,secret})=>{
+    const clave=Object.keys(localStorage).find(k=>/^sb-.*-auth-token$/.test(k))
+    const token=clave?JSON.parse(localStorage.getItem(clave)||'{}').access_token:null
+    const respuesta=await fetch(`${url}/rest/v1/rpc/set_order_device_access_secret`,{method:'POST',
+      headers:{apikey:anon,Authorization:`Bearer ${token}`,'Content-Type':'application/json'},
+      body:JSON.stringify({p_order_id:orderId,p_mode:'pattern',p_secret:secret})})
+    return respuesta.status
+  },{url,anon,orderId,secret})
+  expect(status,'el servidor acepta el formato anterior').toBeLessThan(300)
+}
 
 test.describe('@mobile2a MOBILE-2A · recepción OWNER',()=>{
   test('quick-create queda por encima de la action bar y abre en cada ancho mobile',async({page})=>{
@@ -183,7 +201,48 @@ test.describe('@mobile2a MOBILE-2A · recepción OWNER',()=>{
 
     await expect(page.getByTestId('device-lock-status')).toHaveText('Patrón configurado')
     await page.getByRole('button',{name:'Revelar'}).click()
-    await expect(page.getByText('Patrón: 1 → 5 → 9')).toBeVisible()
+    // BETA-UX-2 · hotfix: se ve como grilla 3×3 (el nombre accesible lleva la secuencia).
+    await expect(page.getByTestId('device-lock-reveal').getByRole('img',{name:/Patrón de 3 puntos, en orden: 1, 5, 9\./})).toBeVisible()
+    await expect(page.getByTestId('device-lock-legacy')).toHaveCount(0)
+  })
+
+  /**
+   * BETA-UX-2 · hotfix — un patrón con el formato ANTERIOR (arreglo de números
+   * sin 0 ni 9, como lo guardaba el frontend de MOBILE-2A) no se puede leer con
+   * certeza: la misma lista es un patrón en la grilla 1–9 y otro en el contrato
+   * 0–8. Se siembra por la MISMA RPC que usaba ese frontend, con la sesión real,
+   * y la tarjeta tiene que avisar en vez de dibujarlo. Valor SINTÉTICO.
+   */
+  test('un patrón con formato anterior no se dibuja: avisa y se reconfigura',async({page})=>{
+    await page.setViewportSize({width:390,height:844})
+    await page.goto('/orders/new');await selectSeedCustomer(page)
+    await page.getByLabel('Marca').fill('Motorola');await page.getByLabel('Modelo').fill('Moto G')
+    await page.getByRole('button',{name:/Sin bloqueo/}).click();await continueStep(page)
+    await page.getByLabel('Problema informado por el cliente').fill('Pantalla bloqueada');await continueStep(page)
+    await page.getByTestId('mobile-action-bar').getByRole('button',{name:'Crear orden'}).click()
+    await expect(page).toHaveURL(/\/orders\/[0-9a-f-]+$/,{timeout:20_000})
+    const orderId=new URL(page.url()).pathname.split('/').pop()!
+    await guardarComoFrontendAnterior(page,orderId,'[1,2,5,8]')
+    await page.reload()
+
+    await expect(page.getByTestId('device-lock-status')).toHaveText('Patrón configurado')
+    await page.getByRole('button',{name:'Revelar'}).click()
+    const aviso=page.getByTestId('device-lock-legacy')
+    await expect(aviso).toContainText('Patrón guardado con formato anterior')
+    // Ni la grilla ni una secuencia: nada que pueda tomarse por el patrón.
+    await expect(page.getByTestId('device-lock-pattern')).toHaveCount(0)
+    await expect(page.getByRole('img',{name:/^Patrón de/})).toHaveCount(0)
+    await expect(aviso).not.toContainText(/\d/)
+    for(const accion of ['Ocultar','Configurar','Eliminar'])await expect(page.getByRole('button',{name:accion,exact:true})).toBeVisible()
+
+    // Reconfigurar lo guarda en el formato actual, y desde ahí se ve exacto.
+    await aviso.getByRole('button',{name:'Reconfigurar patrón'}).click()
+    for(const punto of [1,2,5,8])await page.getByRole('button',{name:`Punto ${punto}`}).click()
+    await page.getByRole('button',{name:'Guardar'}).click()
+    await expect(page.getByRole('button',{name:'Revelar'})).toBeVisible()
+    await page.getByRole('button',{name:'Revelar'}).click()
+    await expect(page.getByTestId('device-lock-reveal').getByRole('img',{name:/Patrón de 4 puntos, en orden: 1, 2, 5, 8\./})).toBeVisible()
+    await expect(page.getByTestId('device-lock-legacy')).toHaveCount(0)
   })
 
   test('un patrón sin dibujar no frena: la orden se crea como «No lo proporcionó»',async({page})=>{
