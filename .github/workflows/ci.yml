@@ -378,6 +378,18 @@ jobs:
       # navegador con docs/beta-ux-1/evidence-1g/verify-auth.mjs; el camino del
       # invitado nuevo por el correo real, en `m7/p0p2-invitations.spec.ts`
       # (job `e2e-local`).
+      #
+      # HOTFIX 1G: volver de Google sin autenticarse dejaba el login para
+      # siempre en «Redirigiendo a Google…», todo deshabilitado. Medido en
+      # Chrome: «Atrás» RESTAURA la página desde el back/forward cache con ese
+      # estado, y una carga hacia el proveedor detenida antes de salir lo deja
+      # igual. `betaUx1gGoogleReturn` fija que la recuperación sale de esos
+      # eventos (`pageshow` restaurado, `navigateerror`) y de una ida a Google
+      # en curso —no de un temporizador—, que se lleva el destino guardado del
+      # intento sin tocar uno ajeno, y que contraseña, segundo intento, cancelar
+      # en el callback y la vuelta con sesión siguen igual. La restauración real
+      # está en `m7/google-oauth-return.spec.ts` (job `e2e-local`), con un
+      # Chromium que SÍ tiene back/forward cache.
       - name: BETA-UX-1G — auth funnel
         run: npm run test:beta-ux-1g
 
