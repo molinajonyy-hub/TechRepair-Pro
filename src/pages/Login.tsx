@@ -192,6 +192,48 @@ export function Login() {
   const confirmInputRef = useRef<HTMLInputElement>(null)
   /** La salida de esta pantalla ocurre una sola vez (el destino guardado se consume). */
   const leftRef = useRef(false)
+  /** Hay una ida a Google pedida desde ESTA página: la navegación quedó en manos del proveedor. */
+  const googleEnCursoRef = useRef(false)
+
+  // HOTFIX BETA-UX-1G — la ida a Google no terminó y el usuario sigue acá.
+  //
+  // «Continuar con Google» entrega la página al proveedor con una navegación
+  // completa (`window.location.assign`) y deja todo en «Redirigiendo a Google…».
+  // Ese estado sólo se va con la página; si la página se queda, quedaba
+  // bloqueado para siempre. Dos formas de quedarse, las dos MEDIDAS en Chrome
+  // (ver docs/beta-ux-1/beta-ux-1g-google-oauth-return.md):
+  //   · «Atrás» desde Google o desde el aviso de cancelación: el navegador
+  //     RESTAURA esta misma página desde el back/forward cache, con el estado de
+  //     React de antes de irse → `pageshow` con `persisted`.
+  //   · la carga hacia el proveedor se detiene antes de salir («Detener», Esc,
+  //     red caída) → la Navigation API avisa `navigateerror`. Sin esa API (hoy:
+  //     navegadores viejos) este caso no tiene señal y no se cubre.
+  //
+  // Se reconoce por esos eventos del ciclo de navegación, no por un
+  // temporizador. Mientras la ida está en curso todos los controles están
+  // deshabilitados: la única navegación que esta página tiene pendiente es la
+  // del proveedor. Sólo se deshace lo que dejó esa ida: el estado de espera y
+  // el destino guardado para la vuelta, que ya no va a consumir nadie (el
+  // destino pedido sigue en la URL).
+  useEffect(() => {
+    const deshacerIdaAGoogle = () => {
+      if (!googleEnCursoRef.current) return
+      googleEnCursoRef.current = false
+      clearPostLoginRedirect()
+      setIsGoogleLoading(false)
+    }
+    const alVolverDelHistorial = (event: PageTransitionEvent) => {
+      if (event.persisted) deshacerIdaAGoogle()
+    }
+    // TypeScript todavía no tipa la Navigation API: sólo se usa como EventTarget.
+    const navegacion = (window as Window & { navigation?: EventTarget }).navigation
+    window.addEventListener('pageshow', alVolverDelHistorial)
+    navegacion?.addEventListener('navigateerror', deshacerIdaAGoogle)
+    return () => {
+      window.removeEventListener('pageshow', alVolverDelHistorial)
+      navegacion?.removeEventListener('navigateerror', deshacerIdaAGoogle)
+    }
+  }, [])
 
   // Errores que vuelven por la URL (OAuth, GoTrue). PRE-BETA-2D: el texto sale
   // de un mapa cerrado. `?error_description=` lo escribe cualquiera que arme un
@@ -416,9 +458,13 @@ export function Login() {
     // elegido en la landing viaja igual que en el alta por email.
     const plan = planFromInternalPath(from)
     if (plan) rememberSignupPlan(plan)
+    // Se marca ANTES de pedir la redirección: la página puede quedar congelada en
+    // el historial en cuanto el navegador sale hacia el proveedor.
+    googleEnCursoRef.current = true
     try {
       await signInWithGoogle()
     } catch {
+      googleEnCursoRef.current = false
       clearPostLoginRedirect()
       setError(GOOGLE_START_ERROR_MESSAGE)
       setIsGoogleLoading(false)

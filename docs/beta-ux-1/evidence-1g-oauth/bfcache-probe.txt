@@ -1,0 +1,5 @@
+chromium · headless por defecto (headless shell): restaurada=false · mismo estado JS=false · motivos=[{"reason":"masked"}]
+chromium · channel=chromium (headless nuevo): restaurada=true · mismo estado JS=true
+chromium · channel=chrome (Chrome instalado): restaurada=true · mismo estado JS=true
+chromium · channel=msedge (Edge instalado): restaurada=true · mismo estado JS=true
+webkit: restaurada=false · mismo estado JS=false

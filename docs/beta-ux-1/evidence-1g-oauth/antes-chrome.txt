@@ -1,0 +1,45 @@
+Motor: chromium · canal chrome, sin --disable-back-forward-cache
+App: build de producción servido en http://127.0.0.1:5191
+
+B1 · «Continuar con Google» → en Google, botón Atrás → /login
+  ·     restaurada del bfcache=1 · Google=«Redirigiendo a Google…» deshabilitado=true · enviar deshabilitado=true · email deshabilitado=true · destino guardado="/dashboard"
+  OK    la página volvió desde el bfcache (condición para reproducir)
+  no    el botón de Google vuelve a «Continuar con Google» y habilitado
+  no    el formulario de contraseña vuelve a estar habilitado
+  no    no queda guardado el destino de un intento abandonado
+  no    B2 · segundo intento: imposible, el botón sigue deshabilitado
+  no    B3 · login con contraseña después de volver: imposible, el formulario sigue deshabilitado
+
+B4 · /login?redirectTo=/orders → Google → Atrás → contraseña
+  ·     restaurada del bfcache=1 · Google=«Redirigiendo a Google…» deshabilitado=true · enviar deshabilitado=true · email deshabilitado=true · destino guardado="/orders"
+  no    el destino pedido no se puede comprobar: el formulario sigue deshabilitado
+
+C1 · «Continuar con Google» → «Cancelar» en Google → /auth/callback
+  OK    el callback lo explica: «No iniciaste sesión» + «Cancelaste el inicio de sesión con Google.»
+  OK    sin el error en la barra: /auth/callback
+  OK    «Volver a iniciar sesión» deja el login usable (restaurada del bfcache=0 · Google=«Continuar con Google» deshabilitado=false · enviar deshabilitado=false · email deshabilitado=false · destino guardado="/orders")
+  OK    C1 · y Google se puede volver a intentar
+
+C1b · /login?redirectTo=/orders → Google → «Cancelar» → «Volver a iniciar sesión» → contraseña
+  OK    entra al destino pedido y lo consume: /orders · guardado=null
+
+C2 · Google → «Cancelar» → callback → Atrás, Atrás (hasta el /login original)
+  ·     restaurada del bfcache=1 · Google=«Redirigiendo a Google…» deshabilitado=true · enviar deshabilitado=true · email deshabilitado=true · destino guardado="/dashboard"
+  no    el login original queda usable
+
+I1 · «Continuar con Google» → /authorize no contesta → el navegador detiene la carga
+  ·     restaurada del bfcache=0 · Google=«Redirigiendo a Google…» deshabilitado=true · enviar deshabilitado=true · email deshabilitado=true · destino guardado="/dashboard" · navegaciones fallidas (navigateerror)=1 · URL=/login
+  OK    el navegador sigue en el login (la salida no ocurrió)
+  no    el login vuelve a estar usable
+  no    no queda guardado el destino de un intento abandonado
+
+S · Google con cuenta existente
+  OK    termina en /dashboard (esperado /dashboard), sin tokens en la URL
+
+S · Google con cuenta nueva
+  OK    termina en /no-business (esperado /no-business), sin tokens en la URL
+
+S3 · /login?redirectTo=/orders → Google con cuenta existente
+  OK    el callback lleva al destino pedido y lo consume: /orders · guardado=null
+
+RESULTADO: 9 comprobación(es) no cumplidas
