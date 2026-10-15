@@ -207,6 +207,14 @@ Los tres fallaban también en el reintento y eran de este PR. Se reprodujeron co
    Control: simulando los píxeles de CI, sin la regla se superpone; con la regla el navegador scrollea 11 px
    y queda 8 px por encima. A 390 y 430 px no cambia nada.
 
+   **Ronda 3 (run 38789543109, 380/381):** el mismo test siguió rojo aunque la captura de CI muestra el botón
+   ya por encima de la barra. Causa: `html` tiene `scroll-behavior: smooth` y, ahora que el navegador SÍ
+   scrollea, el `scrollIntoView` del test hereda el scroll suave; la medida (en el mismo instante) caía a mitad
+   de la animación. Medido con `--enable-smooth-scrolling` (el headless de Windows no anima el scroll): suave
+   → 434 al medir, 423 ya quieto; instantáneo → 423; instantáneo SIN `scroll-padding` → 434 (el defecto
+   sigue detectado). Se corrigió el instrumento (`behavior: 'instant'`), no la aserción; el runner simulado
+   ahora lanza Chromium con scroll suave, como CI.
+
 ## 7. Pendiente / fuera de alcance
 
 - **Patrones guardados en base 1** (1 al 2026-10-15; el frontend de producción sigue generándolos hasta que

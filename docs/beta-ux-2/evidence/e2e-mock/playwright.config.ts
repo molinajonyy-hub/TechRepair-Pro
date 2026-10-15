@@ -47,6 +47,9 @@ export default defineConfig({
     viewport: { width: 1440, height: 900 },
     // Bootstrap y fuentes entran por CDN; el resto de la red externa no hace falta.
     trace: 'retain-on-failure',
+    // Como en CI: el Chromium headless de esta máquina no anima el scroll y una
+    // medida a mitad de un scroll suave pasaba acá y fallaba allá.
+    launchOptions: { args: ['--enable-smooth-scrolling'] },
   },
   webServer: {
     command: 'node docs/beta-ux-2/evidence/e2e-mock/serve.mjs',

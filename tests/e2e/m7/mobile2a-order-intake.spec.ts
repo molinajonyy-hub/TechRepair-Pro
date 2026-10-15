@@ -13,7 +13,12 @@ test.describe('@mobile2a MOBILE-2A · recepción OWNER',()=>{
       await page.goto('/orders/new')
       const quickCreate=page.getByRole('button',{name:'Crear cliente rápido'})
       await expect(quickCreate).toBeVisible()
-      await quickCreate.evaluate(element=>element.scrollIntoView({block:'end'}))
+      // BETA-UX-2: `html` tiene `scroll-behavior: smooth` y desde que la barra
+      // reserva su lugar con `scroll-padding-bottom` el navegador SÍ scrollea
+      // acá. Con el scroll suave la medida de abajo caía a mitad de la animación
+      // (CI: 434 contra 423 ya quieto). Se mide la posición FINAL: el control sin
+      // `scroll-padding` sigue dando superposición con este mismo scroll.
+      await quickCreate.evaluate(element=>element.scrollIntoView({block:'end',behavior:'instant'}))
 
       const geometry=await page.evaluate(()=>{
         const quick=Array.from(document.querySelectorAll('button')).find(element=>element.textContent?.trim()==='Crear cliente rápido')
