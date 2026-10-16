@@ -118,6 +118,13 @@ requisito de investigación, no una autorización para consultar recursos reales
 6. Cadena actual contrato → factura → pago y autorización del owner sobre la
    identidad local exacta. La resolución de la aplicación histórica no sustituye
    las comprobaciones de pago, términos, estado o pertenencia administrativa.
+7. Atribución de las notificaciones de renovación: qué aplicación emite los
+   eventos de ese contrato, qué callback tiene configurado y cómo se valida su
+   firma. Mostrar configuración o evidencia verificable del proveedor, sin
+   divulgar secretos. Compartir collector o leer por API no demuestra que el
+   webhook actual recibirá y autenticará esos eventos. No debilitar la firma ni
+   aceptar otra aplicación automáticamente; si la entrega no puede acreditarse,
+   la revisión posterior debe resolver una reconciliación por ID equivalente.
 
 Si alguna prueba falta o contradice otra, conservar el bloqueo y elevar la
 pregunta al proveedor. No abrir un checkout, asociar una sesión ni probar una
@@ -328,11 +335,17 @@ webhook/reconcile canónicos. No se promete que la API pueda congelarse.
 
 ## Cuotas posteriores y verificación
 
-Después de un commit expresamente autorizado, las próximas notificaciones usan
-el ID recuperado y el camino canónico existente. No permanecen habilitadas
+Después de un commit expresamente autorizado, las notificaciones recibidas y
+autenticadas usan el ID recuperado y el camino canónico existente. No permanecen habilitadas
 asociaciones por correo, plan o importe. Una segunda cuota crea una nueva fila
 por su identidad nativa; repetir la notificación no duplica ese pago. Rechazos,
 devoluciones y contracargos conservan la autoridad de la evidencia más reciente.
+
+La prueba de segunda cuota usa proveedor simulado: acredita el handler y su
+idempotencia, no la entrega real desde la aplicación histórica. Esa entrega y
+la validación de firma siguen sin certificar. Deben resolverse junto con la
+identidad de aplicación antes de habilitar la recuperación; no provocar un
+cobro real ni cambiar la configuración del proveedor para probarlas ahora.
 
 La verificación posterior es una actividad separada: usar SELECT por los IDs
 del expediente y comparar ledger, sesión, negocio y auditoría con el recibo.
