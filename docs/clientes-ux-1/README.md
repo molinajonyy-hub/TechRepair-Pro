@@ -279,5 +279,9 @@ Orden recomendado: **aplicar la migración y después mergear**. No se hizo `db 
 
 - **Orden de despliegue**: hay que aplicar la migración antes de usar la función. Sin ella el producto se comporta como antes, pero no se puede cargar el contacto.
 - **Versión de la migración**: va antes de la candidata de BETA-MP (ver §6.2). Hay que confirmar el estado del ledger productivo al liberar.
-- **`{whatsapp}` cae a `{telefono}`** (regla previa de W1, `resolveWhatsAppValues`). Si el negocio no configuró su WhatsApp, el mensaje muestra el teléfono del cliente como «WhatsApp del negocio». Ya pasaba antes de este lote; queda como tarea aparte.
+- **`{whatsapp}` y `{telefono}` se reemplazan entre sí** (regla previa de W1, en `resolveWhatsAppValues` y en `whatsappFormat`). Son teléfonos de personas distintas: «WhatsApp del negocio» y «Teléfono del cliente».
+  - El preview de una orden no carga `{telefono}`, así que una plantilla que lo use muestra el WhatsApp del negocio.
+  - Donde sí se carga el teléfono del cliente y el negocio no configuró su WhatsApp, `{whatsapp}` muestra el del cliente.
+
+  Ya pasaba antes de este lote y no lo cambié: queda como tarea aparte.
 - **El destinatario se guarda después de crear la orden** (no en la misma transacción que `create_order_intake`, que no se tocó). Si esa llamada falla, la orden queda avisando al titular y el detalle lo indica.
