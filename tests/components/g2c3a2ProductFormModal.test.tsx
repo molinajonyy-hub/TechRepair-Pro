@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { newFakeState, resetFakeState, a1Calls, inventoryWrites, payloadHasStock } from './fakes/supabaseStockFake'
 
-const h = vi.hoisted(() => ({ state: null as any }))
+const h = vi.hoisted(() => ({ state: null as any, costs: new Map<string, { cost_price: number | null; cost_price_usd: number | null }>(), allowed: true }))
 vi.mock('../../src/lib/supabase', async () => {
   const fake = await import('./fakes/supabaseStockFake')
   h.state = h.state ?? fake.newFakeState()
@@ -30,11 +30,12 @@ vi.mock('../../src/services/dollarRateService', () => ({
 }))
 vi.mock('../../src/services/inventoryCostAccess', async (orig) => ({
   ...(await orig<typeof import('../../src/services/inventoryCostAccess')>()),
-  fetchInventoryCosts: vi.fn(async () => ({ costs: new Map(), authorized: true })),
+  fetchInventoryCosts: vi.fn(async () => ({ costs: h.costs, authorized: h.allowed })),
   hasInventoryCostAuthority: vi.fn(async () => true),
 }))
 
 import { ProductFormModal } from '../../src/components/products/ProductFormModal'
+import { fetchInventoryCosts } from '../../src/services/inventoryCostAccess'
 
 const BIZ = '77777777-7777-4777-8777-777777777777'
 const EXISTENTE = '33333333-3333-4333-8333-333333333333'
@@ -43,6 +44,7 @@ beforeEach(() => {
   if (!h.state) h.state = newFakeState()
   resetFakeState(h.state)
   localStorage.clear()
+  h.costs = new Map(); h.allowed = true
 })
 
 function completarAlta(nombre = 'Pantalla X') {
@@ -172,6 +174,57 @@ describe('ProductFormModal · edición', () => {
 
   beforeEach(() => {
     h.state.rows.set('inventory', new Map([[EXISTENTE, { ...item, business_id: BIZ, parent_id: null, has_variants: false }]]))
+  })
+
+  it.each(['ARS', 'USD'])('preserva ambos costos originales al editar nombre (%s)', async currency => {
+    h.costs.set(EXISTENTE, { cost_price: 40123.45, cost_price_usd: 33.1234 })
+    const onSaved = vi.fn()
+    render(<ProductFormModal isOpen onClose={() => {}} onCreated={() => {}} onSaved={onSaved}
+      editItem={{ ...item, base_currency: currency, base_price: currency === 'USD' ? 50 : 1000, exchange_rate_used: 1200 }} />)
+    await waitFor(() => expect(screen.getByTestId('product-cost-input')).toHaveValue(currency === 'USD' ? '33.1234' : '40123.45'))
+    fireEvent.change(screen.getByTestId('product-name-input'), { target: { value: 'Otro nombre' } })
+    fireEvent.click(screen.getByTestId('product-form-save-button'))
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+    expect(updates()[0].payload.cost_price).toBeUndefined()
+    expect(updates()[0].payload.cost_price_usd).toBeUndefined()
+  })
+
+  it.each([true, false])('no escribe ceros si la vista no devuelve la fila (authorized=%s)', async allowed => {
+    h.allowed = allowed
+    const onSaved = vi.fn()
+    render(<ProductFormModal isOpen onClose={() => {}} onCreated={() => {}} onSaved={onSaved} editItem={item} />)
+    fireEvent.change(screen.getByTestId('product-name-input'), { target: { value: 'Otro nombre' } })
+    fireEvent.click(screen.getByTestId('product-form-save-button'))
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+    expect(updates()[0].payload.cost_price).toBeUndefined()
+    expect(updates()[0].payload.cost_price_usd).toBeUndefined()
+  })
+
+  it('guardar antes de la respuesta conserva los costos; descarta la respuesta al cerrar', async () => {
+    let finish!: (value: Awaited<ReturnType<typeof fetchInventoryCosts>>) => void
+    vi.mocked(fetchInventoryCosts).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const onSaved = vi.fn()
+    const { unmount } = render(<ProductFormModal isOpen onClose={() => {}} onCreated={() => {}} onSaved={onSaved} editItem={item} />)
+    expect(screen.getByTestId('product-cost-input')).toBeDisabled()
+    fireEvent.change(screen.getByTestId('product-name-input'), { target: { value: 'Edición rápida' } })
+    fireEvent.click(screen.getByTestId('product-form-save-button'))
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+    expect(updates()[0].payload.cost_price).toBeUndefined()
+    expect(updates()[0].payload.cost_price_usd).toBeUndefined()
+    unmount()
+    finish({ costs: new Map([[EXISTENTE, { cost_price: 999, cost_price_usd: 2 }]]), authorized: true })
+  })
+
+  it('permite cambiar un costo conocido a cero explícito sin tocar el USD original', async () => {
+    h.costs.set(EXISTENTE, { cost_price: 400, cost_price_usd: 2 })
+    const onSaved = vi.fn()
+    render(<ProductFormModal isOpen onClose={() => {}} onCreated={() => {}} onSaved={onSaved} editItem={item} />)
+    await waitFor(() => expect(screen.getByTestId('product-cost-input')).toHaveValue('400'))
+    fireEvent.change(screen.getByTestId('product-cost-input'), { target: { value: '0' } })
+    fireEvent.click(screen.getByTestId('product-form-save-button'))
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+    expect(updates()[0].payload.cost_price).toBe(0)
+    expect(updates()[0].payload.cost_price_usd).toBeUndefined()
   })
 
   it('T18/T19 · sólo metadata: UPDATE sin stock_quantity y 0 RPC de stock', async () => {

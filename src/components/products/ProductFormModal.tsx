@@ -255,7 +255,8 @@ export function ProductFormModal({
   registerStock = false, sourceNote,
 }: ProductFormModalProps) {
   const isEditMode = !!editItem
-  const { businessId, user } = useAuth()
+  const { businessId, user, profile } = useAuth()
+  const costScope = JSON.stringify([businessId, user?.id, profile?.role, profile?.permissions, editItem?.id, isOpen])
   // Stock inicial: SÓLO en el alta desde Inventario (registerStock) y para productos.
   const canSetInitialStock = registerStock && !isEditMode
 
@@ -369,9 +370,15 @@ export function ProductFormModal({
    */
   const [costAuthorized, setCostAuthorized] = useState(false)
   const [costLoaded, setCostLoaded] = useState(false)
+  const costBaseline = useRef<{ scope: string; ars: string; usd: string } | null>(null)
+  const costEditable = !editItem || (costLoaded && costAuthorized && costBaseline.current?.scope === costScope)
 
   useEffect(() => {
     if (!isOpen) { setCostLoaded(false); setCostAuthorized(false); return }
+    setCostLoaded(false)
+    setCostAuthorized(false)
+    costBaseline.current = null
+    if (editItem?.id) setForm(f => ({ ...f, cost_ars: '', cost_usd: '' }))
     let alive = true
     if (!editItem?.id) {
       // Alta: no hay costo previo que preservar; sólo importa si puede cargarlo.
@@ -381,21 +388,22 @@ export function ProductFormModal({
       })
       return () => { alive = false }
     }
-    void fetchInventoryCosts([editItem.id]).then(({ costs, authorized }) => {
+    void fetchInventoryCosts([editItem.id], businessId ?? undefined).then(({ costs, authorized }) => {
       if (!alive) return
-      setCostAuthorized(authorized)
       const c = costs.get(editItem.id)
-      if (c) {
+      setCostAuthorized(authorized && !!c)
+      if (authorized && c) {
+        costBaseline.current = { scope: costScope, ars: c.cost_price == null ? '' : String(c.cost_price), usd: c.cost_price_usd == null ? '' : String(c.cost_price_usd) }
         setForm(f => ({
           ...f,
-          cost_ars: c.cost_price != null ? String(c.cost_price) : f.cost_ars,
-          cost_usd: c.cost_price_usd != null && c.cost_price_usd > 0 ? String(c.cost_price_usd) : f.cost_usd,
+          cost_ars: c.cost_price == null ? '' : String(c.cost_price),
+          cost_usd: c.cost_price_usd == null ? '' : String(c.cost_price_usd),
         }))
       }
       setCostLoaded(true)
-    })
+    }).catch(() => { if (alive) { setCostAuthorized(false); setCostLoaded(true) } })
     return () => { alive = false }
-  }, [isOpen, editItem?.id])
+  }, [costScope])
 
   // ── Pre-rellenar desde contexto al abrir ────────────────────────────────────
   useEffect(() => {
@@ -424,10 +432,8 @@ export function ProductFormModal({
         // SEC-08B: el costo NO llega en la lectura operativa. Ausente es
         // DESCONOCIDO, así que se deja vacío —nunca "0"—; el efecto de arriba
         // lo repone por la vista autorizada si el actor puede verlo.
-        cost_ars:      String((baseCur === 'USD'
-                          ? (ei.cost_price_ars ?? editItem.cost_price)
-                          : editItem.cost_price) ?? ''),
-        cost_usd:      String(editItem.cost_price_usd ?? ''),
+        cost_ars:      '',
+        cost_usd:      '',
         sale_price_ars:String(editItem.sale_price ?? 0),
         // base_price = precio de venta USD cuando base_currency='USD'
         sale_price_usd:baseCur === 'USD' ? String(editItem.base_price ?? '') : '',
@@ -827,10 +833,15 @@ export function ProductFormModal({
        * conserva su valor. El trigger `trig_inventory_guard_cost_write` es el
        * respaldo server-side para cualquier caller que se olvide de esto.
        */
-      const canWriteCost = costLoaded && costAuthorized
+      const baseline = costBaseline.current
+      const canWriteCost = costLoaded && costAuthorized && baseline?.scope === costScope
       const costFields: { cost_price: number | undefined; cost_price_usd: number | undefined } =
         canWriteCost
-          ? { cost_price: costARS, cost_price_usd: costUSD }
+          ? {
+            cost_price: form.cost_ars !== baseline.ars || form.cost_usd !== baseline.usd
+              ? ((form.base_currency === 'USD' ? form.cost_usd : form.cost_ars).trim() !== '' ? costARS : undefined) : undefined,
+            cost_price_usd: form.cost_usd !== baseline.usd && form.cost_usd.trim() !== '' ? costUSD : undefined,
+          }
           : { cost_price: undefined, cost_price_usd: undefined }
       const saleARS = parseFloat(form.sale_price_ars) || 0
       // Stock escrito en el formulario (entero; vacío = 0). Sólo se usa como
@@ -1320,18 +1331,19 @@ export function ProductFormModal({
                 {form.base_currency === 'ARS' ? (
                   <div style={{ position: 'relative' }}>
                     <span style={prefixS}>$</span>
-                    <input data-testid="product-cost-input" value={form.cost_ars} onChange={e => handleCostChange(e.target.value, 'cost_ars')} placeholder="0" style={{ ...inputS, paddingLeft: '1.75rem' }} />
+                    <input data-testid="product-cost-input" disabled={!costEditable} value={costEditable ? form.cost_ars : ''} onChange={e => handleCostChange(e.target.value, 'cost_ars')} placeholder={editItem ? 'No disponible' : '0'} style={{ ...inputS, paddingLeft: '1.75rem' }} />
                   </div>
                 ) : (
                   <div style={{ position: 'relative' }}>
                     <span style={prefixS}>U$</span>
-                    <input data-testid="product-cost-input" value={form.cost_usd} onChange={e => handleCostChange(e.target.value, 'cost_usd')} placeholder="0" style={{ ...inputS, paddingLeft: '2rem' }} />
+                    <input data-testid="product-cost-input" disabled={!costEditable} value={costEditable ? form.cost_usd : ''} onChange={e => handleCostChange(e.target.value, 'cost_usd')} placeholder={editItem ? 'No disponible' : '0'} style={{ ...inputS, paddingLeft: '2rem' }} />
                   </div>
                 )}
-                {form.base_currency === 'USD' && costARS_display > 0 && (
+                {editItem && !costEditable && <p style={hintS}>{costLoaded ? 'Costo no disponible. Se conservará el original.' : 'Cargando costos…'}</p>}
+                {costEditable && form.base_currency === 'USD' && costARS_display > 0 && (
                   <p style={hintS}>≈ ${Math.round(costARS_display).toLocaleString('es-AR')} ARS</p>
                 )}
-                {form.base_currency === 'ARS' && costUSD_display > 0 && rate > 1 && (
+                {costEditable && form.base_currency === 'ARS' && costUSD_display > 0 && rate > 1 && (
                   <p style={hintS}>≈ U${costUSD_display.toFixed(2)}</p>
                 )}
               </Field>
@@ -1395,7 +1407,7 @@ export function ProductFormModal({
                   <input value={form.margin_pct} onChange={e => handleMarginChange(e.target.value)} placeholder="0" style={{ ...inputS, paddingRight: '1.75rem' }} />
                   <span style={{ ...prefixS, left: 'auto', right: '0.75rem' }}>%</span>
                 </div>
-                {isFinite(margin_display) && saleARS_display > 0 && costARS_display > 0 && (
+                {costEditable && isFinite(margin_display) && saleARS_display > 0 && costARS_display > 0 && (
                   <p style={hintS}>
                     Ganancia: ${Math.round(saleARS_display - costARS_display).toLocaleString('es-AR')} ARS
                     {' '}({margin_display.toFixed(1)}%)

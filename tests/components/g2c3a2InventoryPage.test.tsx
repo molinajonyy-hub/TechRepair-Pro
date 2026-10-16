@@ -47,7 +47,7 @@ vi.mock('../../src/contexts/LoadingContext', () => ({
   useLoading: () => ({ showLoading: () => {}, hideLoading: () => {} }),
 }))
 vi.mock('../../src/services/currencyService', () => ({
-  currencyService: { getBusinessSettings: vi.fn(async () => null), getCurrentExchangeRate: vi.fn(async () => 1000) },
+  currencyService: { getBusinessSettings: vi.fn(async () => ({ show_usd_price: true })), getCurrentExchangeRate: vi.fn(async () => 1000) },
 }))
 vi.mock('../../src/components/inventory/StockRepairTool', () => ({ StockRepairTool: () => null }))
 vi.mock('../../src/services/excelService', () => ({
@@ -145,6 +145,71 @@ describe('Inventario · duplicar = definición, nunca existencia física', () =>
     }
     expect(h.addItem.mock.calls[1][0].supplier_code).toMatch(/^variant_parent:aaaaaaaa-/)
     expect(a1Calls(h.state)).toHaveLength(0)
+  })
+})
+
+describe('Inventario · costos desconocidos y autorizados', () => {
+  it('no inventa costo ni ganancia para una fila operativa', () => {
+    h.items = [base({ id: S, name: 'Sin hidratar', sale_price: 900 })]
+    render(<Inventory />)
+    const row = screen.getByTestId('inventory-product-row')
+    expect(within(row).getByText('Costo no disponible')).toBeInTheDocument()
+    expect(row.textContent).not.toContain('+$900')
+    expect(row.textContent).not.toContain('0%')
+  })
+
+  it('muestra el costo hidratado y la ganancia correcta', () => {
+    h.items = [base({ id: S, cost_price: 400, cost_price_usd: 2, sale_price: 900 })]
+    render(<Inventory />)
+    const row = screen.getByTestId('inventory-product-row')
+    expect(within(row).getByText('$400,00')).toBeInTheDocument()
+    expect(within(row).getByText('+$500,00')).toBeInTheDocument()
+    expect(within(row).getByText('125.0%')).toBeInTheDocument()
+  })
+
+  it('muestra USD conocido aunque falte ARS, sin inventar margen', async () => {
+    h.items = [base({ id: S, base_currency: 'USD', cost_price: null, cost_price_usd: 2, auto_update_price: false })]
+    render(<Inventory />)
+    const row = screen.getByTestId('inventory-product-row')
+    expect(await within(row).findByText('USD $2.00')).toBeInTheDocument()
+    expect(within(row).getByText('Costo no disponible')).toBeInTheDocument()
+    expect(row.textContent).not.toContain('%')
+  })
+
+  it('usa el motor existente para costos USD automáticos hidratados', async () => {
+    h.items = [base({ id: S, base_currency: 'USD', base_price: 5, cost_price: 1500, cost_price_usd: 2, auto_update_price: true })]
+    render(<Inventory />)
+    const row = screen.getByTestId('inventory-product-row')
+    expect(await within(row).findByText('$2.000,00')).toBeInTheDocument()
+    expect(within(row).getByText('+$3.000,00')).toBeInTheDocument()
+  })
+
+  it('un rango con una variante desconocida no publica un mínimo ficticio', () => {
+    h.items = [base({ id: P, name: 'Familia', has_variants: true }),
+      base({ id: S, parent_id: P, cost_price: 400 }), base({ id: V, parent_id: P })]
+    render(<Inventory />)
+    const row = screen.getByTestId('inventory-product-row')
+    expect(within(row).getByText('Costo no disponible')).toBeInTheDocument()
+  })
+
+  it('exporta originales, cero real y ausentes vacíos; reimportar vacíos omite costos', async () => {
+    h.costs = new Map([[S, { cost_price: 400, cost_price_usd: 2 }], [V, { cost_price: 0, cost_price_usd: null }]])
+    h.items = [base({ id: S, code: 'A' }), base({ id: V, code: 'B' }), base({ id: P, code: 'C' })]
+    render(<Inventory />)
+    fireEvent.click(screen.getByRole('button', { name: /Exportar/ }))
+    await waitFor(() => expect(h.exported).not.toBeNull())
+    expect(h.exported[0]).toMatchObject({ 'Precio de costo (ARS)': 400, 'Precio de costo (USD)': 2 })
+    expect(h.exported[1]).toMatchObject({ 'Precio de costo (ARS)': 0, 'Precio de costo (USD)': '' })
+    expect(h.exported[2]).toMatchObject({ 'Precio de costo (ARS)': '', 'Precio de costo (USD)': '' })
+    h.state.selectData = (op: any) => {
+      if (op.table !== 'inventory' || op.kind !== 'select' || !op.maybe) return undefined
+      const code = op.filters.find((f: any) => f[1] === 'code')?.[2]
+      return { id: code === 'A' ? S : code === 'B' ? V : P }
+    }
+    await h.importProps.onImport(h.exported, { attemptId: 'cost-roundtrip' })
+    const unknown = inventoryWrites(h.state).find(w => w.kind === 'update' && w.payload.code === 'C')!
+    expect(unknown.payload).not.toHaveProperty('cost_price')
+    expect(unknown.payload).not.toHaveProperty('cost_price_usd')
   })
 })
 

@@ -81,12 +81,16 @@ export function Inventory() {
     items,
     categories,
     error,
+    costStatus,
     refresh,
     addItem,
     updateItem,
     deleteItem
   } = useInventory()
-  const { businessId, user } = useAuth()
+  const { businessId, user, profile } = useAuth()
+  const costScope = JSON.stringify([businessId, user?.id, profile?.role, profile?.permissions])
+  const costScopeRef = useRef(costScope)
+  costScopeRef.current = costScope
   const { showLoading, hideLoading } = useLoading()
 
   const [searchTerm, setSearchTerm] = useState('')
@@ -1237,7 +1241,9 @@ export function Inventory() {
        * del archivo: exportarlas vacías y reimportarlas convertiría todo el
        * catálogo en costo 0 de una sola pasada.
        */
-      const { costs, authorized } = await fetchInventoryCosts(items.map(i => i.id))
+      const { costs, authorized, error: costError } = await fetchInventoryCosts(items.map(i => i.id), businessId ?? undefined)
+      if (costScopeRef.current !== costScope) throw new Error('Cambió el negocio o la sesión. Volvé a exportar.')
+      if (costError) throw new Error('No se pudieron cargar los costos. Reintentá la exportación.')
       const exportData = items.map(item => ({
         'Código/SKU': item.code,
         'Nombre del producto': item.name,
@@ -1250,8 +1256,8 @@ export function Inventory() {
         [STOCK_EXPECTED_COLUMN]: item.stock_quantity,
         'Stock mínimo': item.min_stock,
         ...(authorized ? {
-          'Precio de costo (ARS)': costs.get(item.id)?.cost_price ?? 0,
-          'Precio de costo (USD)': costs.get(item.id)?.cost_price_usd ?? 0,
+          'Precio de costo (ARS)': costs.get(item.id)?.cost_price ?? '',
+          'Precio de costo (USD)': costs.get(item.id)?.cost_price_usd ?? '',
         } : {}),
         'Precio de venta (ARS)': item.sale_price,
         'Ubicación': item.location || '',
@@ -1468,12 +1474,23 @@ export function Inventory() {
     const effectiveLowStock = !isService && displayStock > 0 && displayStock <= displayMinStock
     const isExpanded = hasVariants && expandedRows.has(item.id)
     const effectivePrices = getEffectivePrices(item)
+    const costSources = hasVariants
+      ? (variantsByParent[item.id] || []).filter(v => v.is_active !== false)
+      : [item]
+    const costsKnown = costSources.length > 0 && costSources.every(v =>
+      (v.cost_price != null && Number.isFinite(Number(v.cost_price))) ||
+      (resolveProductPricing(v, exchangeRates['USD-ARS'] || 0).isAuto &&
+        v.cost_price_usd != null && Number.isFinite(Number(v.cost_price_usd)) && Number(v.cost_price_usd) > 0))
+    const unavailableCost = costStatus === 'loading' ? 'Cargando costos…'
+      : costStatus === 'error' ? 'Costo no disponible'
+      : costStatus === 'restricted' ? 'Costo restringido' : 'Costo no disponible'
     const costPrice = effectivePrices.costPrice
     const salePrice = effectivePrices.salePrice
     const isPriceRange = effectivePrices.isRange
-    const margin = salePrice - costPrice
-    const marginPercent = costPrice > 0 ? ((margin / costPrice) * 100).toFixed(1) : '0'
-    const costPriceUSD = !hasVariants && item.base_currency === 'USD' ? formatUSD(item.cost_price_usd) : null
+    const margin = costsKnown ? salePrice - costPrice : null
+    const marginPercent = margin != null && costPrice > 0 ? ((margin / costPrice) * 100).toFixed(1) : null
+    const costPriceUSD = !hasVariants && item.base_currency === 'USD'
+      ? item.cost_price_usd == null ? 'USD —' : `USD $${Number(item.cost_price_usd).toFixed(2)}` : null
     const salePriceUSD = !hasVariants && item.base_currency === 'USD' ? formatUSD(item.base_price) : null
     const pricing = !hasVariants ? resolveProductPricing(item, exchangeRates['USD-ARS'] || 0) : null
     const productName = isVariant ? getVariantName(item, parentItem) : item.name
@@ -1582,7 +1599,7 @@ export function Inventory() {
           )}
         </td>
         <td style={{ padding: '1rem', textAlign: 'right', color: '#94a3b8' }}>
-          {hasVariants && isPriceRange ? (
+          {!costsKnown ? <div>{unavailableCost}{currencySettings?.show_usd_price && costPriceUSD && <div>{costPriceUSD}</div>}</div> : hasVariants && isPriceRange ? (
             <div>
               <div style={{ fontSize: '0.8125rem' }}>{formatARS(effectivePrices.minCost)}</div>
               <div style={{ fontSize: '0.75rem', color: '#64748b' }}>— {formatARS(effectivePrices.maxCost)}</div>
@@ -1624,16 +1641,16 @@ export function Inventory() {
           )}
         </td>
         <td style={{ padding: '1rem', textAlign: 'right' }}>
-          {hasVariants ? (
+          {!costsKnown ? <span>—</span> : hasVariants ? (
             <span style={{ color: '#64748b', fontSize: '0.75rem' }}>ver variantes</span>
           ) : (
             <>
               <span style={{ color: '#34d399', fontSize: '0.875rem' }}>
-                +{formatARS(margin)}
+                +{formatARS(margin!)}
               </span>
               <br />
               <span style={{ color: '#64748b', fontSize: '0.75rem' }}>
-                {marginPercent}%
+                {costPrice > 0 ? `${marginPercent}%` : '—'}
               </span>
             </>
           )}
@@ -1798,7 +1815,7 @@ export function Inventory() {
         <p style={{ color: '#94a3b8' }}>{error}</p>
         {/* BETA-UX-1E: texto y fondo de los CTAs de acento salen de `accentCta`.
             Con `'#ffffff'` en línea el tema claro los dejaba con texto oscuro. */}
-        <button onClick={() => { void refresh() }} style={{
+        <button data-testid="inventory-load-retry" onClick={() => { void refresh() }} style={{
           marginTop: '1rem',
           padding: '0.625rem 1.25rem',
           background: accentCta.background,
@@ -1817,6 +1834,12 @@ export function Inventory() {
 
   return (
     <div>
+      {costStatus === 'error' && (
+        <div role="alert">
+          No se pudieron cargar los costos. Los precios de venta siguen disponibles.
+          <button className="btn btn-ghost" style={{ minHeight: 44 }} onClick={() => { void refresh({ background: true }) }}>Reintentar costos</button>
+        </div>
+      )}
       {/* Header */}
       <div className="page-hdr">
         <div className="page-hdr-left">
