@@ -4,6 +4,7 @@ import { Plus, Search, Eye, Phone, Mail, Users, Download, Upload, Pencil, Trash2
 import { smartSearch } from '../utils/searchUtils'
 import { CloseButton } from '../components/ui/CloseButton'
 import { EmptyState } from '../components/ui/EmptyState'
+import { SavedNotice } from '../components/ui/SavedNotice'
 import { customersService } from '../services/api'
 import { useLoading } from '../contexts/LoadingContext'
 import { ModalImportExcel } from '../components/ModalImportExcel'
@@ -11,16 +12,13 @@ import { ExcelService, ExcelRow } from '../services/excelService'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { useRefreshOnWakeUp } from '../hooks/useAppWakeUp'
-import { AppButton, CompactList, OverflowMenu, ResponsiveDialog, type CompactListItem } from '../ui'
+import { CompactList, OverflowMenu, type CompactListItem } from '../ui'
 import {
-  CustomerCreateFields,
+  CustomerEditDialog,
   documentSearchTokens,
-  useCustomerCore,
   type CustomerCoreRecord,
 } from '../features/customer-core'
-
-/** El CTA vive en el footer del diálogo, fuera del `<form>`. */
-const CUSTOMER_EDIT_FORM_ID = 'customer-edit-form'
+import { useSavedNotice } from '../hooks/useSavedNotice'
 
 // `customersService.getAll()` hace `select('*')`: la fila trae estos campos.
 // Declararlos evita hidratar el formulario de edición desde un `any` y perder
@@ -83,41 +81,17 @@ export function Customers() {
   const { showLoading, hideLoading } = useLoading()
 
   // ── Editar cliente ───────────────────────────────────────────
-  // Las reglas salen del customer core, igual que en las dos altas. Antes esta
-  // pantalla no conocía razón social, persona de contacto ni documento, así que
-  // podía dejar un mayorista SIN razón social — dato inválido que ninguna de
-  // las altas permitía crear.
-  const [editingCustomer, setEditingCustomer] = useState<any | null>(null)
-  // PRE-BETA-3A-2 — el core también resuelve el gate Mayorista. Sin gate, un
-  // mayorista existente queda `preserved`: se editan sus datos comunes y el
-  // PATCH no toca tipo, razón social ni contacto.
-  const { reset: resetEditForm, attemptSubmit: attemptEditSave, toUpdatePayload, fieldProps: editFieldProps } =
-    useCustomerCore({ mode: 'update' })
-  const [editLoading, setEditLoading] = useState(false)
-  const [editError, setEditError] = useState('')
+  // CLIENTES-UX-1A — el diálogo es el mismo que el de la ficha individual
+  // (`CustomerEditDialog`): mismas reglas del customer core, mismo guardado.
+  const [editingCustomer, setEditingCustomer] = useState<CustomerSummary | null>(null)
+  const savedNotice = useSavedNotice()
 
-  const openEdit = (customer: CustomerSummary) => {
-    setEditingCustomer(customer)
-    resetEditForm(customer)
-    setEditError('')
-  }
+  const openEdit = (customer: CustomerSummary) => setEditingCustomer(customer)
 
-  const handleEditSave = async () => {
-    if (!editingCustomer) return
-    // El motivo se muestra al lado del campo que falla (el intento lo revela);
-    // el alerta de arriba queda reservada para errores del servidor.
-    if (!attemptEditSave()) return
-    setEditLoading(true)
-    setEditError('')
-    try {
-      await customersService.update(editingCustomer.id, toUpdatePayload())
-      setEditingCustomer(null)
-      await loadCustomers()
-    } catch (err: any) {
-      setEditError(err.message || 'Error al guardar')
-    } finally {
-      setEditLoading(false)
-    }
+  const handleEditSaved = async (saved: { id: string; name: string }) => {
+    setEditingCustomer(null)
+    savedNotice.show(`Cambios guardados en ${saved.name}.`)
+    await loadCustomers()
   }
 
   // ── Eliminar cliente ─────────────────────────────────────────
@@ -480,6 +454,8 @@ export function Customers() {
         </div>
       </div>
 
+      <SavedNotice message={savedNotice.message} testId="customer-saved-notice" />
+
       <div className="filter-bar list-filter-bar" data-testid="customers-filter-bar">
         <div className="list-filter-bar__search">
           <Search size={15} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
@@ -620,55 +596,14 @@ export function Customers() {
       />
 
       {/* ── Editar cliente ────────────────────────────────────────────
-          ORDERS-V2-0 — esto era un overlay propio: `modal-overlay-dark` a
-          mano, `<input className="form-control">`, colores `rgba()` en línea y
-          una copia de los botones de tipo de cliente y de tipo de documento.
-
-          Compartía el ESTADO con las altas (`useCustomerCore`) pero no la
-          presentación, y por eso crear y editar el mismo cliente se veían como
-          dos productos distintos.
-
-          Ahora monta el mismo cuerpo canónico que las dos altas dentro del
-          diálogo global. Las acciones siguen siendo propias de la edición
-          —«Guardar cambios» no es «Crear cliente»—; lo unificado es el sistema
-          visual y el de validación, que es donde estaba la inconsistencia.
-      */}
-      <ResponsiveDialog
-        isOpen={Boolean(editingCustomer)}
+          ORDERS-V2-0 — el cuerpo es el canónico de las altas dentro del
+          diálogo global. CLIENTES-UX-1A — el diálogo pasó a
+          `CustomerEditDialog`, compartido con la ficha individual. */}
+      <CustomerEditDialog
+        customer={editingCustomer}
         onClose={() => setEditingCustomer(null)}
-        title="Editar Cliente"
-        subtitle={editingCustomer?.name}
-        size="lg"
-        mobilePresentation="fullscreen"
-        footer={(
-          <div className="customer-create-dialog-actions">
-            <AppButton variant="secondary" onClick={() => setEditingCustomer(null)}>
-              Cancelar
-            </AppButton>
-            <AppButton
-              type="submit"
-              form={CUSTOMER_EDIT_FORM_ID}
-              variant="primary"
-              loading={editLoading}
-              data-testid="customer-edit-save-button"
-            >
-              Guardar cambios
-            </AppButton>
-          </div>
-        )}
-      >
-        <form
-          id={CUSTOMER_EDIT_FORM_ID}
-          className="customer-create-form"
-          onSubmit={event => { event.preventDefault(); void handleEditSave() }}
-          noValidate
-        >
-          {editError && (
-            <p className="form-error customer-create-server-error" role="alert">{editError}</p>
-          )}
-          <CustomerCreateFields {...editFieldProps} additionalInitiallyOpen />
-        </form>
-      </ResponsiveDialog>
+        onSaved={handleEditSaved}
+      />
 
       {/* ── Modal Confirmar Eliminación ──────────────────────── */}
       {deletingCustomer && (

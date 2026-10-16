@@ -428,6 +428,15 @@ jobs:
       - name: BETA-UX-3 — simpler admin navigation + help center
         run: npm run test:beta-ux-3
 
+      # CLIENTES-UX-1A: la ficha individual no tenía forma de editar; un
+      # mayorista histórico sin razón social no se podía guardar CON acceso
+      # Mayorista (sí sin él); guardar no confirmaba nada y los errores del
+      # servidor llegaban crudos. Edición compartida listado/ficha
+      # (`CustomerEditDialog`), confirmación visible y errores legibles. La
+      # persistencia real la cubre `m7/clientes-ux-1a-edit.spec.ts` (e2e-local).
+      - name: CLIENTES-UX-1A — customer editing from list and detail
+        run: npm run test:clientes-ux-1a
+
       # BETA-MP: Billing SaaS por Mercado Pago. El frontend propone, Mercado Pago
       # confirma, el backend decide. Corre el código REAL de las Edge Functions
       # (`supabase/functions/_shared/billing`) contra un PostgREST en memoria que

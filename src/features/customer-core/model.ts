@@ -259,11 +259,19 @@ export function effectiveCustomerCoreValues(
  * que validar. Un mayorista histórico sin razón social —p. ej. los que crea el
  * portal— sigue siendo editable en sus datos comunes sin que nadie sin acceso
  * a Mayorista tenga que inventarle una.
+ *
+ * CLIENTES-UX-1A — `stored` es la fila tal como se hidrató. Con acceso `full`
+ * el mismo mayorista histórico tampoco exige razón social: antes el owner, que
+ * SÍ tiene acceso a Mayorista, no podía ni corregirle el teléfono sin inventar
+ * una, mientras que alguien sin acceso guardaba la misma edición. La regla
+ * sigue valiendo para lo que la edición hace: convertir a mayorista o borrar
+ * una razón social guardada.
  */
 export function validateCustomerCore(
   values: CustomerCoreValues,
   mode: CustomerCoreMode = 'create',
-  access: CustomerTypeAccess = 'full'
+  access: CustomerTypeAccess = 'full',
+  stored?: Pick<CustomerCoreValues, 'customerType' | 'businessName'> | null
 ): CustomerCoreErrors {
   const errors: CustomerCoreErrors = {}
 
@@ -279,7 +287,15 @@ export function validateCustomerCore(
     errors.email = 'Ingresá un email válido.'
   }
 
-  if (access !== 'preserved' && values.customerType === 'mayorista' && !text(values.businessName)) {
+  const legacyWholesaleWithoutName =
+    mode === 'update' && stored?.customerType === 'mayorista' && !text(stored.businessName)
+
+  if (
+    access !== 'preserved' &&
+    values.customerType === 'mayorista' &&
+    !text(values.businessName) &&
+    !legacyWholesaleWithoutName
+  ) {
     errors.businessName = 'Un cliente mayorista necesita razón social.'
   }
 
@@ -289,9 +305,10 @@ export function validateCustomerCore(
 export function isCustomerCoreValid(
   values: CustomerCoreValues,
   mode: CustomerCoreMode = 'create',
-  access: CustomerTypeAccess = 'full'
+  access: CustomerTypeAccess = 'full',
+  stored?: Pick<CustomerCoreValues, 'customerType' | 'businessName'> | null
 ): boolean {
-  return Object.keys(validateCustomerCore(values, mode, access)).length === 0
+  return Object.keys(validateCustomerCore(values, mode, access, stored)).length === 0
 }
 
 /** Primer mensaje de error, para las superficies que muestran un único aviso. */

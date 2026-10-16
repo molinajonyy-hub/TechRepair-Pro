@@ -4,13 +4,17 @@ import {
   ArrowLeft, User, Phone, Mail, MapPin, ClipboardList,
   Smartphone, Building2, CreditCard, ShoppingBag, ChevronDown,
   ChevronRight, Receipt, Tag, Search, ExternalLink,
-  TrendingUp, RotateCcw, Wallet, MessageCircle,
+  TrendingUp, RotateCcw, Wallet, MessageCircle, Pencil, FileText, StickyNote,
 } from 'lucide-react'
 import { WhatsAppActionButton } from '../components/whatsapp/WhatsAppActionButton'
 import { Loader } from '../components/ui/Loader'
+import { SavedNotice } from '../components/ui/SavedNotice'
 import { customersService } from '../services/api'
+import { CustomerEditDialog, formatStoredDocument } from '../features/customer-core'
+import { useSavedNotice } from '../hooks/useSavedNotice'
+import { AppButton } from '../ui'
 import { estaRedactado, AVISO_REDACCION } from '../services/whatsappRetention'
-import { supabase } from '../lib/supabase'
+import { supabase, type Customer } from '../lib/supabase'
 import { STATUS_CONFIG } from '../types/orderStatus'
 import { cuentasService, getAccountStatus, type Account } from '../services/cuentasService'
 import { ModalPagarCC } from '../components/comprobantes/ModalPagarCC'
@@ -38,7 +42,11 @@ interface CustomerDetailData {
   phone?: string
   email?: string
   address?: string
+  document?: string | null
+  notes?: string | null
   customer_type?: string
+  business_name?: string | null
+  contact_person?: string | null
   devices?: Array<{ id: string; brand?: string; model?: string }>
   orders?: CustomerOrderSummary[]
 }
@@ -305,6 +313,17 @@ export function CustomerDetail() {
   // Comunicaciones (WhatsApp logs)
   const [waLogs,   setWaLogs]   = useState<WhatsAppLogEntry[]>([])
   const [waLoading,setWaLoading]= useState(false)
+  // CLIENTES-UX-1A — edición desde la ficha, con el mismo diálogo que el listado.
+  const [editing, setEditing] = useState(false)
+  const savedNotice = useSavedNotice()
+
+  // La fila guardada reemplaza los datos del cliente; órdenes y equipos no
+  // viajan en la respuesta del PATCH y se conservan los que ya estaban.
+  const handleSaved = (saved: Customer) => {
+    setCustomer(prev => prev ? { ...prev, ...saved, orders: prev.orders, devices: prev.devices } : prev)
+    setEditing(false)
+    savedNotice.show('Cambios guardados.')
+  }
 
   /**
    * SEC-08A — importes por orden, resueltos por `get_order_financial_amounts`.
@@ -452,6 +471,15 @@ export function CustomerDetail() {
           </div>
         </div>
         <div className="page-hdr-right" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <AppButton
+            variant="secondary"
+            size="sm"
+            leftIcon={<Pencil size={15} aria-hidden="true" />}
+            onClick={() => setEditing(true)}
+            data-testid="customer-detail-edit-button"
+          >
+            Editar cliente
+          </AppButton>
           <WhatsAppActionButton
             recipientName={customer.name}
             phone={customer.phone}
@@ -468,6 +496,14 @@ export function CustomerDetail() {
           </Link>
         </div>
       </div>
+
+      <SavedNotice message={savedNotice.message} testId="customer-saved-notice" />
+
+      <CustomerEditDialog
+        customer={editing ? customer : null}
+        onClose={() => setEditing(false)}
+        onSaved={handleSaved}
+      />
 
       {/* Summary cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.875rem', marginBottom: '1.5rem' }}>
@@ -512,8 +548,10 @@ export function CustomerDetail() {
         )
       })()}
 
-      {/* Main layout: contact (left) + tabs (right) */}
-      <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: '1.5rem', alignItems: 'start' }}>
+      {/* Main layout: contact (left) + tabs (right). CLIENTES-UX-1A — en
+          celular se apilan: con `260px 1fr` fijo las pestañas quedaban
+          cortadas fuera de la pantalla. */}
+      <div className="customer-detail-layout">
 
         {/* Contact card */}
         <div className="card">
@@ -541,12 +579,37 @@ export function CustomerDetail() {
                   {customer.address || 'Sin dirección'}
                 </span>
               </div>
+              {/* CLIENTES-UX-1A — lo que la edición escribe tiene que poder
+                  verse al volver a la ficha. */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <FileText size={16} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
+                <span data-testid="customer-detail-document" style={{ fontSize: '0.875rem', color: customer.document ? 'var(--text-secondary)' : 'var(--text-muted)' }}>
+                  {formatStoredDocument(customer.document) || 'Sin documento'}
+                </span>
+              </div>
+              {customer.customer_type === 'mayorista' && (
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+                  <Building2 size={16} style={{ color: 'var(--text-tertiary)', flexShrink: 0, marginTop: '0.1rem' }} />
+                  <span data-testid="customer-detail-wholesale" style={{ fontSize: '0.875rem', color: customer.business_name ? 'var(--text-secondary)' : 'var(--text-muted)' }}>
+                    {customer.business_name || 'Sin razón social'}
+                    {customer.contact_person && <><br />Contacto: {customer.contact_person}</>}
+                  </span>
+                </div>
+              )}
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                 <Smartphone size={16} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
                 <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
                   {customer.devices?.length || 0} dispositivo(s)
                 </span>
               </div>
+              {customer.notes && (
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+                  <StickyNote size={16} style={{ color: 'var(--text-tertiary)', flexShrink: 0, marginTop: '0.1rem' }} />
+                  <span data-testid="customer-detail-notes" style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>
+                    {customer.notes}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </div>
