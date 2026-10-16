@@ -109,8 +109,10 @@ test.describe('@beta-ux-2 Configuración · navegación agrupada', () => {
     await page.setViewportSize(DESKTOP)
     await page.goto('/settings')
     await expect(nav(page)).toBeVisible({ timeout: 20_000 })
-    await expect(nav(page).locator('.settings-nav__group-label')).toHaveText(['Negocio', 'Facturación', 'Cobros', 'Documentos y mensajes'])
-    await expect(nav(page).getByRole('button')).toHaveCount(10)
+    // BETA-UX-3: + Equipo (Usuarios) y TechRepair Pro (Suscripción); Moneda entró a
+    // Negocio. El dueño E2E tiene todas las capacidades: ve las trece.
+    await expect(nav(page).locator('.settings-nav__group-label')).toHaveText(['Negocio', 'Equipo', 'Facturación', 'Cobros', 'Documentos y mensajes', 'TechRepair Pro'])
+    await expect(nav(page).getByRole('button')).toHaveCount(13)
 
     // Sin `?tab=`, escritorio abre «Datos del negocio».
     await expect(item(page, 'Datos del negocio')).toHaveAttribute('aria-current', 'page')

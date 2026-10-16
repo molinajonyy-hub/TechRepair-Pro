@@ -48,7 +48,9 @@ const MOBILE_PAGE_TITLES: Array<[string, string]> = [
   ['/admin/subscriptions', 'Suscripciones'],
   ['/admin/leads', 'Leads'],
   ['/tutorials', 'Tutoriales'],
-  ['/ayuda', 'Ayuda'],
+  // BETA-UX-3: `/ayuda` es el Centro de ayuda; sus tutoriales viven debajo.
+  ['/ayuda/tutoriales', 'Tutoriales'],
+  ['/ayuda', 'Centro de ayuda'],
   ['/whatsapp', 'WhatsApp'],
   ['/dashboard', 'Inicio'],
 ]

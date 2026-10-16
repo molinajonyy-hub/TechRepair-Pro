@@ -1,0 +1,4 @@
+[usuarios-permisos-mobile] 390x844 light owner url=/users errors=0 overflowX=0 admin={"label":"Administración","items":["Configuración","Centro de ayuda"]}
+[usuarios-1152-dark] 1152x800 dark owner url=/users errors=0 overflowX=0 admin={"label":"Administración","items":["Configuración","Centro de ayuda"]}
+
+SIN MOCK: rpc:get_current_exchange_rate, table:business_invitations, table:cajas, table:customers, table:dollar_rate_history, table:inventory, table:notifications, table:payments, table:system_admins

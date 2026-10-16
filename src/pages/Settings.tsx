@@ -17,7 +17,6 @@ import {
   AlertTriangle,
   Loader2,
   RefreshCw,
-  ChevronLeft,
 } from 'lucide-react'
 import { ThemeToggle } from '../components/ui/ThemeToggle'
 import { OrderPrintSettings } from '../components/settings/OrderPrintSettings'
@@ -37,8 +36,8 @@ import { colors, radius } from '../lib/tokens'
 import { uploadBusinessLogo } from '../lib/storageSetup'
 import { businessSetupService, BusinessSetupError } from '../services/businessSetupService'
 import { CONDICIONES_FISCALES, normalizeCondicionFiscal } from '../lib/fiscalCondition'
-import { AppPageHeader } from '../ui'
-import { SettingsNav, isSettingsSection, settingsSectionLabel, type SettingsSection } from '../components/settings/SettingsNav'
+import { isSettingsSection, type SettingsSection } from '../components/settings/SettingsNav'
+import { SettingsBody, SettingsFrame, SettingsSectionLoading, SettingsShell } from '../components/settings/SettingsShell'
 
 
 interface BusinessSettings {
@@ -154,7 +153,28 @@ function MayoristaToggle() {
   )
 }
 
+/**
+ * BETA-UX-3 — `/settings` es la entrada de Configuración para quien tenga
+ * CUALQUIERA de sus capacidades (`SETTINGS_PERMISSIONS`: el guard de la ruta
+ * pide al menos una). Las diez secciones de acá son del negocio y exigen
+ * `settings`: sin ella no se leen ni se dibujan, y queda sólo la lista con lo
+ * que el actor sí puede abrir (Usuarios, Suscripción).
+ */
 export default function Settings() {
+  const { can } = usePermissions()
+  if (!can('settings')) {
+    return (
+      <SettingsShell active={null} view="list">
+        <p className="settings-empty" data-testid="settings-pick-section">
+          Elegí una sección para ver su configuración.
+        </p>
+      </SettingsShell>
+    )
+  }
+  return <BusinessSettings />
+}
+
+function BusinessSettings() {
   const { businessId, role, profile } = useAuth()
   const { can } = usePermissions()
   // ARCA Phase 0: la gestión ARCA exige perfil activo + owner/admin + settings_sensitive.
@@ -626,43 +646,29 @@ export default function Settings() {
     }
   }
 
+  // BETA-UX-3: el marco (encabezado + navegación) se dibuja ya mientras
+  // carga, así pasar de Usuarios o Suscripción a una sección de acá no lo
+  // hace desaparecer y volver.
+  const view = sectionListOpen ? 'list' : 'section'
+  const body = { active: activeTab, onSelectTab: selectSection, onBack: backToSectionList, contentRef }
+
+  // Mismo árbol que el de abajo: al terminar de cargar sólo cambia la sección.
   if (loading) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4rem', color: 'var(--text-muted)', gap: '0.75rem' }}>
-        <Loader2 size={22} style={{ animation: 'tr-spin 1s linear infinite' }} />
-        Cargando configuración...
-      </div>
+      <SettingsFrame view={view}>
+        <SettingsBody {...body}>
+          <SettingsSectionLoading />
+        </SettingsBody>
+      </SettingsFrame>
     )
   }
 
   return (
-    <div className="settings-page" data-view={sectionListOpen ? 'list' : 'section'}>
-        <AppPageHeader
-          icon={<SettingsIcon size={24} />}
-          title="Configuración"
-          description="Datos del negocio, facturación, cobros y documentos"
-        />
-
+    <SettingsFrame view={view}>
         {/* BETA-UX-2 — navegación agrupada (antes: diez pestañas en una fila).
-            `data-view` (en `.settings-page`) decide qué se ve en el shell
-            mobile: la lista o la sección. En escritorio se ven las dos. */}
-        <div className="settings-layout">
-          <SettingsNav active={activeTab} onSelect={selectSection} />
-
-          <div
-            ref={contentRef}
-            className="settings-content"
-            tabIndex={-1}
-            role="region"
-            aria-label={settingsSectionLabel(activeTab)}
-            data-testid="settings-content"
-          >
-            <div className="settings-content__bar">
-              <button type="button" className="btn btn-ghost settings-back" onClick={backToSectionList} data-testid="settings-back">
-                <ChevronLeft size={18} aria-hidden="true" /> Secciones
-              </button>
-              <span className="settings-content__current">{settingsSectionLabel(activeTab)}</span>
-            </div>
+            BETA-UX-3: el marco es `SettingsShell`, el mismo que usan Usuarios,
+            Moneda y Suscripción. */}
+        <SettingsBody {...body}>
 
         {/* Contenido de la sección */}
         {activeTab === 'datos' && (
@@ -1421,8 +1427,7 @@ export default function Settings() {
             <WhatsAppTemplatesSettings />
           </div>
         )}
-          </div>
-        </div>
+        </SettingsBody>
 
         {/* Modal para crear/editar punto de venta */}
         {showSalesPointModal && (
@@ -1600,6 +1605,6 @@ export default function Settings() {
         >
           Versión: <span style={{ fontFamily: 'monospace' }}>{__BUILD_COMMIT__}</span>
         </div>
-      </div>
+    </SettingsFrame>
   )
 }

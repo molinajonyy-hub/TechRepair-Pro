@@ -14,6 +14,7 @@ import {
 } from '../config/permissions';
 import { hasAutomaticWholesaleAccess } from '../lib/permissions/wholesalePermissions';
 import { accentCta, colors } from '../lib/tokens';
+import { AppModal, OverflowMenu } from '../ui';
 
 /**
  * `showToast` arma el mensaje con innerHTML. Un correo es texto que escribió una
@@ -99,7 +100,7 @@ function PermissionsMatrix({ role, value, onChange, disabled }: PermissionsMatri
                 const isDefault = defaults[key];
                 const isCustomized = !locked && isOn !== isDefault;
                 return (
-                  <label key={key} style={{
+                  <label key={key} className="perm-toggle" style={{
                     display: 'flex', alignItems: 'center', gap: '0.75rem',
                     cursor: disabled || locked ? 'default' : 'pointer',
                     padding: '0.375rem 0.5rem',
@@ -108,9 +109,20 @@ function PermissionsMatrix({ role, value, onChange, disabled }: PermissionsMatri
                     border: isCustomized ? '1px solid rgba(99,102,241,0.2)' : '1px solid transparent',
                     transition: 'all 0.15s',
                   }}>
-                    {/* Checkbox */}
-                    <div
-                      onClick={() => toggle(key)}
+                    {/* BETA-UX-3 (ronda 2): un checkbox de verdad. El cuadro de abajo
+                        era un <div onClick>: con el teclado no se podía tildar ni
+                        destildar nada. El input queda oculto a la vista y el cuadro
+                        pinta su estado (y su foco). Bloqueado = deshabilitado. */}
+                    <input
+                      type="checkbox"
+                      className="perm-toggle__input"
+                      checked={isOn}
+                      disabled={disabled || locked}
+                      onChange={() => toggle(key)}
+                    />
+                    <span
+                      className="perm-toggle__box"
+                      aria-hidden="true"
                       style={{
                         width: '18px', height: '18px', borderRadius: '4px', flexShrink: 0,
                         backgroundColor: isOn ? '#6366f1' : 'transparent',
@@ -120,7 +132,7 @@ function PermissionsMatrix({ role, value, onChange, disabled }: PermissionsMatri
                       }}
                     >
                       {isOn && <Check size={11} color="#fff" strokeWidth={3} />}
-                    </div>
+                    </span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: '0.8rem', fontWeight: 500, color: '#e2e8f0' }}>
                         {PERMISSION_LABELS[key].label}
@@ -182,29 +194,19 @@ function EditPermissionsModal({ user, onClose, onSaved }: EditPermissionsModalPr
     setPerms(resolvePermissions(user.role));
   };
 
+  // BETA-UX-3 (ronda 2): el diálogo compartido (`AppModal`). El de antes era un
+  // overlay armado a mano: sin `role="dialog"`, el foco quedaba en la fila de
+  // atrás, Escape no cerraba y Tab salía del diálogo. Mismo contenido y acciones.
   return (
-    <div className="modal-overlay-dark">
-      <div className="modal-card" style={{ maxWidth: '520px' }}>
-        {/* Header */}
-        <div className="modal-hdr">
-          <div>
-            <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-              Permisos — {user.full_name || user.email}
-            </h2>
-            <p style={{ margin: '0.15rem 0 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-              Rol base: {user.role} · Personalizá los accesos
-            </p>
-          </div>
-          <CloseButton onClick={onClose} />
-        </div>
-
-        {/* Scrollable matrix */}
-        <div className="modal-body-scroll">
-          <PermissionsMatrix role={user.role} value={perms} onChange={setPerms} />
-        </div>
-
-        {/* Footer */}
-        <div className="modal-ftr">
+    <AppModal
+      isOpen
+      onClose={onClose}
+      title={`Permisos — ${user.full_name || user.email}`}
+      subtitle={`Rol base: ${user.role} · Personalizá los accesos`}
+      icon={<Shield size={18} aria-hidden="true" />}
+      size="md"
+      footer={(
+        <div className="users-perms-footer">
           <button onClick={handleReset} style={{
             padding: '0.5rem 0.875rem', fontSize: '0.8rem',
             backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
@@ -222,8 +224,10 @@ function EditPermissionsModal({ user, onClose, onSaved }: EditPermissionsModalPr
             {saving ? 'Guardando...' : 'Guardar permisos'}
           </button>
         </div>
-      </div>
-    </div>
+      )}
+    >
+      <PermissionsMatrix role={user.role} value={perms} onChange={setPerms} />
+    </AppModal>
   );
 }
 
@@ -484,14 +488,14 @@ export function UsersManagement() {
 
   return (
     <div>
-      {/* Page header */}
+      {/* Encabezado de la sección. BETA-UX-3: se dibuja dentro de Configuración (`SettingsShell`, que tiene el h1): el título de acá es el de la sección. */}
       <div className="page-hdr">
         <div className="page-hdr-left">
           <div className="page-hdr-icon">
             <UserCheck size={22} style={{ color: 'var(--accent-primary)' }} />
           </div>
           <div>
-            <h1 className="page-hdr-title">Usuarios del Negocio</h1>
+            <h2 className="page-hdr-title">Usuarios del Negocio</h2>
             <p className="page-hdr-subtitle">Gestioná usuarios, roles y permisos</p>
           </div>
         </div>
@@ -523,7 +527,8 @@ export function UsersManagement() {
       {/* Pending invitations panel */}
       {showInvitations && canManageUsers && (
         <div style={{ marginBottom: '2rem' }}>
-          <div style={{ backgroundColor: '#0f1829', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.75rem', overflow: 'hidden' }}>
+          {/* BETA-UX-3: scroll horizontal en vez de recorte — dentro de Configuración la columna es más angosta y la tabla perdía las acciones. */}
+          <div style={{ backgroundColor: '#0f1829', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.75rem', overflowX: 'auto' }}>
             <div style={{ padding: '1rem', backgroundColor: 'rgba(245,158,11,0.1)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
               <h3 style={{ fontSize: '1rem', fontWeight: 600, color: '#fbbf24', marginBottom: '0.25rem' }}>Invitaciones Pendientes</h3>
               <p style={{ fontSize: '0.875rem', color: '#94a3b8' }}>
@@ -598,41 +603,55 @@ export function UsersManagement() {
         </div>
       )}
 
-      {/* Users table */}
-      <div style={{ backgroundColor: '#0f1829', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.75rem', overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-              <th style={headerCellStyle}>Usuario</th>
-              <th style={headerCellStyle}>Email</th>
-              <th style={headerCellStyle}>Rol</th>
-              <th style={headerCellStyle}>Estado</th>
-              {canManageUsers && <th style={headerRightCellStyle}>Acciones</th>}
+      {/* Users table — BETA-UX-3 (ronda 2).
+          Dentro de Configuración la columna de la sección mide 428 px a 1024 de
+          ancho y 684 a 1280: la tabla de cinco columnas dejaba Estado y Acciones
+          detrás de un scroll horizontal. Ahora:
+            · Usuario y email van en una sola columna (el email debajo).
+            · «Permisos» es un botón con nombre (la tarea principal de la fila).
+            · Activar/Desactivar viven en el menú de la fila (`OverflowMenu`, el
+              mismo de Clientes y Órdenes): lo destructivo, en un menú deliberado.
+            · Si la tabla tiene menos de 640 px (container query sobre ella, no
+              sobre la ventana), cada fila pasa a ser una ficha de dos renglones.
+          Los roles ARIA explícitos conservan la semántica de tabla aunque el CSS
+          cambie el `display` de filas y celdas. */}
+      <div className="users-table" data-testid="users-table-wrap">
+        <table className="users-table__table" role="table" aria-label="Usuarios del negocio">
+          <thead role="rowgroup">
+            <tr role="row">
+              <th role="columnheader" scope="col">Usuario</th>
+              <th role="columnheader" scope="col">Rol</th>
+              <th role="columnheader" scope="col">Estado</th>
+              {canManageUsers && <th role="columnheader" scope="col" className="users-table__actions-hdr">Acciones</th>}
             </tr>
           </thead>
-          <tbody>
+          <tbody role="rowgroup">
             {users.map(user => {
               const protectedRow = isProtectedRow(user);
+              const nombre = user.full_name || user.email || 'Sin nombre';
+              const personalizados = hasCustomPerms(user);
               return (
-                <tr key={user.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                  <td style={{ padding: '1rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#ffffff' }}>
-                      <UserCheck size={16} style={{ color: '#6366f1' }} />
-                      <span>{user.full_name || 'Sin nombre'}</span>
+                <tr key={user.id} role="row" className="users-table__row" data-testid="users-row">
+                  <td role="cell" className="users-table__user">
+                    <div className="users-table__identity">
+                      <UserCheck size={16} className="users-table__avatar" aria-hidden="true" />
+                      <div className="users-table__identity-text">
+                        <span className="users-table__name">{user.full_name || 'Sin nombre'}</span>
+                        <span className="users-table__email">
+                          <Mail size={13} aria-hidden="true" />
+                          <span>{user.email || '-'}</span>
+                        </span>
+                      </div>
                     </div>
                   </td>
-                  <td style={{ padding: '1rem', color: '#94a3b8' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <Mail size={14} style={{ color: '#64748b' }} />
-                      {user.email || '-'}
-                    </div>
-                  </td>
-                  <td style={{ padding: '1rem' }}>
+                  <td role="cell" className="users-table__role">
                     {canManageUsers && !protectedRow ? (
                       <select
                         value={user.role}
                         onChange={e => void handleChangeRole(user.id, e.target.value)}
-                        style={{ padding: '0.375rem 0.5rem', backgroundColor: 'rgba(15,23,42,0.8)', border: '1px solid rgba(51,65,85,0.6)', borderRadius: '0.375rem', color: '#f1f5f9', fontSize: '0.875rem' }}
+                        aria-label={`Rol de ${nombre}`}
+                        className="users-table__role-select"
+                        data-testid="user-role-select"
                       >
                         {roleOptions.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                       </select>
@@ -640,43 +659,41 @@ export function UsersManagement() {
                       getRoleBadge(user.role)
                     )}
                   </td>
-                  <td style={{ padding: '1rem' }}>
+                  <td role="cell" className="users-table__status">
                     {user.is_active
                       ? <span style={activeBadgeStyle}>Activo</span>
                       : <span style={inactiveBadgeStyle}>Inactivo</span>}
                   </td>
                   {canManageUsers && (
-                    <td style={{ padding: '1rem', textAlign: 'right' }}>
+                    <td role="cell" className="users-table__actions">
                       {protectedRow ? (
-                        <span style={{ color: '#64748b', fontSize: '0.875rem' }}>
+                        <span className="users-table__protected">
                           {user.role === 'owner' ? 'Protegido' : 'Tu usuario'}
                         </span>
                       ) : (
-                        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', alignItems: 'center' }}>
-                          {/* Permissions button */}
+                        <div className="users-table__actions-row">
                           <button
+                            type="button"
                             onClick={() => setEditingUser(user)}
                             title="Editar permisos"
-                            style={{
-                              ...smallActionButtonStyle('#818cf8', 'rgba(99,102,241,0.1)', 'rgba(99,102,241,0.3)'),
-                              fontSize: '0.75rem', gap: '0.35rem',
-                            }}
+                            aria-label={`Editar permisos de ${nombre}${personalizados ? ' (personalizados)' : ''}`}
+                            className="btn btn-secondary users-table__permissions"
+                            data-testid="user-permissions"
                           >
-                            <Shield size={14} />
-                            {hasCustomPerms(user) && (
-                              <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#f59e0b', display: 'inline-block' }} />
-                            )}
+                            <Shield size={15} aria-hidden="true" />
+                            <span>Permisos</span>
+                            {personalizados && <span className="users-table__custom-dot" aria-hidden="true" />}
                           </button>
-                          {/* Activate/Deactivate */}
-                          {user.is_active ? (
-                            <button onClick={() => void handleDeactivate(user.id)} style={smallActionButtonStyle('#f87171', 'rgba(239,68,68,0.1)', 'rgba(239,68,68,0.3)')} title="Desactivar usuario">
-                              <UserX size={16} />
-                            </button>
-                          ) : (
-                            <button onClick={() => void handleActivate(user.id)} style={smallActionButtonStyle('#10b981', 'rgba(16,185,129,0.1)', 'rgba(16,185,129,0.3)')} title="Activar usuario">
-                              <UserCheck size={16} />
-                            </button>
-                          )}
+                          <OverflowMenu
+                            label={`Más acciones de ${nombre}`}
+                            testId="user-row-menu"
+                            className="users-table__menu"
+                            actions={[
+                              user.is_active
+                                ? { label: 'Desactivar usuario', icon: <UserX size={16} aria-hidden="true" />, destructive: true, onSelect: () => void handleDeactivate(user.id) }
+                                : { label: 'Activar usuario', icon: <UserCheck size={16} aria-hidden="true" />, onSelect: () => void handleActivate(user.id) },
+                            ]}
+                          />
                         </div>
                       )}
                     </td>

@@ -80,8 +80,15 @@ describe('BETA-UX-2 · las pantallas usan el patrón compartido', () => {
     'Dashboard', 'Orders', 'Comprobantes', 'Tasks', 'Expenses', 'CuentasCorrientes', 'Suppliers',
     'FinanceDashboard', 'FinanceHealthCheck', 'CajaPage', 'Warranties', 'Reports', 'Settings', 'NewCustomer',
   ]
+  // BETA-UX-3: el encabezado de Configuración vive en su marco compartido
+  // (`SettingsShell`), que usa Settings y las pantallas que entraron a él.
+  const FUENTE: Record<string, string> = { Settings: 'src/components/settings/SettingsShell.tsx' }
   it.each(MIGRADAS)('%s usa `AppPageHeader`', (pagina) => {
-    expect(sinComentarios(leer(`src/pages/${pagina}.tsx`))).toMatch(/<AppPageHeader\b/)
+    expect(sinComentarios(leer(FUENTE[pagina] ?? `src/pages/${pagina}.tsx`))).toMatch(/<AppPageHeader\b/)
+  })
+
+  it('Settings se dibuja en ese marco', () => {
+    expect(sinComentarios(leer('src/pages/Settings.tsx'))).toMatch(/<SettingsFrame\b/)
   })
 
   it('no queda ningún encabezado armado a mano con `.page-top` + `.stat-icon`', () => {
@@ -200,8 +207,10 @@ describe('BETA-UX-2 · AppStepper', () => {
 // ─── Configuración ───────────────────────────────────────────────────────────
 
 describe('BETA-UX-2 · navegación de Configuración', () => {
-  it('cuatro grupos, diez secciones, cada una UNA vez', () => {
-    expect(SETTINGS_GROUPS.map(g => g.label)).toEqual(['Negocio', 'Facturación', 'Cobros', 'Documentos y mensajes'])
+  // BETA-UX-3 sumó Moneda (Negocio), Equipo y TechRepair Pro: pantallas con ruta
+  // propia, fuera de `?tab=`. Las diez secciones de `?tab=` no cambiaron.
+  it('seis grupos; las diez secciones de `?tab=`, cada una UNA vez', () => {
+    expect(SETTINGS_GROUPS.map(g => g.label)).toEqual(['Negocio', 'Equipo', 'Facturación', 'Cobros', 'Documentos y mensajes', 'TechRepair Pro'])
     expect(SETTINGS_SECTIONS).toHaveLength(10)
     expect(new Set(SETTINGS_SECTIONS).size).toBe(10)
     // Las mismas claves que ya usaban los enlaces (`?tab=`): nada se rompe.
@@ -219,10 +228,11 @@ describe('BETA-UX-2 · navegación de Configuración', () => {
 
   it('cada grupo es una lista con nombre; la sección actual lleva aria-current', () => {
     const onSelect = vi.fn()
-    render(<SettingsNav active="arca" onSelect={onSelect} />)
+    render(<SettingsNav active="arca" onSelect={onSelect} can={() => true} />)
     const nav = screen.getByRole('navigation', { name: 'Secciones de configuración' })
     expect(within(nav).getAllByRole('list').map(l => l.getAttribute('aria-labelledby'))).toEqual([
-      'settings-group-negocio', 'settings-group-facturacion', 'settings-group-cobros', 'settings-group-documentos',
+      'settings-group-negocio', 'settings-group-equipo', 'settings-group-facturacion', 'settings-group-cobros',
+      'settings-group-documentos', 'settings-group-techrepair',
     ])
     expect(within(nav).getByRole('list', { name: 'Facturación' })).toBeInTheDocument()
     const actual = within(nav).getByRole('button', { name: 'Integración ARCA' })

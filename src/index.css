@@ -1051,9 +1051,12 @@ table, td, th { transition: color 0.15s ease; }
   gap: 1.5rem;
   align-items: start;
 }
+/* BETA-UX-3: trece secciones (eran diez). Filas de 36px y grupos a 12px para
+   que la lista entera, «TechRepair Pro» incluido, entre en 1440×900. En el
+   celular las filas siguen siendo de 52px (regla de abajo). */
 .settings-nav {
   position: sticky; top: 1rem;
-  display: flex; flex-direction: column; gap: 0.875rem;
+  display: flex; flex-direction: column; gap: 0.75rem;
   padding: 0.75rem;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
@@ -1069,7 +1072,7 @@ table, td, th { transition: color 0.15s ease; }
 .settings-nav__item {
   position: relative; width: 100%;
   display: flex; align-items: center; gap: 0.625rem;
-  min-height: 40px; padding: 0.5rem 0.625rem;
+  min-height: 36px; padding: 0.4375rem 0.625rem;
   border: 0; border-radius: var(--radius-md);
   background: transparent; color: var(--text-secondary);
   font-size: 0.875rem; font-weight: 500; line-height: 1.3; text-align: left;
@@ -1124,6 +1127,241 @@ table, td, th { transition: color 0.15s ease; }
     min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     font-weight: 700; color: var(--text-primary);
   }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   BETA-UX-3 · CONFIGURACIÓN — pantallas que viven dentro del marco
+   Usuarios, Moneda y Suscripción salieron del menú lateral y se dibujan en
+   `.settings-content` con su propio encabezado (`.page-hdr`). Adentro del
+   marco ese encabezado es el de la SECCIÓN, no el de la página: baja un
+   escalón para que «Configuración» siga siendo el título. Sólo en este marco.
+   ══════════════════════════════════════════════════════════════════════════ */
+.settings-content .page-hdr {
+  --page-header-icon: 40px;
+  --page-header-glyph: 20px;
+  --page-header-icon-radius: 12px;
+  margin-bottom: 1rem;
+}
+.settings-content .page-hdr-title { font-size: 1.25rem; letter-spacing: -0.015em; }
+
+/* Mi Suscripción pone las acciones al costado desde 1200px, pensado para el
+   ancho completo. Dentro del marco la columna es 272px más angosta: hasta que
+   entra, se comporta como en anchos intermedios (las acciones bajan). */
+@media (min-width: 1200px) and (max-width: 1439px) {
+  .settings-content .sub-status { flex-wrap: wrap; }
+  .settings-content .sub-status__actions { max-width: none; justify-content: flex-start; }
+}
+
+.settings-loading {
+  display: flex; align-items: center; justify-content: center; gap: 0.75rem;
+  padding: 4rem 1rem;
+  color: var(--text-muted);
+}
+.settings-loading__spinner { animation: tr-spin 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .settings-loading__spinner { animation: none; }
+}
+
+/* Sin la capacidad `settings` no hay secciones del negocio: en escritorio la
+   columna derecha invita a elegir; en el celular se ve sólo la lista. */
+.settings-empty {
+  margin: 0; padding: 3rem 1.5rem;
+  border: 1px dashed var(--border-color); border-radius: var(--radius-xl);
+  color: var(--text-secondary); text-align: center;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   BETA-UX-3 · USUARIOS — la tabla se adapta a SU ancho, no al de la ventana
+   Dentro de Configuración la columna de la sección mide 428 px a 1024 de ancho
+   y 684 a 1280. Con ≥640 px de tabla: cuatro columnas (usuario+email, rol,
+   estado, acciones). Con menos: cada fila es una ficha de dos renglones
+   (identidad + estado · rol + acciones). Nada queda detrás de un scroll.
+   La tabla conserva su semántica con roles ARIA explícitos en el marcado.
+   ══════════════════════════════════════════════════════════════════════════ */
+.users-table {
+  container-type: inline-size;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+}
+/* Sin container queries (navegadores viejos) vuelve el scroll horizontal de
+   antes: nunca recorte. Con ellas no hace falta, y un contenedor con scroll
+   recortaría el menú de la fila. */
+@supports not (container-type: inline-size) {
+  .users-table { overflow-x: auto; }
+}
+.users-table__table { width: 100%; border-collapse: collapse; }
+.users-table__table th { text-align: left; padding: 0.75rem 1rem; }
+.users-table__table td {
+  padding: 0.75rem 1rem;
+  vertical-align: middle;
+  border-top: 1px solid var(--border-subtle);
+}
+.users-table__table th.users-table__actions-hdr,
+.users-table__table td.users-table__actions { text-align: right; }
+.users-table__identity { display: flex; align-items: center; gap: 0.625rem; min-width: 0; }
+.users-table__avatar { flex-shrink: 0; color: var(--accent-primary); }
+.users-table__identity-text { display: flex; flex-direction: column; gap: 0.125rem; min-width: 0; }
+.users-table__name { color: var(--text-primary); font-weight: 600; overflow-wrap: anywhere; }
+.users-table__email {
+  display: inline-flex; align-items: center; gap: 0.375rem; min-width: 0;
+  color: var(--text-secondary); font-size: 0.8125rem;
+}
+.users-table__email svg { flex-shrink: 0; color: var(--text-muted); }
+.users-table__email span { overflow-wrap: anywhere; }
+.users-table__role-select {
+  min-height: 36px; max-width: 100%;
+  padding: 0.375rem 0.5rem;
+  background: var(--input-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+}
+.users-table__role-select:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 1px; }
+.users-table__actions-row { display: inline-flex; align-items: center; gap: 0.5rem; }
+.users-table__permissions { min-height: 36px; padding: 0.375rem 0.75rem; gap: 0.375rem; }
+.users-table__permissions:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+/* Permisos personalizados: punto + el nombre accesible lo dice («(personalizados)»). */
+.users-table__custom-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warning); }
+.users-table__menu .overflow-menu__trigger { min-width: 36px; min-height: 36px; }
+.users-table__menu .overflow-menu__trigger:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.users-table__menu .overflow-menu__popover { min-width: 14rem; text-align: left; }
+/* La única acción del menú es la de estado: sin el separador que la aparta de otras. */
+.users-table__menu .overflow-menu__action.is-destructive:first-child { margin-top: 0; border-top: 0; }
+.users-table__protected { color: var(--text-muted); font-size: 0.875rem; }
+
+@container (max-width: 639px) {
+  /* Encabezados fuera de la vista; los lectores de pantalla los siguen leyendo. */
+  .users-table__table thead {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+  }
+  .users-table__table, .users-table__table tbody { display: block; }
+  .users-table__row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "user status" "role actions";
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.875rem 1rem;
+    border-top: 1px solid var(--border-subtle);
+  }
+  .users-table__row:first-child { border-top: 0; }
+  .users-table__table td.users-table__user,
+  .users-table__table td.users-table__role,
+  .users-table__table td.users-table__status,
+  .users-table__table td.users-table__actions { display: block; padding: 0; border: 0; }
+  .users-table__user { grid-area: user; min-width: 0; }
+  .users-table__status { grid-area: status; justify-self: end; }
+  .users-table__role { grid-area: role; min-width: 0; }
+  .users-table__actions { grid-area: actions; justify-self: end; }
+  .users-table__role-select { width: 100%; max-width: 18rem; min-height: var(--mobile-touch-target); }
+  .users-table__permissions { min-height: var(--mobile-touch-target); }
+  .users-table__menu .overflow-menu__trigger { min-width: var(--mobile-touch-target); min-height: var(--mobile-touch-target); }
+}
+/* Editor de permisos: el checkbox nativo queda oculto a la vista pero enfocable;
+   el cuadro pinta su estado y el foco del teclado. Space tilda, como siempre. */
+.perm-toggle { position: relative; }
+.perm-toggle__input {
+  position: absolute; left: 0.5rem; top: 50%;
+  width: 18px; height: 18px; margin: -9px 0 0; opacity: 0;
+}
+.perm-toggle__input:focus-visible + .perm-toggle__box { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.users-perms-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 0.625rem; width: 100%; }
+/* Celular: «Guardar permisos» (la acción principal) ocupa su renglón entero. */
+@media (max-width: 639px) {
+  .users-perms-footer > button:last-child { flex: 1 1 100%; min-height: var(--mobile-touch-target); }
+}
+
+/* Ficha angosta (celular de 320): rol y acciones, cada uno en su renglón. A
+   390 px todavía entran juntos (rol ≥120 + Permisos + menú). */
+@container (max-width: 329px) {
+  .users-table__row { grid-template-areas: "user status" "role role" "actions actions"; }
+  .users-table__actions { justify-self: stretch; }
+  .users-table__actions-row { display: flex; }
+  .users-table__permissions { flex: 1; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   BETA-UX-3 · CENTRO DE AYUDA — Soporte + Tutoriales
+   Dos accesos, uno al lado del otro desde 1024px; apilados por debajo
+   (Soporte primero: es lo urgente). Los tutoriales son filas táctiles de
+   lista, no tarjetas sueltas, y la lista crece sin tocar la pantalla.
+   ══════════════════════════════════════════════════════════════════════════ */
+.help-page { max-width: 1040px; }
+.help-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+.help-panel {
+  display: flex; flex-direction: column; gap: 1rem;
+  padding: 1.25rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  scroll-margin-top: 1rem;
+}
+.help-panel__head { display: flex; align-items: flex-start; gap: 0.75rem; min-width: 0; }
+.help-panel__icon {
+  width: 40px; height: 40px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-lg);
+  background: var(--accent-primary-subtle);
+  color: var(--accent-primary);
+}
+.help-panel__title { margin: 0; font-size: 1.0625rem; font-weight: 700; line-height: 1.3; color: var(--text-primary); }
+.help-panel__lead { margin: 0.125rem 0 0; font-size: 0.875rem; line-height: 1.45; color: var(--text-secondary); }
+.help-panel__text { margin: 0; font-size: 0.9375rem; line-height: 1.6; color: var(--text-secondary); }
+
+.help-list {
+  list-style: none; margin: 0; padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.help-list > li + li { border-top: 1px solid var(--border-subtle); }
+.help-item {
+  display: flex; align-items: center; gap: 0.875rem;
+  min-height: 56px; padding: 0.875rem 1rem;
+  color: var(--text-primary); text-decoration: none;
+  transition: background-color 150ms ease;
+}
+.help-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+.help-item:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: -2px; }
+.help-item__icon {
+  width: 40px; height: 40px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-md);
+  background: var(--accent-primary-subtle);
+  color: var(--accent-primary);
+}
+.help-item__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.125rem; }
+.help-item__title { font-size: 0.9375rem; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+.help-item__description { font-size: 0.875rem; line-height: 1.45; color: var(--text-secondary); overflow-wrap: anywhere; }
+.help-item__meta { font-size: 0.8125rem; line-height: 1.4; color: var(--text-muted); }
+.help-item__chevron { flex-shrink: 0; color: var(--text-muted); }
+
+/* Página de una guía: el contenido conserva su ancho de lectura. */
+.help-tutorial { max-width: 860px; }
+.help-back {
+  display: inline-flex; align-items: center; gap: 0.25rem;
+  min-height: 32px;
+  color: var(--text-secondary); font-size: 0.875rem; font-weight: 500; text-decoration: none;
+}
+.help-back:hover { color: var(--text-primary); }
+.help-back:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; border-radius: var(--radius-md); }
+
+@media (prefers-reduced-motion: reduce) {
+  .help-item { transition: none; }
+}
+
+@media (max-width: 1023px) {
+  .help-grid { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+  .help-panel { padding: 1rem; }
+  .help-back { min-height: var(--mobile-touch-target); }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

@@ -402,8 +402,21 @@ describe('G · suscripción por capacidad + permiso denegado visible (PRE-BETA-3
     const app = leerCodigo('src/App.tsx')
     const inicio = app.indexOf('<ProtectedRouteByPermission permission="subscription" />')
     expect(inicio, 'falta el guard de suscripción').toBeGreaterThan(-1)
-    const cierre = app.indexOf('</Route>', inicio)
-    const bloque = app.slice(inicio, cierre)
+    // El `</Route>` que cierra ESE guard (BETA-UX-3 anida adentro el marco de
+    // Configuración para «Mi Suscripción»). App.tsx escribe una etiqueta
+    // `<Route …>` por línea: se cuentan aperturas y cierres desde el guard.
+    const lineas = app.slice(app.lastIndexOf('<Route', inicio)).split('\n')
+    let profundidad = 0
+    let largo = 0
+    for (const linea of lineas) {
+      largo += linea.length + 1
+      const t = linea.trim()
+      if (t.startsWith('</Route>')) profundidad -= 1
+      else if (t.startsWith('<Route') && !t.endsWith('/>')) profundidad += 1
+      if (profundidad === 0) break
+    }
+    expect(profundidad, 'el guard de suscripción no cierra').toBe(0)
+    const bloque = app.slice(inicio, app.lastIndexOf('<Route', inicio) + largo)
     for (const ruta of ['/subscription"', '/subscription/plans"', '/subscription/pending"', '/subscription/success"', '/subscription/failure"']) {
       expect(bloque, `${ruta} fuera del guard`).toContain(`path="${ruta}`)
     }
