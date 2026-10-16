@@ -23,6 +23,8 @@ export class FakeMercadoPago {
   authorizedPayments = new Map<string, MpRow>()
   payments = new Map<string, MpRow>()
   calls: MpCall[] = []
+  /** Search chooses its own page size; the client does not send limit. */
+  invoicePageSize = 20
   /** Mercado Pago caído: todas las llamadas responden 500. */
   down = false
   /** El PUT de cancelación responde 200 pero MP no cambia el estado. */
@@ -130,8 +132,9 @@ export class FakeMercadoPago {
     }
     if (method === 'GET') {
       if (url.pathname === '/authorized_payments/search') {
-        const offset = Number(url.searchParams.get('offset'))
-        const limit = Number(url.searchParams.get('limit'))
+        if (url.searchParams.has('limit')) return json({ message: 'unsupported pagination parameter' }, 400)
+        const offset = Number(url.searchParams.get('offset') ?? '0')
+        const limit = this.invoicePageSize
         const rows = [...this.authorizedPayments.values()].filter(p => p.preapproval_id === url.searchParams.get('preapproval_id'))
         return json({ paging: { offset, limit, total: rows.length }, results: rows.slice(offset, offset + limit) })
       }

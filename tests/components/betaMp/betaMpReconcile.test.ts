@@ -51,7 +51,7 @@ describe('reconcile sin webhook recupera la compra', () => {
     await reconcile()
 
     expect(w.mp.calls.map((c) => `${c.method} ${c.path}`)).toEqual([
-      `GET /preapproval/${preapprovalId}`, `GET /authorized_payments/search?preapproval_id=${preapprovalId}&offset=0&limit=20`,
+      `GET /preapproval/${preapprovalId}`, `GET /authorized_payments/search?preapproval_id=${preapprovalId}`,
       `GET /authorized_payments/first_${preapprovalId}`, `GET /v1/payments/pay_first_${preapprovalId}`,
     ])
     expect(w.mp.calls.some(c => c.path.includes('/preapproval/search') || c.path.includes('payer_email'))).toBe(false)

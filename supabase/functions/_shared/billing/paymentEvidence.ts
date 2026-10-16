@@ -61,22 +61,37 @@ export function approvedLedgerMatchesSession(row: PaymentLedgerRow | null, sessi
 /** Read every page before writing. An incomplete/contradictory response fails closed. */
 async function invoiceIds(ctx: BillingContext, preapprovalId: string): Promise<string[]> {
   const ids = new Set<string>()
-  const limit = 20
   let total: number | null = null
-  for (let offset = 0; offset < 100; offset += limit) {
-    const page = await ctx.mp.listAuthorizedPayments(preapprovalId, offset, limit)
-    if (total !== null && total !== page.paging.total) throw new MpApiError('GET authorized_payments (changing pagination)', 502)
+  let limit: number | null = null
+  let offset = 0
+  while (offset < 100) {
+    const page = await ctx.mp.listAuthorizedPayments(preapprovalId, offset, 20)
+    if (!page || !page.paging || !Array.isArray(page.results)
+      || !Number.isSafeInteger(page.paging.offset) || page.paging.offset !== offset
+      || !Number.isSafeInteger(page.paging.limit) || page.paging.limit <= 0
+      || !Number.isSafeInteger(page.paging.total) || page.paging.total < 0 || page.paging.total > 100
+      || offset > page.paging.total
+      || page.results.length !== Math.min(page.paging.limit, page.paging.total - offset)) {
+      throw new MpApiError('GET authorized_payments (incomplete page)', 502)
+    }
+    if ((total !== null && total !== page.paging.total) || (limit !== null && limit !== page.paging.limit)) {
+      throw new MpApiError('GET authorized_payments (changing pagination)', 502)
+    }
     total = page.paging.total
+    limit = page.paging.limit
     for (const candidate of page.results) {
-      if (candidate.preapproval_id !== preapprovalId || candidate.id === null || candidate.id === undefined) {
+      const validId = candidate && ((typeof candidate.id === 'string' && candidate.id.trim() !== ''
+        && candidate.id.trim() === candidate.id && !/\s/.test(candidate.id))
+        || (typeof candidate.id === 'number' && Number.isSafeInteger(candidate.id) && candidate.id > 0))
+      if (!validId || candidate.preapproval_id !== preapprovalId) {
         throw new MpApiError('GET authorized_payments (foreign invoice)', 502)
       }
       const id = String(candidate.id)
-      if (!id || ids.has(id)) throw new MpApiError('GET authorized_payments (duplicate invoice)', 502)
+      if (ids.has(id)) throw new MpApiError('GET authorized_payments (duplicate invoice)', 502)
       ids.add(id)
     }
-    if (offset + page.results.length >= total) return [...ids]
-    if (page.results.length !== limit) throw new MpApiError('GET authorized_payments (incomplete page)', 502)
+    if (offset + page.results.length === total && ids.size === total) return [...ids]
+    offset += limit
   }
   throw new MpApiError('GET authorized_payments (recovery limit exceeded)', 502)
 }

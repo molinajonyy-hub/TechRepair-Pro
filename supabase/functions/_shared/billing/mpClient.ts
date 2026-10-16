@@ -11,10 +11,11 @@
  *   GET  /preapproval/{id}              suscripción
  *   PUT  /preapproval/{id}              cancelar
  *   GET  /authorized_payments/{id}      cobro recurrente
+ *   GET  /authorized_payments/search    facturas de una suscripción conocida
  *   GET  /v1/payments/{id}              pago
  *
- * No se usa ningún endpoint de búsqueda: una suscripción se lee SIEMPRE por un
- * id que el servidor ya conoce. Buscar por plan, email o fecha sería adivinar.
+ * La búsqueda de facturas usa sólo el preapproval que el servidor ya conoce.
+ * No se buscan suscripciones por plan, email ni fecha para resolver un negocio.
  *
  * `fetch` y el token se inyectan: el módulo no toca `Deno.env` ni la red por su
  * cuenta, así que corre igual en Deno y en los tests.
@@ -101,7 +102,8 @@ export interface MpClient {
   getPreapproval(id: string): Promise<MpPreapproval | null>
   cancelPreapproval(id: string): Promise<void>
   getAuthorizedPayment(id: string): Promise<MpAuthorizedPayment | null>
-  /** Only invoices of a preapproval already identified by the server. */
+  /** Only invoices of a server-known preapproval. The legacy limit argument is
+   * retained for callers; response paging.limit determines coverage, not this hint. */
   listAuthorizedPayments(preapprovalId: string, offset: number, limit: number): Promise<MpInvoicePage>
   getPayment(id: string): Promise<MpPayment | null>
 }
@@ -251,13 +253,34 @@ export function createMpClient(deps: MpClientDeps): MpClient {
     },
 
     getAuthorizedPayment: (id) => getJson<MpAuthorizedPayment>('GET authorized_payment', `/authorized_payments/${seg(id)}`),
-    async listAuthorizedPayments(preapprovalId, offset, limit) {
-      const query = new URLSearchParams({ preapproval_id: preapprovalId, offset: String(offset), limit: String(limit) })
+    async listAuthorizedPayments(preapprovalId, offset, _limit) {
+      if (!preapprovalId.trim() || !Number.isSafeInteger(offset) || offset < 0 || offset >= 100) {
+        throw new MpApiError('GET authorized_payments (invalid request)', 502)
+      }
+      // The provider accepts the subscription filter without explicit pagination.
+      // Do not send limit or offset=0; follow later pages only with offset. An
+      // unsupported offset must fail instead of returning the first-page prefix.
+      const query = new URLSearchParams({ preapproval_id: preapprovalId })
+      if (offset > 0) query.set('offset', String(offset))
       const page = await getJson<MpInvoicePage>('GET authorized_payments by preapproval', `/authorized_payments/search?${query}`)
       if (!page || !Array.isArray(page.results) || !page.paging
-        || page.paging.offset !== offset || page.paging.limit !== limit
-        || !Number.isSafeInteger(page.paging.total) || page.paging.total < 0
-        || page.results.length > limit) throw new MpApiError('GET authorized_payments (invalid page)', 502)
+        || !Number.isSafeInteger(page.paging.offset) || page.paging.offset !== offset
+        || !Number.isSafeInteger(page.paging.limit) || page.paging.limit <= 0
+        || !Number.isSafeInteger(page.paging.total) || page.paging.total < 0 || page.paging.total > 100
+        || offset > page.paging.total
+        || page.results.length !== Math.min(page.paging.limit, page.paging.total - offset)) {
+        throw new MpApiError('GET authorized_payments (invalid page)', 502)
+      }
+      const ids = new Set<string>()
+      for (const invoice of page.results) {
+        const validId = invoice && ((typeof invoice.id === 'string' && invoice.id.trim() !== ''
+          && invoice.id.trim() === invoice.id && !/\s/.test(invoice.id))
+          || (typeof invoice.id === 'number' && Number.isSafeInteger(invoice.id) && invoice.id > 0))
+        if (!validId || invoice.preapproval_id !== preapprovalId || ids.has(String(invoice.id))) {
+          throw new MpApiError('GET authorized_payments (invalid invoice identity)', 502)
+        }
+        ids.add(String(invoice.id))
+      }
       return page
     },
     getPayment: (id) => getJson<MpPayment>('GET payment', `/v1/payments/${seg(id)}`),
