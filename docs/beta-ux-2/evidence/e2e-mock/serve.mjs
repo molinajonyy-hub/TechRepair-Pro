@@ -111,6 +111,11 @@ const api = http.createServer((req, res) => {
     if (p.startsWith('/storage/v1/')) return send(200, { Key: 'mock', Id: 'mock' })
     if (p.startsWith('/functions/v1/fetch-dollar-rate')) return send(200, { sell: 1556, buy: 1530, source: 'AMBITO_NACIONAL' })
     if (p.startsWith('/functions/v1/')) return send(404, { error: 'mock' })
+    // Gate SEC-08E (pgrst.db_pre_request, mínimo 1): sin contrato de cliente,
+    // PostgREST responde 409 a TODO /rest/v1. El bundle lo manda siempre; un
+    // fetch a mano de un spec, no.
+    if (p.startsWith('/rest/v1/') && !/^[1-9][0-9]*$/.test(String(req.headers['x-techrepair-client-contract'] ?? '')))
+      return send(409, { code: 'CLIENT_UPDATE_REQUIRED', message: 'Actualizá la aplicación para continuar.', details: null, hint: null })
     if (p.startsWith('/rest/v1/rpc/')) {
       const fn = p.replace('/rest/v1/rpc/', '')
       if (fn === 'get_my_profile') return send(200, [profile])

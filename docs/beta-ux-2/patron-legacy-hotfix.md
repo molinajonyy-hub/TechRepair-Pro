@@ -62,3 +62,8 @@ monoespaciada. Sólo tokens de tema; se ve igual en claro y oscuro.
   la MISMA RPC que usaba el frontend anterior, con la sesión del usuario; la tarjeta avisa, se reconfigura y
   después se ve la grilla. El otro E2E crea una orden con 1-5-9 por la recepción (formato actual) y lo revela
   como grilla: prueba que el servidor acepta el formato de strings.
+- Primer CI (run 38807003699, `450b022`): 381/382; el rojo era ese E2E. La siembra por `fetch` no mandaba
+  `x-techrepair-client-contract` y el gate SEC-08E respondió 409 `CLIENT_UPDATE_REQUIRED` (el bundle lo manda
+  siempre). El helper ahora lo manda, como los otros specs con `fetch` a mano, y el simulador
+  (`evidence/e2e-mock/serve.mjs`) exige el encabezado en todo `/rest/v1`: con el spec anterior da el mismo 409;
+  con el arreglo, 21/21.

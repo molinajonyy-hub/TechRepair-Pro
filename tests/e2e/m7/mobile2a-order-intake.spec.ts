@@ -8,20 +8,21 @@ async function selectSeedCustomer(page:Page){await page.getByLabel('Buscar clien
 /**
  * Guarda el acceso de una orden por `set_order_device_access_secret` con la
  * sesión de la página, tal como lo hacía el frontend anterior (que mandaba la
- * grilla cruda como arreglo de números). Sólo stack local (.env.e2e).
+ * grilla cruda como arreglo de números). Sólo stack local (.env.e2e). Manda el
+ * contrato de cliente como el bundle (SEC-08E: sin él PostgREST responde 409).
  */
 async function guardarComoFrontendAnterior(page:Page,orderId:string,secret:string){
   const url=process.env.VITE_SUPABASE_URL,anon=process.env.VITE_SUPABASE_ANON_KEY
   if(!url||!anon)throw new Error('Faltan VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY (.env.e2e)')
-  const status=await page.evaluate(async({url,anon,orderId,secret})=>{
+  const respuesta=await page.evaluate(async({url,anon,orderId,secret})=>{
     const clave=Object.keys(localStorage).find(k=>/^sb-.*-auth-token$/.test(k))
     const token=clave?JSON.parse(localStorage.getItem(clave)||'{}').access_token:null
-    const respuesta=await fetch(`${url}/rest/v1/rpc/set_order_device_access_secret`,{method:'POST',
-      headers:{apikey:anon,Authorization:`Bearer ${token}`,'Content-Type':'application/json'},
+    const r=await fetch(`${url}/rest/v1/rpc/set_order_device_access_secret`,{method:'POST',
+      headers:{apikey:anon,Authorization:`Bearer ${token}`,'Content-Type':'application/json','x-techrepair-client-contract':'1'},
       body:JSON.stringify({p_order_id:orderId,p_mode:'pattern',p_secret:secret})})
-    return respuesta.status
+    return {status:r.status,body:await r.text()}
   },{url,anon,orderId,secret})
-  expect(status,'el servidor acepta el formato anterior').toBeLessThan(300)
+  expect(respuesta.status,`el servidor acepta el formato anterior: ${respuesta.body}`).toBeLessThan(300)
 }
 
 test.describe('@mobile2a MOBILE-2A · recepción OWNER',()=>{
