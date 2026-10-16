@@ -204,9 +204,15 @@ function inspectEdge(s) {
   ]) if (!re.test(condiciones)) f.push(`checkoutTermsProblem dejo de comparar: ${regla}`)
   if (/Deno\.env|getEnv|MP_PLAN_/.test(catalog)) f.push('el catalogo volvio a depender de secrets / planes del panel de Mercado Pago')
 
-  // Mercado Pago se lee por id. Nada de busquedas ni de planes del panel.
+  // Mercado Pago se lee por id. El operador excepcional puede consultar un
+  // plan exacto por GET; checkout/webhook/reconcile no adquieren esa autoridad.
   const mp = codigo(s.mpClient)
-  if (/preapproval\/search|preapproval_plan\/|payer_email=/.test(mp)) f.push('mpClient volvio a buscar suscripciones (por plan, email, etc.) o a leer planes del panel')
+  const operatorGetPlan = /getPreapprovalPlan: \(id\) => getJson<MpPreapprovalPlan>\('GET preapproval_plan', `\/preapproval_plan\/\$\{seg\(id\)\}`\),/
+  if (!operatorGetPlan.test(mp)) f.push('el lookup excepcional del plan dejo de ser GET por ID exacto')
+  if (/preapproval\/search|preapproval_plan\/|payer_email=/.test(mp.replace(operatorGetPlan, ''))) f.push('mpClient volvio a buscar suscripciones (por plan, email, etc.) o a leer planes del panel fuera del GET excepcional')
+  if (/getPreapprovalPlan|preapproval_plan\//.test(actions + pre + webhook + store + sub + hook)) {
+    f.push('el lookup excepcional del plan se filtro al flujo normal de Plan B')
+  }
   if (!/status: 'pending',/.test(tramo(mp, 'async createPendingPreapproval', 'getPreapproval:'))) f.push('el preapproval dejo de crearse en estado pending')
 
   // Un solo camino escribe el acceso. El negocio se resuelve por el id del
@@ -485,6 +491,10 @@ if (process.argv.includes('--self-test')) {
     ['condiciones: no compara la frecuencia', con('catalog', "  if (!matchesBillingCycleFrequency(expected.billingCycle, r.frequency, r.frequency_type)) return 'frequency_mismatch'\n", ''), 'dejo de comparar: frecuencia'],
     ['catalogo: vuelve a los planes del panel', con('catalog', 'export const BILLING_CURRENCY', "export const planDelPanel = (getEnv: (k: string) => string) => getEnv('MP_PLAN_PRO_MONTHLY')\nexport const BILLING_CURRENCY"), 'planes del panel'],
     ['mp: busca suscripciones por email', con('mpClient', '// ── Normalización de estados', "export const buscar = (email: string) => fetch(`https://api.mercadopago.com/preapproval/search?payer_email=${email}`)\n// ── Normalización de estados"), 'volvio a buscar'],
+    ['mp: busca planes en la excepcion', con('mpClient', '`/preapproval_plan/${seg(id)}`', '`/preapproval_plan/search?id=${seg(id)}`'), 'volvio a buscar'],
+    ['mp: lookup de plan deja de ser GET', con('mpClient', "getJson<MpPreapprovalPlan>('GET preapproval_plan', `/preapproval_plan/${seg(id)}`)", "call('POST preapproval_plan', `/preapproval_plan/${seg(id)}`, { method: 'POST' })"), 'GET por ID'],
+    ['create: usa el lookup reservado al operador', con('actions', '  const business = await ctx.store.getBusinessBilling(businessId)', "  await ctx.mp.getPreapprovalPlan('synthetic')\n  const business = await ctx.store.getBusinessBilling(businessId)"), 'flujo normal de Plan B'],
+    ['canonico: consulta planes del panel', con('preapproval', '  const session = await ctx.store.findCheckoutSessionByPreapprovalId(pre.id)', "  await ctx.mp.getPreapprovalPlan('synthetic')\n  const session = await ctx.store.findCheckoutSessionByPreapprovalId(pre.id)"), 'flujo normal de Plan B'],
     ['mp: crea el preapproval ya authorized', con('mpClient', "          status: 'pending',", "          status: 'authorized',"), 'crearse en estado pending'],
     ['canonico: un id desconocido vincula por referencia', con('preapproval', "  if (!session) return outcome(pre, mpState, { kind: 'not_applied', reason: 'unknown_preapproval' })\n", "  if (!session && !(await ctx.store.findCheckoutSessionByReference(reportedReference(pre)))) return outcome(pre, mpState, { kind: 'not_applied', reason: 'unknown_preapproval' })\n"), 'por external_reference'],
     ['canonico: un id desconocido no falla cerrado', con('preapproval', "  if (!session) return outcome(pre, mpState, { kind: 'not_applied', reason: 'unknown_preapproval' })\n", "  if (!session) throw new Error('sin sesion')\n"), 'unknown_preapproval'],

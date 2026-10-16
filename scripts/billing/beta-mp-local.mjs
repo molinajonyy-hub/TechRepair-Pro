@@ -19,7 +19,7 @@
 // `external_reference`, como se midió en el smoke real del 2026-10-02.
 //
 // Requiere las migraciones 20261012120000, 20261013120000, 20261015120000,
-// 20261016120000 y Node >= 22.18 (importa los
+// 20261016120000, 20261016130620 y Node >= 22.18 (importa los
 // módulos .ts tal cual). Deja la base como la encontró.
 //
 //   node scripts/billing/beta-mp-local.mjs
@@ -69,8 +69,9 @@ const main = async () => {
     + (SELECT count(*) FROM pg_attribute WHERE attrelid = 'public.subscription_checkout_sessions'::regclass AND attname = 'mp_preapproval_id')
     + (to_regclass('public.uq_scs_mp_preapproval') IS NOT NULL)::int
     + (to_regclass('public.uq_payments_mp_payment_id') IS NOT NULL)::int
-    + (to_regclass('public.uq_scs_pending_business') IS NOT NULL)::int;`)
-  assert(applied === '5', 'Falta una de las cuatro migraciones BETA-MP, Plan B, Recovery o Email en la base local')
+    + (to_regclass('public.uq_scs_pending_business') IS NOT NULL)::int
+    + (to_regprocedure('public.recover_plan_a_paid_case(jsonb,jsonb,jsonb,jsonb,timestamptz,timestamptz,text,text,text)') IS NOT NULL)::int;`)
+  assert(applied === '6', 'Falta una de las cinco migraciones BETA-MP, Plan B, Recovery, Email o el candidato Plan A en la base local')
 
   let signingKey = Buffer.from(vars.PGRST_JWT_SECRET)
   if (vars.PGRST_JWT_SECRET.trim().startsWith('{')) {
@@ -178,6 +179,35 @@ const main = async () => {
   check(b.status >= 400 && b.json?.code === '42501', `el owner NO lee la tabla por PostgREST (${b.status} ${b.json?.code})`)
   b = await browser('PATCH', `/businesses?id=eq.${ids.A}`, { subscription_status: 'active', subscription_plan: 'full' })
   check(b.status >= 400 && business('A').subscription_status === 'trialing', `el owner NO se activa escribiendo businesses (${b.status})`)
+
+  section('2.b Plan A: permisos reales de la RPC por HTTP, siempre con identidad sintética')
+  const recoveryProbe = {
+    p_case: { business_id: ids.A, session_id: randomUUID(), preapproval_id: `synthetic_pre_${run}`,
+      preapproval_plan_id: `synthetic_plan_${run}`, invoice_id: `synthetic_invoice_${run}`, payment_id: `synthetic_payment_${run}` },
+    p_expected_business: {}, p_expected_session: {}, p_ledger: {},
+    p_provider_last_modified: '2026-10-02T13:01:00Z', p_next_payment_date: '2026-11-02T13:00:00Z',
+    p_evidence_digest: '0'.repeat(64), p_approval_ref: 'synthetic-approval', p_operator_ref: 'synthetic-operator',
+  }
+  const recoveryFootprint = () => [huella('A'), huella('B'), huella('C'),
+    count('subscription_checkout_sessions', 'true'), count('payments', 'true'), count('subscription_events', 'true')].join('|')
+  const beforeRecoveryProbes = recoveryFootprint()
+  for (const probe of [
+    { label: 'anon', token: anonKey },
+    { label: 'tenant authenticated', token: userJwt('ownerA') },
+    { label: 'service_role', token: jwt({ role: 'service_role' }) },
+  ]) {
+    const response = await fetch(`${baseUrl}/rest/v1/rpc/recover_plan_a_paid_case`, {
+      method: 'POST', signal: AbortSignal.timeout(15000),
+      headers: { 'Content-Type': 'application/json', apikey: anonKey, Authorization: `Bearer ${probe.token}`,
+        'x-techrepair-client-contract': '1' },
+      body: JSON.stringify(recoveryProbe),
+    })
+    const result = await response.json()
+    const denied = [401, 403].includes(response.status) && result.code === '42501'
+      && (probe.label !== 'service_role' || result.message === 'plan_a_recovery_case_not_allowlisted')
+    check(denied && recoveryFootprint() === beforeRecoveryProbes && mp.calls.length === 0,
+      `${probe.label}: RPC rechazada por ${probe.label === 'service_role' ? 'allowlist sintética' : 'EXECUTE'} (${response.status}/42501), sin escrituras ni llamadas MP`)
+  }
 
   // ── 3. create: el servidor crea el preapproval y lo vincula ───────────────
   section('3. create: preapproval creado por el servidor, vinculado antes de responder; el negocio no cambia')

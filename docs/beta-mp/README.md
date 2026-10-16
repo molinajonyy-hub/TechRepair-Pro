@@ -24,6 +24,7 @@ Tres lotes:
   no se puede afirmar hasta el próximo smoke
 - [Preflight de sólo lectura](preflight-readonly.sql)
 - [Verificación post-migración de sólo lectura](postdeploy-verify-readonly.sql)
+- [Recuperación excepcional Plan A: identidad privada, dry-run y ejecución autorizada por separado](plan-a-recovery-runbook.md)
 
 **Por qué existe el Plan B.** En el smoke real del 2026-10-02 se pagó un Básico Mensual por el
 checkout de un plan de Mercado Pago. El pago se aprobó y Mercado Pago creó un preapproval

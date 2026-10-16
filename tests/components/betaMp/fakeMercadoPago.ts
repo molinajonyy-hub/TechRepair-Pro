@@ -20,9 +20,12 @@ const CHECKOUT_BASE = 'https://www.mercadopago.com.ar/subscriptions/checkout'
 
 export class FakeMercadoPago {
   preapprovals = new Map<string, MpRow>()
+  preapprovalPlans = new Map<string, MpRow>()
   authorizedPayments = new Map<string, MpRow>()
   payments = new Map<string, MpRow>()
   calls: MpCall[] = []
+  /** Search chooses its own page size; explicit limit is rejected like the reported provider response. */
+  invoicePageSize = 20
   /** Mercado Pago caído: todas las llamadas responden 500. */
   down = false
   /** El PUT de cancelación responde 200 pero MP no cambia el estado. */
@@ -130,12 +133,15 @@ export class FakeMercadoPago {
     }
     if (method === 'GET') {
       if (url.pathname === '/authorized_payments/search') {
-        const offset = Number(url.searchParams.get('offset'))
-        const limit = Number(url.searchParams.get('limit'))
+        if (url.searchParams.has('limit')) return json({ message: 'Invalid parameter: limit' }, 400)
+        const offset = Number(url.searchParams.get('offset') ?? 0)
+        const limit = this.invoicePageSize
+        if (!Number.isSafeInteger(offset) || offset < 0) return json({ message: 'Invalid parameter: offset' }, 400)
         const rows = [...this.authorizedPayments.values()].filter(p => p.preapproval_id === url.searchParams.get('preapproval_id'))
         return json({ paging: { offset, limit, total: rows.length }, results: rows.slice(offset, offset + limit) })
       }
       return one('/preapproval/', this.preapprovals, (row) => this.view(row))
+        ?? one('/preapproval_plan/', this.preapprovalPlans)
         ?? one('/authorized_payments/', this.authorizedPayments) ?? one('/v1/payments/', this.payments)
         ?? json({ message: 'not found' }, 404)
     }

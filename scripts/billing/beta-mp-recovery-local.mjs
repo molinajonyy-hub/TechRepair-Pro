@@ -31,28 +31,110 @@ let created = false, started = false
 let proxy
 let phase = 'schema clone'
 const sql = q => docker(['exec', '--env-file', pgEnvFile, '-i', sourceDb, 'psql', '-X', '-U', 'supabase_admin', '-d', database, '-v', 'ON_ERROR_STOP=1'], q)
+// Keep the fixture transaction open while a SECOND PostgreSQL connection holds a
+// conflicting writer lock. Only synthetic data in the disposable clone is used.
+async function planAMatrix() {
+  assert(/^beta_mp_recovery_[a-f0-9]{12}$/.test(database))
+  const source = readFileSync('tests/sql/beta_mp_plan_a_recovery.test.sql', 'utf8')
+  const marker = '-- PLAN_A_CONCURRENCY_CHECKPOINT'
+  const parts = source.split(marker)
+  assert.equal(parts.length, 2)
+  const sessions = []
+  const connection = () => {
+    const child = spawn('docker', ['exec', '--env-file', pgEnvFile, '-i', sourceDb, 'psql', '-X', '-Atq',
+      '-U', 'supabase_admin', '-d', database, '-v', 'ON_ERROR_STOP=1'], { stdio: ['pipe', 'pipe', 'pipe'] })
+    let output = '', errors = '', ended = false
+    const pending = new Set()
+    child.stdout.on('data', chunk => {
+      output += String(chunk)
+      for (const waiter of pending) if (output.includes(waiter.marker)) { pending.delete(waiter); clearTimeout(waiter.timer); waiter.resolve() }
+    })
+    child.stderr.on('data', chunk => { errors += String(chunk) })
+    const complete = new Promise((resolve, reject) => {
+      child.on('error', reject)
+      child.on('exit', code => {
+        ended = true
+        const failure = new Error(errors.split('\n').find(line => /^ERROR:|FATAL:/.test(line)) ?? `Local SQL session exit ${code}`)
+        for (const waiter of pending) { clearTimeout(waiter.timer); waiter.reject(failure) }
+        pending.clear()
+        if (code === 0) resolve({ output, errors }); else reject(failure)
+      })
+    })
+    // Consumers await complete below; attach an early rejection handler too.
+    complete.catch(() => {})
+    const session = {
+      child, complete,
+      send: text => child.stdin.write(text),
+      waitFor: marker => output.includes(marker) ? Promise.resolve() : new Promise((resolve, reject) => {
+        if (ended) { reject(new Error('Local SQL session ended before checkpoint')); return }
+        const waiter = { marker, resolve, reject, timer: setTimeout(() => { pending.delete(waiter); reject(new Error('Local SQL checkpoint timeout')) }, 25000) }
+        pending.add(waiter)
+      }),
+      finish: () => { child.stdin.end(); return complete },
+    }
+    sessions.push(session)
+    return session
+  }
+  try {
+    const matrix = connection()
+    matrix.send('\\set PLAN_A_COMMIT_CANDIDATE true\n' + parts[0] + '\n\\echo PLAN_A_READY\n')
+    await matrix.waitFor('PLAN_A_READY')
+    const writer = connection()
+    writer.send("BEGIN; LOCK TABLE public.payments IN ROW EXCLUSIVE MODE;\\echo PLAN_A_WRITER_READY\n")
+    await writer.waitFor('PLAN_A_WRITER_READY')
+    matrix.send("SELECT pg_temp.rejected('{}','55P03','concurrent writer aborts NOWAIT recovery without partial writes');\n\\echo PLAN_A_CONTENTION_PROVED\n")
+    await matrix.waitFor('PLAN_A_CONTENTION_PROVED')
+    writer.send('ROLLBACK;\n')
+    await writer.finish()
+    matrix.send(parts[1])
+    const result = await matrix.finish()
+    const checks = (result.errors.match(/NOTICE:\s+PASS:/g) ?? []).length
+    assert(checks >= 60, 'The exceptional recovery SQL matrix did not complete')
+    // The candidate COMMIT persisted only inside this clone. Restore the exact
+    // production gate/allowlist before any other local integration runs.
+    sql(readFileSync('supabase/migrations/20261016130620_beta_mp_plan_a_paid_case_recovery.sql', 'utf8')
+      .replace('CREATE FUNCTION public.recover_plan_a_paid_case(', 'CREATE OR REPLACE FUNCTION public.recover_plan_a_paid_case('))
+    const closed = sql("SELECT position('plan_a_recovery_historical_application_unresolved' in pg_get_functiondef('public.recover_plan_a_paid_case(jsonb,jsonb,jsonb,jsonb,timestamptz,timestamptz,text,text,text)'::regprocedure)) > 0")
+    assert(closed.includes('t'), 'Production historical-application gate was not restored in clone')
+    console.log(`Exceptional Plan A candidate LOCAL SQL: ${checks} checks, real concurrent-writer rejection, atomic commit and no-op retry; production gate restored`)
+  } finally {
+    for (const session of sessions) {
+      if (session.child.exitCode === null) {
+        try { session.send('ROLLBACK;\n\\q\n'); session.child.stdin.end() } catch { session.child.kill() }
+        await session.complete.catch(() => {})
+      }
+    }
+  }
+}
 try {
   // pg_cron is cluster-bound to postgres. It is irrelevant to this isolated billing matrix.
   const schema = docker(['exec', sourceDb, 'pg_dump', '-U', 'postgres', '-d', 'postgres', '--schema-only',
     '--exclude-extension=pg_cron', '--exclude-schema=cron', '--exclude-extension=pg_graphql',
     '--exclude-schema=graphql', '--exclude-schema=graphql_public', '--no-publications', '--no-subscriptions'])
+  const sourceVersions = new Set(docker(['exec', sourceDb, 'psql', '-X', '-U', 'postgres', '-d', 'postgres', '-Atq', '-c',
+    'SELECT version FROM supabase_migrations.schema_migrations']).trim().split(/\r?\n/).filter(Boolean))
   docker(['exec', sourceDb, 'psql', '-X', '-U', 'postgres', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1', '-c', `CREATE DATABASE ${database}`])
   created = true
   phase = 'schema restore'
   sql(schema)
   for (const file of ['20261012120000_beta_mp_checkout_session_server_authority.sql',
     '20261013120000_beta_mp_plan_b_session_preapproval_unique.sql', '20261015120000_beta_mp_recovery_payment_identity.sql',
-    '20261016120000_beta_mp_email_one_pending_business.sql']) {
+    '20261016120000_beta_mp_email_one_pending_business.sql',
+    '20261016130620_beta_mp_plan_a_paid_case_recovery.sql']) {
     phase = file
-    sql(readFileSync(`supabase/migrations/${file}`, 'utf8'))
     const version = file.slice(0, 14)
     assert(/^\d{14}$/.test(version))
+    // CI starts a fully migrated source. A schema-only clone already contains
+    // its objects but not migration-history rows; never reapply non-idempotent DDL.
+    if (!sourceVersions.has(version)) sql(readFileSync(`supabase/migrations/${file}`, 'utf8'))
     sql(`INSERT INTO supabase_migrations.schema_migrations(version) VALUES ('${version}')`)
   }
   phase = 'SQL authority matrix'
   sql(readFileSync('tests/sql/beta_mp_checkout_authority.test.sql', 'utf8'))
   phase = 'SQL payment identity'
   sql(readFileSync('tests/sql/beta_mp_recovery_payment_identity.test.sql', 'utf8'))
+  phase = 'SQL exceptional Plan A recovery'
+  await planAMatrix()
   phase = 'readonly recovery verification'
   sql(readFileSync('docs/beta-mp/recovery-verify-readonly.sql', 'utf8'))
   dbUri.pathname = `/${database}`

@@ -10,9 +10,11 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { readFileSync, readdirSync } from 'node:fs'
 import { CREATE_PREAPPROVAL_OPERATION, MpApiError, isPayerRejection } from '../../supabase/functions/_shared/billing/mpClient.ts'
 import { PLAN_PRICES, buildPlanCatalog } from '../../supabase/functions/_shared/billing/planCatalog.ts'
+import { caseFingerprint, parsePlanACase } from '../../supabase/functions/_shared/billing/planARecovery.ts'
 
 const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), 'utf-8')
 
@@ -32,17 +34,80 @@ const adminRpc  = read('../../supabase/migrations/_legacy/20260623121000_billing
 const entRpc    = read('../../supabase/migrations/_legacy/20260623101000_billing_stageA_entitlements_rpc.sql')
 const platform  = read('../../supabase/migrations/_legacy/20260623120000_billing_stageC_admin_roles_audit.sql')
 
-test('Email: la migración candidata sucede a Recovery y a las demás versiones del repositorio', () => {
+test('Email: conserva su versión después de Recovery sin bloquear migraciones posteriores', () => {
   const files = readdirSync(new URL('../../supabase/migrations/', import.meta.url)).filter(n => /^\d{14}_.*\.sql$/.test(n))
   const email = files.filter(n => n.endsWith('_beta_mp_email_one_pending_business.sql'))
   assert.equal(email.length, 1, 'sólo debe existir una versión de la migración candidata')
   const candidate = email[0]
   const version = candidate.slice(0, 14)
   assert.ok(version > '20261015120000', 'debe ser posterior a la última versión productiva reportada')
-  assert.ok(files.filter(n => n !== candidate).every(n => n.slice(0, 14) < version), 'la candidata debe aplicar al final')
+  assert.equal(version, '20261016120000', 'la versión mergeada de Email no se renumera para un lote posterior')
   for (const path of ['../../.github/workflows/ci.yml', '../../scripts/billing/beta-mp-recovery-local.mjs', '../../docs/beta-mp/email-runbook.md']) {
     assert.ok(read(path).includes(candidate), `${path} debe referenciar la versión candidata vigente`)
   }
+})
+
+test('Plan A: la RPC excepcional sucede a Email y no modifica datos al aplicar la migración', () => {
+  const files = readdirSync(new URL('../../supabase/migrations/', import.meta.url)).filter(n => /^\d{14}_.*\.sql$/.test(n))
+  const candidates = files.filter(n => n.endsWith('_beta_mp_plan_a_paid_case_recovery.sql'))
+  assert.equal(candidates.length, 1, 'una única migración de la operación excepcional')
+  assert.ok(candidates[0].slice(0, 14) > '20261016120000', 'la operación debe aplicar después de Email')
+  const sql = read(`../../supabase/migrations/${candidates[0]}`)
+  const ddl = sql.replace(/\$function\$[\s\S]*?\$function\$/g, '')
+  assert.doesNotMatch(ddl, /\b(?:INSERT INTO|UPDATE|DELETE FROM)\s+public\.(?:businesses|payments|subscription_checkout_sessions|subscription_events)\b/i)
+  assert.match(sql, /SECURITY INVOKER/)
+  assert.match(sql, /current_user\s*<>\s*'service_role'/)
+  assert.match(sql, /FROM PUBLIC, anon, authenticated;/)
+  assert.match(sql, /GRANT EXECUTE ON FUNCTION public\.recover_plan_a_paid_case[\s\S]*?TO service_role;/)
+  assert.match(sql, /IN SHARE ROW EXCLUSIVE MODE NOWAIT;/)
+  assert.match(sql, /FOR UPDATE NOWAIT;/)
+  assert.match(sql, /SET lock_timeout = '2s'/)
+})
+
+test('Plan A: fingerprint canónico de seis IDs sintéticos usa newline sin salto final', async () => {
+  const values = [
+    '00000000-0000-4000-8000-000000000001',
+    '00000000-0000-4000-8000-000000000002',
+    '11111111111111111111111111111111',
+    '22222222222222222222222222222222',
+    '9000000000001',
+    '9000000000002',
+  ]
+  const identity = parsePlanACase(Object.fromEntries(
+    ['business_id', 'session_id', 'preapproval_id', 'preapproval_plan_id', 'invoice_id', 'payment_id']
+      .map((key, i) => [key, values[i]]),
+  ))
+  const expected = createHash('sha256').update(values.join('\n'), 'utf8').digest('hex')
+  assert.equal(await caseFingerprint(identity), expected)
+  assert.notEqual(await caseFingerprint(identity), createHash('sha256').update(values.join('\n') + '\n', 'utf8').digest('hex'))
+  assert.throws(() => parsePlanACase({ ...identity, payer_email: 'synthetic@invalid.test' }), /invalid_case_manifest/)
+})
+
+test('Plan A: operación aislada de Plan B, simulación canónica sin store real y sin mutación MP', () => {
+  const planA = read('../../supabase/functions/_shared/billing/planARecovery.ts')
+  assert.doesNotMatch(actions + canonical + webhookLib + webhook + service, /planARecovery|inspectPlanARecovery|executePlanARecovery|recover_plan_a_paid_case/)
+  assert.doesNotMatch(planA, /\b(?:supabase|client)\.(?:from|rpc)\(|createSupabaseBillingStore\(|createClient\(/)
+  assert.match(planA, /createPendingPreapproval:\s*forbidden,\s*cancelPreapproval:\s*forbidden/)
+  assert.match(planA, /applyPreapprovalEvidence\(shadow\.ctx,/)
+  assert.match(planA, /page\.paging\.total === 1/)
+  assert.match(planA, /provider_evidence_stable/)
+  assert.match(planA, /local_snapshot_stable/)
+  const fingerprint = planA.match(/PLAN_A_CASE_FINGERPRINT = '([0-9a-f]{64})'/)?.[1]
+  assert.ok(fingerprint, 'la excepción debe estar fijada a una identidad opaca')
+  const migration = read('../../supabase/migrations/20261016130620_beta_mp_plan_a_paid_case_recovery.sql')
+  assert.ok(migration.includes(fingerprint), 'el committer debe exigir la misma identidad fija')
+})
+
+test('Plan A: aplicación histórica no resuelta mantiene bloqueados inspector, ejecutor y RPC', () => {
+  const planA = read('../../supabase/functions/_shared/billing/planARecovery.ts')
+  assert.match(planA, /export const PLAN_A_HISTORICAL_APPLICATION_VERIFIED = false/)
+  assert.match(planA, /check\('historical_application_identity_unresolved', PLAN_A_HISTORICAL_APPLICATION_VERIFIED\)/)
+  assert.match(planA, /expect\(PLAN_A_HISTORICAL_APPLICATION_VERIFIED, 'historical_application_identity_unresolved'\)/)
+  const migration = read('../../supabase/migrations/20261016130620_beta_mp_plan_a_paid_case_recovery.sql')
+  const gate = migration.indexOf("RAISE EXCEPTION 'plan_a_recovery_historical_application_unresolved'")
+  const firstWrite = migration.indexOf('INSERT INTO public.payments')
+  assert.ok(gate > 0 && firstWrite > gate, 'el gate de identidad debe rechazar antes de cualquier escritura comercial')
+  assert.match(read('../../docs/beta-mp/plan-a-recovery-runbook.md'), /Todo dry-run del caso productivo debe quedar/)
 })
 
 // ── Webhook: reliability + mandatory signature + idempotency ────────────────
@@ -99,9 +164,10 @@ test('create no lee importe, moneda, frecuencia ni referencia del body', () => {
   assert.match(actions, /const terms = ctx\.catalog\.termsFor\(plan, billingCycle\)/)
 })
 
-test('Mercado Pago se lee por id: no hay endpoints de búsqueda ni planes del panel', () => {
-  assert.doesNotMatch(mpClient, /preapproval\/search|preapproval_plan\/|searchPreapprovals/)
-  assert.doesNotMatch(actions + canonical + webhookLib, /MP_PLAN_|byMpPlanId|mpPlanIdFor/)
+test('Mercado Pago se lee por ID: el GET de plan excepcional no amplía la autoridad normal de Plan B', () => {
+  assert.doesNotMatch(mpClient, /preapproval\/search|preapproval_plan\/search|searchPreapprovals/)
+  assert.match(mpClient, /getPreapprovalPlan:\s*\(id\)\s*=>\s*getJson<MpPreapprovalPlan>\('GET preapproval_plan', `\/preapproval_plan\/\$\{seg\(id\)\}`\)/)
+  assert.doesNotMatch(actions + canonical + webhookLib, /MP_PLAN_|byMpPlanId|mpPlanIdFor|getPreapprovalPlan\(/)
 })
 
 // ── El email del pagador no es autoridad ────────────────────────────────────
@@ -133,7 +199,9 @@ test('ni el camino canónico, ni el webhook, ni el store resuelven nada por emai
   // En el cliente de Mercado Pago el email aparece una sola vez: en el cuerpo del POST.
   const mp = sinComentarios(mpClient)
   assert.doesNotMatch(mp, /payer_email=|preapproval\/search|preapproval_plan\/search/)
-  assert.match(mp, /new URLSearchParams\(\{ preapproval_id: preapprovalId, offset: String\(offset\), limit: String\(limit\) \}\)/)
+  assert.match(mp, /new URLSearchParams\(\{ preapproval_id: preapprovalId \}\)/)
+  assert.match(mp, /if \(offset > 0\) query\.set\('offset', String\(offset\)\)/)
+  assert.doesNotMatch(mp, /query\.set\('(?:payer_email|payer_id|limit)'/)
   assert.deepEqual(mp.match(/payer_email: [^\n]+/g), ['payer_email: input.payerEmail,'])
 })
 
