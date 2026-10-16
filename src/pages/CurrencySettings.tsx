@@ -325,13 +325,14 @@ export function CurrencySettings() {
 
   return (
     <div>
+      {/* BETA-UX-3: se dibuja dentro de Configuración (`SettingsShell`, que tiene el h1): el título de acá es el de la sección. */}
       <div className="page-hdr">
         <div className="page-hdr-left">
           <div className="page-hdr-icon">
             <DollarSign size={20} style={{ color: 'var(--accent-primary)' }} />
           </div>
           <div>
-            <h1 className="page-hdr-title">Configuración de Moneda</h1>
+            <h2 className="page-hdr-title">Configuración de Moneda</h2>
             <p className="page-hdr-subtitle">Configura los tipos de cambio y preferencias de moneda</p>
           </div>
         </div>

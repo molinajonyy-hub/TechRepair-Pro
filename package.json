@@ -286,6 +286,7 @@
     "test:button-system-1a": "vitest run --config vitest.config.ts tests/components/buttonSystem1a.test.tsx",
     "test:beta-ux-1g": "vitest run --config vitest.config.ts tests/components/betaUx1gAuthFlows.test.tsx tests/components/betaUx1gAuthContract.test.ts tests/components/betaUx1gGoogleReturn.test.tsx tests/components/invitationsLifecycle.test.tsx tests/components/routingRecoveryOnboarding.test.tsx",
     "test:beta-ux-2": "vitest run --config vitest.config.ts tests/components/betaUx2Consistency.test.tsx tests/components/orderIntakeWizard.test.tsx tests/components/orderIntakeModel.test.ts tests/components/orderIntakeMobile.test.tsx",
+    "test:beta-ux-3": "vitest run --config vitest.config.ts tests/components/betaUx3AdminHelp.test.tsx tests/components/betaUx2Consistency.test.tsx tests/components/beta1Ayuda.test.tsx tests/components/rbacCapabilities.test.tsx tests/components/mobileNavigation.test.tsx tests/components/supportContact.test.tsx",
     "guard:auth-email-templates": "node scripts/guards/auth-email-templates.mjs",
     "guard:auth-email-templates:self-test": "node scripts/guards/auth-email-templates.mjs --self-test",
     "guard:no-hardcoded-credentials": "node scripts/guards/no-hardcoded-credentials.mjs",

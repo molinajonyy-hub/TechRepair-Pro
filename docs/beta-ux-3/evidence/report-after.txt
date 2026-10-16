@@ -1,0 +1,22 @@
+[sidebar-owner] 1440x1000 light owner url=/dashboard errors=0 overflowX=0 admin={"label":"Administración","items":["Configuración","Centro de ayuda"]}
+[sidebar-admin] 1440x1000 light admin url=/dashboard errors=0 overflowX=0 admin={"label":"Administración","items":["Configuración","Centro de ayuda"]}
+[sidebar-tech] 1440x1000 light tech url=/dashboard errors=0 overflowX=0 admin={"label":"Administración","items":["Centro de ayuda"]}
+[configuracion-desktop] 1440x900 light owner url=/settings errors=0 overflowX=0 admin={"label":"Administración","items":["Configuración","Centro de ayuda"]}
+[usuarios-desktop] 1440x900 light owner url=/users errors=0 overflowX=0 admin={"label":"Administración","items":["Configuración","Centro de ayuda"]}
+[moneda-desktop] 1440x900 light owner url=/currency-settings errors=0 overflowX=0 admin={"label":"Administración","items":["Configuración","Centro de ayuda"]}
+[suscripcion-desktop] 1440x900 light owner url=/subscription errors=0 overflowX=0 admin={"label":"Administración","items":["Configuración","Centro de ayuda"]}
+[configuracion-admin-desktop] 1440x900 light admin url=/settings errors=0 overflowX=0 admin={"label":"Administración","items":["Configuración","Centro de ayuda"]}
+[usuarios-1280] 1280x800 light owner url=/users errors=0 overflowX=0 admin={"label":"Administración","items":["Configuración","Centro de ayuda"]}
+[suscripcion-1280] 1280x800 light owner url=/subscription errors=0 overflowX=0 admin={"label":"Administración","items":["Configuración","Centro de ayuda"]}
+[moneda-1280] 1280x800 light owner url=/currency-settings errors=0 overflowX=0 admin={"label":"Administración","items":["Configuración","Centro de ayuda"]}
+[ayuda-desktop] 1440x900 light owner url=/ayuda errors=0 overflowX=0 admin={"label":"Administración","items":["Configuración","Centro de ayuda"]}
+[tutoriales-desktop] 1440x900 light owner url=/ayuda errors=0 overflowX=0 admin={"label":"Administración","items":["Configuración","Centro de ayuda"]}
+[ayuda-tech-desktop] 1440x900 light tech url=/ayuda errors=0 overflowX=0 admin={"label":"Administración","items":["Centro de ayuda"]}
+[ayuda-desktop-dark] 1440x900 dark owner url=/ayuda errors=0 overflowX=0 admin={"label":"Administración","items":["Configuración","Centro de ayuda"]}
+[mas-mobile] 390x844 light owner url=/dashboard errors=0 overflowX=0 admin={"label":"Administración","items":["Configuración","Centro de ayuda"]}
+[configuracion-mobile] 390x844 light owner url=/settings errors=0 overflowX=0 admin={"label":"Administración","items":["Configuración","Centro de ayuda"]}
+[usuarios-mobile] 390x844 light owner url=/users errors=0 overflowX=0 admin={"label":"Administración","items":["Configuración","Centro de ayuda"]}
+[ayuda-mobile] 390x844 light owner url=/ayuda errors=0 overflowX=0 admin={"label":"Administración","items":["Configuración","Centro de ayuda"]}
+[tutoriales-mobile] 390x844 light owner url=/ayuda errors=0 overflowX=0 admin={"label":"Administración","items":["Configuración","Centro de ayuda"]}
+
+SIN MOCK: rpc:get_arca_config_safe, rpc:get_arca_selfservice_status, rpc:get_business_settings, rpc:get_current_exchange_rate, rpc:get_my_business_profile, rpc:upsert_business_settings, table:business_invitations, table:cajas, table:customers, table:dollar_rate_history, table:inventory, table:notifications, table:orders, table:payments, table:profiles, table:sales_points, table:system_admins, table:tasks

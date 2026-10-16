@@ -1,4 +1,4 @@
-import { NavLink, useNavigate } from 'react-router-dom';
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
@@ -10,6 +10,7 @@ import {
   type NavigationAccess,
 } from '../../hooks/useNavigationAccess';
 import logoSvg from '../../assets/logo.svg';
+import { SETTINGS_PERMISSIONS, SETTINGS_ROUTE_PATHS } from '../settings/SettingsNav';
 
 // El ícono de WhatsApp vivía acá, para el item de navegación a /whatsapp. Ese
 // item se retiró (ver `menuSections`); el ícono se va con él porque
@@ -129,14 +130,6 @@ const ReportesIcon = () => (
     <line x1="6" y1="20" x2="6" y2="14"/>
   </svg>
 );
-const UsuariosIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
-    <circle cx="12" cy="7" r="4"/>
-    <circle cx="19" cy="8" r="2"/>
-    <path d="M19 6v4"/><path d="M17 8h4"/>
-  </svg>
-);
 const ConfigIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/>
@@ -145,25 +138,6 @@ const ConfigIcon = () => (
     <line x1="1" y1="14" x2="7" y2="14"/>
     <line x1="9" y1="8" x2="15" y2="8"/>
     <line x1="17" y1="16" x2="23" y2="16"/>
-  </svg>
-);
-const MonedaIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <circle cx="12" cy="12" r="10"/>
-    <path d="M12 8v4l3 3"/>
-    <path d="M12 2v2M12 20v2M2 12h2M20 12h2"/>
-  </svg>
-);
-const SuscripcionIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/>
-    <line x1="1" y1="10" x2="23" y2="10"/>
-  </svg>
-);
-const TutorialesIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <path d="M22 10v6M2 10l10-5 10 5-10 5z"/>
-    <path d="M6 12v5c3 3 9 3 12 0v-5"/>
   </svg>
 );
 const AyudaIcon = () => (
@@ -201,6 +175,14 @@ type NavItem = {
   isWhatsApp?: boolean;
   /** If set, this item is hidden when user lacks this permission */
   permission?: PermissionKey;
+  /** BETA-UX-3 — visible con AL MENOS UNA de estas capacidades (ver `NavigationGate`). */
+  anyPermission?: readonly PermissionKey[];
+  /**
+   * BETA-UX-3 — rutas (y sus subrutas) en las que el ítem queda marcado además
+   * de la suya: «Configuración» sigue elegido en /users o /subscription, que
+   * ahora se dibujan dentro de Configuración.
+   */
+  matchPaths?: readonly string[];
   /** If true, this item is hidden unless wholesale_portal_enabled=true */
   portalAdmin?: boolean;
   /** If true, gated by canAccessWholesale (feature mayorista + owner/admin o capacidad `wholesale`). */
@@ -278,14 +260,17 @@ const menuSections: NavSection[] = [
   {
     sectionLabel: 'Administración',
     items: [
-      { path: '/users',             label: 'Usuarios',      icon: <UsuariosIcon />,  permission: 'users' },
-      { path: '/settings',          label: 'Configuración', icon: <ConfigIcon />,    permission: 'settings' },
-      { path: '/currency-settings', label: 'Moneda',        icon: <MonedaIcon />,    permission: 'settings' },
-      { path: '/subscription',      label: 'Suscripción',   icon: <SuscripcionIcon />, permission: 'subscription' },
-      { path: '/tutorials',         label: 'Tutoriales',    icon: <TutorialesIcon /> },
+      // BETA-UX-3 — Usuarios, Moneda y Suscripción ya no son entradas sueltas:
+      // viven dentro de Configuración (misma ruta, mismo guard). El ítem se ve
+      // con CUALQUIERA de las capacidades de sus secciones y adentro cada uno
+      // ve sólo lo suyo. La lista de capacidades sale de `SettingsNav`, la
+      // misma que usa el guard de `/settings`.
+      { path: '/settings', label: 'Configuración', icon: <ConfigIcon />, anyPermission: SETTINGS_PERMISSIONS, matchPaths: SETTINGS_ROUTE_PATHS },
       // BETA-1 — sin `permission`: la ayuda es para cualquier miembro. El drawer
       // «Más» de mobile sale de esta misma lista, así que aparece en los dos.
-      { path: '/ayuda',             label: 'Ayuda',         icon: <AyudaIcon /> },
+      // BETA-UX-3 — es el Centro de ayuda (Soporte + Tutoriales): «Tutoriales»
+      // dejó de ser un ítem aparte y `/tutorials` redirige acá.
+      { path: '/ayuda', label: 'Centro de ayuda', icon: <AyudaIcon /> },
     ],
   },
   {
@@ -309,6 +294,7 @@ interface SidebarProps {
 export function Sidebar({ access, mobilePrimaryPaths = [] }: SidebarProps) {
   const { signOut } = useAuth();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const {
     isCollapsed,
     isMobileOpen,
@@ -501,60 +487,90 @@ export function Sidebar({ access, mobilePrimaryPaths = [] }: SidebarProps) {
               </div>
             )}
 
-            {section.items.map((item) => (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                onClick={variant === 'mobile' ? closeMobileSidebar : undefined}
-                title={collapsed ? item.label : undefined}
-                className={item.isWhatsApp ? 'nav-whatsapp-item' : ''}
-                tabIndex={variant === 'mobile' && !isMobileOpen ? -1 : undefined}
-                style={({ isActive }) => ({
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: collapsed ? 'center' : 'flex-start',
-                  gap: collapsed ? 0 : '0.75rem',
-                  width: '100%',
-                  padding: collapsed ? '0.625rem' : variant === 'mobile' ? '0.625rem 0.75rem' : '0.5rem 0.75rem',
-                  marginBottom: '2px',
-                  borderRadius: '0.5rem',
-                  color: isActive
-                    ? 'var(--nav-active-text)'
-                    : item.isWhatsApp
-                    ? 'var(--nav-whatsapp)'
-                    : 'var(--nav-item-text)',
-                  background: isActive
-                    ? 'var(--nav-active-bg)'
-                    : 'transparent',
-                  border: isActive
-                    ? '1px solid var(--nav-active-border)'
-                    : '1px solid transparent',
-                  textDecoration: 'none',
-                  transition: 'all 0.15s ease',
-                  fontWeight: isActive ? 600 : 500,
-                  fontSize: variant === 'mobile' ? '0.875rem' : '0.8125rem',
-                  boxSizing: 'border-box',
-                  overflow: 'hidden',
-                  minHeight: variant === 'mobile' ? 44 : undefined,
-                })}
-              >
-                <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
-                  {item.icon}
-                </span>
-                {!collapsed && (
-                  <span
-                    style={{
-                      minWidth: 0,
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                    }}
-                  >
-                    {item.label}
+            {section.items.map((item) => {
+              const itemStyle = (isActive: boolean): React.CSSProperties => ({
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: collapsed ? 'center' : 'flex-start',
+                gap: collapsed ? 0 : '0.75rem',
+                width: '100%',
+                padding: collapsed ? '0.625rem' : variant === 'mobile' ? '0.625rem 0.75rem' : '0.5rem 0.75rem',
+                marginBottom: '2px',
+                borderRadius: '0.5rem',
+                color: isActive
+                  ? 'var(--nav-active-text)'
+                  : item.isWhatsApp
+                  ? 'var(--nav-whatsapp)'
+                  : 'var(--nav-item-text)',
+                background: isActive
+                  ? 'var(--nav-active-bg)'
+                  : 'transparent',
+                border: isActive
+                  ? '1px solid var(--nav-active-border)'
+                  : '1px solid transparent',
+                textDecoration: 'none',
+                transition: 'all 0.15s ease',
+                fontWeight: isActive ? 600 : 500,
+                fontSize: variant === 'mobile' ? '0.875rem' : '0.8125rem',
+                boxSizing: 'border-box',
+                overflow: 'hidden',
+                minHeight: variant === 'mobile' ? 44 : undefined,
+              });
+              const content = (
+                <>
+                  <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+                    {item.icon}
                   </span>
-                )}
-              </NavLink>
-            ))}
+                  {!collapsed && (
+                    <span
+                      style={{
+                        minWidth: 0,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {item.label}
+                    </span>
+                  )}
+                </>
+              );
+              const common = {
+                to: item.path,
+                onClick: variant === 'mobile' ? closeMobileSidebar : undefined,
+                title: collapsed ? item.label : undefined,
+                tabIndex: variant === 'mobile' && !isMobileOpen ? -1 : undefined,
+              };
+
+              // BETA-UX-3: un ítem con `matchPaths` se marca en todas sus rutas.
+              // `NavLink` sólo pone `aria-current` en la suya, así que éste se
+              // arma con `Link` y el estado se calcula acá.
+              if (item.matchPaths) {
+                const isActive = item.matchPaths.some(prefix => pathname === prefix || pathname.startsWith(`${prefix}/`));
+                return (
+                  <Link
+                    key={item.path}
+                    {...common}
+                    className={[item.isWhatsApp && 'nav-whatsapp-item', isActive && 'active'].filter(Boolean).join(' ')}
+                    aria-current={isActive ? 'page' : undefined}
+                    style={itemStyle(isActive)}
+                  >
+                    {content}
+                  </Link>
+                );
+              }
+
+              return (
+                <NavLink
+                  key={item.path}
+                  {...common}
+                  className={item.isWhatsApp ? 'nav-whatsapp-item' : ''}
+                  style={({ isActive }) => itemStyle(isActive)}
+                >
+                  {content}
+                </NavLink>
+              );
+            })}
           </div>
         ))}
       </nav>

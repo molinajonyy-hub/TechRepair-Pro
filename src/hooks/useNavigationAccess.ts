@@ -21,6 +21,13 @@ export interface NavigationAccess {
 
 export interface NavigationGate {
   permission?: PermissionKey
+  /**
+   * BETA-UX-3 — Visible si el actor tiene AL MENOS UNA de estas capacidades.
+   * Es para un ítem que agrupa destinos con capacidades distintas
+   * («Configuración»: settings, users, subscription). Se suma (AND) a los demás
+   * gates; una lista vacía no autoriza nada.
+   */
+  anyPermission?: readonly PermissionKey[]
   planFeature?: PlanFeature
   systemOwnerOnly?: boolean
   systemOwnerAlso?: boolean
@@ -54,6 +61,7 @@ export function isNavigationItemAuthorized(
   if (item.permission && !access.can(item.permission)) {
     if (!(item.systemOwnerAlso && access.isSystemOwner)) return false
   }
+  if (item.anyPermission && !item.anyPermission.some(key => access.can(key))) return false
   if (item.planFeature && !access.hasFeature(item.planFeature)) return false
   return true
 }

@@ -1,14 +1,20 @@
 /**
- * Tutorials.tsx — Centro de tutoriales y guías
+ * Tutorials.tsx — Contenido de los tutoriales.
+ *
+ * BETA-UX-3 — la lista ya no vive acá: la muestra el Centro de ayuda (`/ayuda`)
+ * a partir del catálogo de `config/tutorials.ts`. `/tutorials` redirige ahí.
+ * Este archivo conserva el contenido de cada guía y la página que la abre.
  */
-import { useState } from 'react'
+import { Link, Navigate, useParams } from 'react-router-dom'
 import {
-  ChevronDown, ChevronRight, ExternalLink,
+  ChevronDown, ChevronLeft, ExternalLink,
   CheckCircle, AlertTriangle, Info, FileText, Shield,
   Settings, Upload, Key, Globe, Terminal,
   Wallet, Zap,
 } from 'lucide-react'
 import logoSvg from '../assets/logo.svg'
+import { AppPageHeader } from '../ui'
+import { findTutorial, tutorialMeta } from '../config/tutorials'
 
 // ── Componentes de ayuda ──────────────────────────────────────────
 
@@ -967,121 +973,38 @@ export function _TutorialMercadoPagoLegacy() {
   )
 }
 
-// ── Listado de tutoriales ─────────────────────────────────────────
+// ── Contenido de cada guía ────────────────────────────────────────
+// BETA-UX-3: el catálogo (título, duración, nivel) vive en `config/tutorials.ts`
+// y lo lista el Centro de ayuda. Acá queda sólo el contenido, por `id`.
 
-const TUTORIALS = [
-  {
-    id: 'arca',
-    title: 'Integración con ARCA (Factura Electrónica)',
-    description: 'Configurá tu certificado digital y empezá a emitir facturas A, B y C con CAE válido.',
-    icon: Shield,
-    color: '#6366f1',
-    duration: '20 min',
-    level: 'Intermedio',
-    component: TutorialARCA,
-  },
-]
+export const TUTORIAL_GUIDES: Record<string, () => JSX.Element> = {
+  arca: TutorialARCA,
+}
 
-// ── Página principal ──────────────────────────────────────────────
+// ── Página de una guía: /ayuda/tutoriales/:tutorialId ──────────────
 
-export function Tutorials() {
-  const [selected, setSelected] = useState<string | null>(null)
-  const tutorial = TUTORIALS.find(t => t.id === selected)
+export function TutorialPage() {
+  const { tutorialId } = useParams()
+  const tutorial = findTutorial(tutorialId)
+  const Guide = tutorial?.kind === 'guia' ? TUTORIAL_GUIDES[tutorial.id] : undefined
 
+  // Un id desconocido (o un video, que se abre aparte) vuelve a la lista.
+  if (!tutorial || !Guide) return <Navigate to="/ayuda#tutoriales" replace />
+
+  const Icon = tutorial.icon
   return (
-    <div style={{ maxWidth: 860, margin: '0 auto' }}>
-
-      {/* Header */}
-      <div style={{ marginBottom: '2rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
-          {selected && (
-            <button
-              onClick={() => setSelected(null)}
-              style={{
-                background: 'transparent', border: 'none', cursor: 'pointer',
-                color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.375rem',
-                fontSize: '0.875rem', padding: 0,
-              }}
-            >
-              <ChevronRight size={16} style={{ transform: 'rotate(180deg)' }} />
-              Tutoriales
-            </button>
-          )}
-          <h1 style={{
-            margin: 0, color: 'var(--text-primary)', fontSize: '1.75rem', fontWeight: 700,
-          }}>
-            {selected ? tutorial?.title : 'Tutoriales'}
-          </h1>
-        </div>
-        {!selected && (
-          <p style={{ color: 'var(--text-muted)', margin: 0, fontSize: '0.95rem' }}>
-            Guías paso a paso para sacarle el máximo provecho a TechRepair.
-          </p>
+    <div className="help-page help-tutorial" data-testid="tutorial-page">
+      <AppPageHeader
+        breadcrumb={(
+          <Link to="/ayuda" className="help-back" data-testid="tutorial-back">
+            <ChevronLeft size={16} aria-hidden="true" /> Centro de ayuda
+          </Link>
         )}
-      </div>
-
-      {/* Lista de tutoriales */}
-      {!selected && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          {TUTORIALS.map(t => {
-            const Icon = t.icon
-            return (
-              <button
-                key={t.id}
-                onClick={() => setSelected(t.id)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '1.25rem',
-                  background: 'var(--bg-card)', border: '1px solid var(--border-color)',
-                  borderRadius: '1rem', padding: '1.25rem 1.5rem',
-                  cursor: 'pointer', textAlign: 'left', width: '100%',
-                  transition: 'all 0.2s ease',
-                }}
-                onMouseEnter={e => {
-                  (e.currentTarget as HTMLElement).style.borderColor = t.color
-                  ;(e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'
-                  ;(e.currentTarget as HTMLElement).style.boxShadow = `0 4px 20px ${t.color}20`
-                }}
-                onMouseLeave={e => {
-                  (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)'
-                  ;(e.currentTarget as HTMLElement).style.transform = 'none'
-                  ;(e.currentTarget as HTMLElement).style.boxShadow = 'none'
-                }}
-              >
-                <div style={{
-                  width: 52, height: 52, borderRadius: '0.875rem', flexShrink: 0,
-                  background: `${t.color}18`,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <Icon size={26} color={t.color} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '1rem', marginBottom: '0.25rem' }}>
-                    {t.title}
-                  </div>
-                  <div style={{ color: 'var(--text-muted)', fontSize: '0.875rem', marginBottom: '0.625rem' }}>
-                    {t.description}
-                  </div>
-                  <div style={{ display: 'flex', gap: '0.75rem' }}>
-                    {[{ label: `⏱ ${t.duration}` }, { label: `📊 ${t.level}` }].map(b => (
-                      <span key={b.label} style={{
-                        fontSize: '0.75rem', color: 'var(--text-muted)',
-                        background: 'var(--bg-main)', border: '1px solid var(--border-color)',
-                        padding: '0.2rem 0.6rem', borderRadius: '0.375rem',
-                      }}>{b.label}</span>
-                    ))}
-                  </div>
-                </div>
-                <ChevronDown size={18} color="var(--text-muted)" style={{ transform: 'rotate(-90deg)', flexShrink: 0 }} />
-              </button>
-            )
-          })}
-        </div>
-      )}
-
-      {/* Tutorial seleccionado */}
-      {selected && tutorial && (
-        <tutorial.component />
-      )}
+        icon={<Icon size={24} />}
+        title={tutorial.title}
+        description={tutorialMeta(tutorial)}
+      />
+      <Guide />
     </div>
   )
 }

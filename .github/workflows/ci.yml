@@ -412,6 +412,22 @@ jobs:
       - name: BETA-UX-2 — consistent page headers + faster order intake
         run: npm run test:beta-ux-2
 
+      # BETA-UX-3: Administración tenía seis entradas sueltas (Usuarios,
+      # Configuración, Moneda, Suscripción, Tutoriales, Ayuda). Ahora son dos:
+      # «Configuración», que agrupa Usuarios, Moneda y Suscripción en la
+      # navegación de BETA-UX-2 SIN mudarlas de ruta ni de guard, y «Centro de
+      # ayuda» (Soporte con el canal de siempre + Tutoriales; `/tutorials`
+      # redirige ahí). Fija: el menú por rol y por override (`anyPermission`),
+      # la lista de Configuración filtrada por capacidad, que `/settings` sin
+      # `settings` no lee ni dibuja nada del negocio, el guard con lista
+      # (fail-closed), que cada ruta vieja conserva su guard y se dibuja en el
+      # marco, que el marco no se vuelve a montar al cargar, el catálogo de
+      # tutoriales, el Centro de ayuda para todos los roles y el flujo móvil
+      # lista → sección → volver. Lo pintado y los empleados reales se miden en
+      # `m7/beta-ux-3-admin-help.spec.ts` (job `e2e-local`).
+      - name: BETA-UX-3 — simpler admin navigation + help center
+        run: npm run test:beta-ux-3
+
       # BETA-MP: Billing SaaS por Mercado Pago. El frontend propone, Mercado Pago
       # confirma, el backend decide. Corre el código REAL de las Edge Functions
       # (`supabase/functions/_shared/billing`) contra un PostgREST en memoria que

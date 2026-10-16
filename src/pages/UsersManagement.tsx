@@ -484,14 +484,14 @@ export function UsersManagement() {
 
   return (
     <div>
-      {/* Page header */}
+      {/* Encabezado de la sección. BETA-UX-3: se dibuja dentro de Configuración (`SettingsShell`, que tiene el h1): el título de acá es el de la sección. */}
       <div className="page-hdr">
         <div className="page-hdr-left">
           <div className="page-hdr-icon">
             <UserCheck size={22} style={{ color: 'var(--accent-primary)' }} />
           </div>
           <div>
-            <h1 className="page-hdr-title">Usuarios del Negocio</h1>
+            <h2 className="page-hdr-title">Usuarios del Negocio</h2>
             <p className="page-hdr-subtitle">Gestioná usuarios, roles y permisos</p>
           </div>
         </div>
@@ -523,7 +523,8 @@ export function UsersManagement() {
       {/* Pending invitations panel */}
       {showInvitations && canManageUsers && (
         <div style={{ marginBottom: '2rem' }}>
-          <div style={{ backgroundColor: '#0f1829', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.75rem', overflow: 'hidden' }}>
+          {/* BETA-UX-3: scroll horizontal en vez de recorte — dentro de Configuración la columna es más angosta y la tabla perdía las acciones. */}
+          <div style={{ backgroundColor: '#0f1829', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.75rem', overflowX: 'auto' }}>
             <div style={{ padding: '1rem', backgroundColor: 'rgba(245,158,11,0.1)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
               <h3 style={{ fontSize: '1rem', fontWeight: 600, color: '#fbbf24', marginBottom: '0.25rem' }}>Invitaciones Pendientes</h3>
               <p style={{ fontSize: '0.875rem', color: '#94a3b8' }}>
@@ -598,8 +599,8 @@ export function UsersManagement() {
         </div>
       )}
 
-      {/* Users table */}
-      <div style={{ backgroundColor: '#0f1829', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.75rem', overflow: 'hidden' }}>
+      {/* Users table. BETA-UX-3: scroll horizontal en vez de recorte (ver arriba). */}
+      <div style={{ backgroundColor: '#0f1829', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.75rem', overflowX: 'auto' }} data-testid="users-table-wrap">
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>

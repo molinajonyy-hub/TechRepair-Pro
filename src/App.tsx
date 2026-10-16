@@ -12,6 +12,8 @@ import { ProtectedRouteByPermission } from './components/auth/ProtectedRouteByPe
 import { ProtectedRouteBySystemOwner } from './components/auth/ProtectedRouteBySystemOwner'
 import { ProtectedRouteByWholesaleAccess } from './components/auth/ProtectedRouteByWholesaleAccess'
 import { ProtectedRouteByInternalTool } from './components/auth/ProtectedRouteByInternalTool'
+import { SettingsPageRoute } from './components/settings/SettingsShell'
+import { SETTINGS_PERMISSIONS } from './components/settings/SettingsNav'
 import { UpdateBanner } from './components/UpdateBanner'
 import { AnalyticsRouteTracker } from './components/AnalyticsRouteTracker'
 
@@ -83,7 +85,7 @@ const SubscriptionSuccess = lazy(() => import('./pages/SubscriptionSuccess').the
 const SubscriptionSuspended = lazy(() => import('./pages/SubscriptionSuspended').then(m => ({ default: m.SubscriptionSuspended })))
 const Suppliers = lazy(() => import('./pages/Suppliers').then(m => ({ default: m.Suppliers })))
 const Tasks = lazy(() => import('./pages/Tasks').then(m => ({ default: m.Tasks })))
-const Tutorials = lazy(() => import('./pages/Tutorials').then(m => ({ default: m.Tutorials })))
+const TutorialPage = lazy(() => import('./pages/Tutorials').then(m => ({ default: m.TutorialPage })))
 const UsersManagement = lazy(() => import('./pages/UsersManagement').then(m => ({ default: m.UsersManagement })))
 const Warranties = lazy(() => import('./pages/Warranties').then(m => ({ default: m.Warranties })))
 
@@ -244,13 +246,28 @@ function AppContent() {
                 <Route path="/caja" element={<CajaPage />} />
               </Route>
 
-              <Route element={<ProtectedRouteByPermission permission="settings" />}>
-                <Route path="/currency-settings" element={<CurrencySettings />} />
+              {/* ── Configuración — BETA-UX-3 ──
+                  `/settings` es la entrada para quien tenga CUALQUIERA de las
+                  capacidades de sus secciones (settings, users, subscription):
+                  adentro, Settings sólo dibuja lo que el actor puede abrir.
+                  Moneda, Usuarios y Suscripción salieron del menú lateral pero
+                  NO de su ruta: cada una conserva su guard de siempre y se
+                  dibuja dentro del marco de Configuración (`SettingsPageRoute`,
+                  DEBAJO del guard, así que un rebote no llega a pintarlo). */}
+              <Route element={<ProtectedRouteByPermission permission={SETTINGS_PERMISSIONS} />}>
                 <Route path="/settings" element={<Settings />} />
               </Route>
 
+              <Route element={<ProtectedRouteByPermission permission="settings" />}>
+                <Route element={<SettingsPageRoute section="moneda" />}>
+                  <Route path="/currency-settings" element={<CurrencySettings />} />
+                </Route>
+              </Route>
+
               <Route element={<ProtectedRouteByPermission permission="users" />}>
-                <Route path="/users" element={<UsersManagement />} />
+                <Route element={<SettingsPageRoute section="usuarios" />}>
+                  <Route path="/users" element={<UsersManagement />} />
+                </Route>
               </Route>
 
               {/* ── Rutas PRO — currentAccounts ──
@@ -331,18 +348,28 @@ function AppContent() {
                   `SubscriptionGuard` manda ahí a CUALQUIER miembro de un negocio
                   suspendido, tenga o no esa capacidad. */}
               <Route element={<ProtectedRouteByPermission permission="subscription" />}>
-                <Route path="/subscription" element={<Subscription />} />
+                {/* BETA-UX-3: sólo «Mi Suscripción» se dibuja dentro de
+                    Configuración. Planes y los retornos de Mercado Pago son un
+                    flujo de pago y quedan como estaban. */}
+                <Route element={<SettingsPageRoute section="suscripcion" />}>
+                  <Route path="/subscription" element={<Subscription />} />
+                </Route>
                 <Route path="/subscription/plans" element={<Plans />} />
                 <Route path="/subscription/pending"  element={<PaymentPending />} />
                 <Route path="/subscription/success"  element={<SubscriptionSuccess />} />
                 <Route path="/subscription/failure"  element={<SubscriptionFailure />} />
               </Route>
               <Route path="/subscription/suspended" element={<SubscriptionSuspended />} />
-              <Route path="/tutorials" element={<Tutorials />} />
               {/* BETA-1 — Ayuda: sin gate de capacidad (es para cualquier
                   miembro) y exenta en `SubscriptionGuard`, para que el fin de
-                  la prueba tenga una salida. */}
+                  la prueba tenga una salida.
+                  BETA-UX-3 — es el Centro de ayuda: Soporte + Tutoriales. Los
+                  tutoriales viven debajo (`/ayuda/tutoriales/:id`, que hereda
+                  la misma excepción del guard) y `/tutorials` redirige ahí,
+                  así los enlaces viejos no se rompen. */}
               <Route path="/ayuda" element={<Ayuda />} />
+              <Route path="/ayuda/tutoriales/:tutorialId" element={<TutorialPage />} />
+              <Route path="/tutorials" element={<Navigate to="/ayuda#tutoriales" replace />} />
               <Route path="/whatsapp" element={<WhatsAppPage />} />
             </Route>
           </Route>

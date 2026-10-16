@@ -21,6 +21,11 @@ import type { PermissionKey } from '../../config/permissions'
  *   <Route element={<ProtectedRouteByPermission permission="wholesale" />}>
  *     <Route path="/mayorista" element={<Mayorista />} />
  *   </Route>
+ *
+ * BETA-UX-3 — `permission` también acepta una LISTA: entra quien tenga AL
+ * MENOS UNA. Es para una entrada que agrupa destinos con capacidades distintas
+ * (`/settings`), donde la pantalla vuelve a filtrar qué muestra. Una lista
+ * vacía no deja entrar a nadie (fail-closed).
  */
 export function ProtectedRouteByPermission({
   permission,
@@ -28,7 +33,7 @@ export function ProtectedRouteByPermission({
   allowSystemOwner = false,
   redirectTo = '/dashboard',
 }: {
-  permission: PermissionKey
+  permission: PermissionKey | readonly PermissionKey[]
   allowSystemOwner?: boolean
   redirectTo?: string
 }) {
@@ -54,8 +59,10 @@ export function ProtectedRouteByPermission({
   // negaríamos el acceso durante el fetch.
   if (allowSystemOwner && systemOwnerLoading) return loader
 
-  if (can(permission)) return <Outlet />
+  const required: readonly PermissionKey[] = typeof permission === 'string' ? [permission] : permission
+  if (required.some(key => can(key))) return <Outlet />
   if (allowSystemOwner && isSystemOwner) return <Outlet />
 
-  return <Navigate to={redirectTo} state={{ from: location, deniedPermission: permission }} replace />
+  // El aviso nombra la primera: para `/settings` es «Configuración».
+  return <Navigate to={redirectTo} state={{ from: location, deniedPermission: required[0] }} replace />
 }

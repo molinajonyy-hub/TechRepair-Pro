@@ -379,14 +379,14 @@ export function Subscription() {
 
   return (
     <div className="sub-page" style={{ maxWidth: 900, margin: '0 auto' }}>
-      {/* Header */}
+      {/* Encabezado de la sección. BETA-UX-3: se dibuja dentro de Configuración (`SettingsShell`, que tiene el h1): el título de acá es el de la sección. */}
       <div className="page-hdr">
         <div className="page-hdr-left">
           <div className="page-hdr-icon">
             <CreditCard size={20} style={{ color: 'var(--accent-primary)' }} />
           </div>
           <div>
-            <h1 className="page-hdr-title">Mi Suscripción</h1>
+            <h2 className="page-hdr-title">Mi Suscripción</h2>
             <p className="page-hdr-subtitle">{user?.email}</p>
           </div>
         </div>

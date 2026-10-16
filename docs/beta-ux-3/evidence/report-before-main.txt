@@ -1,0 +1,20 @@
+[sidebar-owner] 1440x1000 light owner url=/dashboard errors=0 overflowX=0 admin={"label":"Administración","items":["Usuarios","Configuración","Moneda","Suscripción","Tutoriales","Ayuda"]}
+[sidebar-admin] 1440x1000 light admin url=/dashboard errors=0 overflowX=0 admin={"label":"Administración","items":["Usuarios","Configuración","Moneda","Tutoriales","Ayuda"]}
+[sidebar-tech] 1440x1000 light tech url=/dashboard errors=0 overflowX=0 admin={"label":"Administración","items":["Tutoriales","Ayuda"]}
+[configuracion-desktop] 1440x900 light owner url=/settings errors=0 overflowX=0 admin={"label":"Administración","items":["Usuarios","Configuración","Moneda","Suscripción","Tutoriales","Ayuda"]}
+[usuarios-desktop] 1440x900 light owner url=/users errors=0 overflowX=0 admin={"label":"Administración","items":["Usuarios","Configuración","Moneda","Suscripción","Tutoriales","Ayuda"]}
+[moneda-desktop] 1440x900 light owner url=/currency-settings errors=0 overflowX=0 admin={"label":"Administración","items":["Usuarios","Configuración","Moneda","Suscripción","Tutoriales","Ayuda"]}
+[suscripcion-desktop] 1440x900 light owner url=/subscription errors=0 overflowX=0 admin={"label":"Administración","items":["Usuarios","Configuración","Moneda","Suscripción","Tutoriales","Ayuda"]}
+[configuracion-admin-desktop] 1440x900 light admin url=/settings errors=0 overflowX=0 admin={"label":"Administración","items":["Usuarios","Configuración","Moneda","Tutoriales","Ayuda"]}
+[ayuda-desktop] 1440x900 light owner url=/ayuda errors=0 overflowX=0 admin={"label":"Administración","items":["Usuarios","Configuración","Moneda","Suscripción","Tutoriales","Ayuda"]}
+[tutoriales-desktop] 1440x900 light owner url=/tutorials errors=0 overflowX=0 admin={"label":"Administración","items":["Usuarios","Configuración","Moneda","Suscripción","Tutoriales","Ayuda"]}
+[ayuda-tech-desktop] 1440x900 light tech url=/ayuda errors=0 overflowX=0 admin={"label":"Administración","items":["Tutoriales","Ayuda"]}
+[ayuda-desktop-dark] 1440x900 dark owner url=/ayuda errors=0 overflowX=0 admin={"label":"Administración","items":["Usuarios","Configuración","Moneda","Suscripción","Tutoriales","Ayuda"]}
+[mas-mobile] FALLÓ: locator.click: Error: strict mode violation: getByRole('button', { name: 'Abrir más módulos' }) resolved to 2 elements:
+    1) <button aria-expanded="false" aria-label="Abrir más módulos" class="mobil
+[configuracion-mobile] 390x844 light owner url=/settings errors=0 overflowX=0 admin={"label":"Administración","items":["Usuarios","Configuración","Moneda","Suscripción","Tutoriales","Ayuda"]}
+[usuarios-mobile] 390x844 light owner url=/users errors=0 overflowX=0 admin={"label":"Administración","items":["Usuarios","Configuración","Moneda","Suscripción","Tutoriales","Ayuda"]}
+[ayuda-mobile] 390x844 light owner url=/ayuda errors=0 overflowX=0 admin={"label":"Administración","items":["Usuarios","Configuración","Moneda","Suscripción","Tutoriales","Ayuda"]}
+[tutoriales-mobile] 390x844 light owner url=/tutorials errors=0 overflowX=0 admin={"label":"Administración","items":["Usuarios","Configuración","Moneda","Suscripción","Tutoriales","Ayuda"]}
+
+SIN MOCK: rpc:get_arca_config_safe, rpc:get_arca_selfservice_status, rpc:get_business_settings, rpc:get_current_exchange_rate, rpc:get_my_business_profile, rpc:upsert_business_settings, table:business_invitations, table:cajas, table:customers, table:dollar_rate_history, table:inventory, table:notifications, table:orders, table:payments, table:profiles, table:sales_points, table:system_admins, table:tasks

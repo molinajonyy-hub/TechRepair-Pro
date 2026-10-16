@@ -3,6 +3,9 @@
 //
 //   A1  sidebar desktop muestra Ayuda
 //   A2  el drawer «Más» de mobile muestra Ayuda
+//
+// BETA-UX-3: la entrada se llama «Centro de ayuda» (Soporte + Tutoriales). El
+// contrato de BETA-1 no cambia: misma ruta, sin gates, el mismo canal.
 //   A3  es para cualquier miembro: no depende de capacidades ni del plan
 //   A4  la página usa el canal canónico de `config/contacto.ts`
 //   A5  la pantalla global de error ofrece el mismo canal
@@ -88,16 +91,16 @@ afterEach(() => {
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe('A1–A3 · Ayuda en la navegación', () => {
-  it('A1. el sidebar desktop muestra «Ayuda» y lleva a /ayuda', () => {
+  it('A1. el sidebar desktop muestra «Centro de ayuda» y lleva a /ayuda', () => {
     montarSidebar(accessPara('owner'))
     const nav = screen.getByRole('navigation', { name: 'Navegación lateral' })
-    const item = within(nav).getByRole('link', { name: 'Ayuda' })
+    const item = within(nav).getByRole('link', { name: 'Centro de ayuda' })
     expect(item).toHaveAttribute('href', '/ayuda')
     fireEvent.click(item)
     expect(screen.getByTestId('ruta')).toHaveTextContent('/ayuda')
   })
 
-  it('A2. el drawer «Más» de mobile muestra «Ayuda»', () => {
+  it('A2. el drawer «Más» de mobile muestra «Centro de ayuda»', () => {
     // Con los destinos primarios de un owner fuera del drawer, como en la app.
     montarSidebar(accessPara('owner'), ['/dashboard', '/orders', '/comprobantes', '/customers'])
     // Cerrado, el drawer no expone nada a las tecnologías de asistencia.
@@ -105,7 +108,7 @@ describe('A1–A3 · Ayuda en la navegación', () => {
 
     act(() => { fireEvent.click(screen.getByRole('button', { name: 'abrir-mas' })) })
     const drawer = screen.getByRole('dialog', { name: 'Más módulos' })
-    const item = within(drawer).getByRole('link', { name: 'Ayuda' })
+    const item = within(drawer).getByRole('link', { name: 'Centro de ayuda' })
     expect(item).toHaveAttribute('href', '/ayuda')
     // Target táctil del drawer móvil.
     expect(item.style.minHeight).toBe('44px')
@@ -117,19 +120,21 @@ describe('A1–A3 · Ayuda en la navegación', () => {
   })
 
   it.each(['owner', 'admin', 'manager', 'sales', 'cashier', 'tech', 'viewer'])(
-    'A3. %s ve «Ayuda» (no depende de capacidades)',
+    'A3. %s ve «Centro de ayuda» (no depende de capacidades)',
     (rol) => {
       montarSidebar(accessPara(rol))
       const nav = screen.getByRole('navigation', { name: 'Navegación lateral' })
-      expect(within(nav).getByRole('link', { name: 'Ayuda' })).toBeInTheDocument()
+      expect(within(nav).getByRole('link', { name: 'Centro de ayuda' })).toBeInTheDocument()
     },
   )
 
-  it('A3. sin ninguna capacidad ni feature, Ayuda sigue estando', () => {
+  it('A3. sin ninguna capacidad ni feature, el Centro de ayuda sigue estando', () => {
     montarSidebar(SIN_NADA)
     const nav = screen.getByRole('navigation', { name: 'Navegación lateral' })
-    expect(within(nav).getByRole('link', { name: 'Ayuda' })).toBeInTheDocument()
-    // Y lo que SÍ tiene gate sigue oculto: Ayuda no abrió nada más.
+    expect(within(nav).getByRole('link', { name: 'Centro de ayuda' })).toBeInTheDocument()
+    // Y lo que SÍ tiene gate sigue oculto: la ayuda no abrió nada más.
+    // (BETA-UX-3: Suscripción y Usuarios viven dentro de Configuración.)
+    expect(within(nav).queryByRole('link', { name: 'Configuración' })).toBeNull()
     expect(within(nav).queryByRole('link', { name: 'Suscripción' })).toBeNull()
     expect(within(nav).queryByRole('link', { name: 'Usuarios' })).toBeNull()
   })
@@ -137,13 +142,13 @@ describe('A1–A3 · Ayuda en la navegación', () => {
   it('A3. el item no declara ningún gate en el contrato de navegación', () => {
     const src = readFileSync('src/components/layout/Sidebar.tsx', 'utf8')
     const linea = src.split('\n').find(l => l.includes("path: '/ayuda'")) ?? ''
-    expect(linea).toContain("label: 'Ayuda'")
+    expect(linea).toContain("label: 'Centro de ayuda'")
     expect(linea).not.toMatch(/permission|planFeature|systemOwner|wholesaleView|clicPortalManage/)
     expect(isNavigationItemAuthorized({}, SIN_NADA)).toBe(true)
   })
 
-  it('la barra móvil titula la pantalla «Ayuda»', () => {
-    expect(mobilePageTitle('/ayuda')).toBe('Ayuda')
+  it('la barra móvil titula la pantalla «Centro de ayuda»', () => {
+    expect(mobilePageTitle('/ayuda')).toBe('Centro de ayuda')
   })
 })
 
@@ -151,12 +156,16 @@ describe('A1–A3 · Ayuda en la navegación', () => {
 describe('A4 · página de Ayuda', () => {
   const montar = () => render(<MemoryRouter><Ayuda /></MemoryRouter>)
 
+  // BETA-UX-3: la página suma la lista de tutoriales (enlaces propios); el
+  // contrato de soporte se mide dentro de su sección: un solo CTA, el canónico.
+  const soporte = () => screen.getByRole('region', { name: 'Soporte' })
+
   it('título, texto corto y un CTA al canal canónico', () => {
     montar()
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Ayuda de TechRepair Pro')
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Centro de ayuda')
     expect(screen.getByText('Si algo te impide continuar durante la beta, escribinos y te ayudamos.')).toBeInTheDocument()
 
-    const ctas = screen.getAllByRole('link')
+    const ctas = within(soporte()).getAllByRole('link')
     expect(ctas).toHaveLength(1)
     const cta = screen.getByTestId('support-contact-cta')
     expect(cta).toHaveTextContent('Hablar por WhatsApp')
@@ -187,7 +196,7 @@ describe('A4 · página de Ayuda', () => {
     const aviso = screen.getByTestId('support-contact-unavailable')
     expect(aviso).toHaveTextContent('La ayuda por WhatsApp no está disponible en este momento.')
     expect(aviso).toHaveAttribute('data-support-channel', 'no_disponible')
-    expect(screen.queryAllByRole('link')).toHaveLength(0)
+    expect(within(soporte()).queryAllByRole('link')).toHaveLength(0)
     expect(document.querySelector('a[href^="mailto:"]')).toBeNull()
     expect(document.body.textContent).not.toContain(CONTACTO_SOPORTE)
   })
