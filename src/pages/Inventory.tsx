@@ -1815,7 +1815,7 @@ export function Inventory() {
         <p style={{ color: '#94a3b8' }}>{error}</p>
         {/* BETA-UX-1E: texto y fondo de los CTAs de acento salen de `accentCta`.
             Con `'#ffffff'` en línea el tema claro los dejaba con texto oscuro. */}
-        <button onClick={() => { void refresh() }} style={{
+        <button data-testid="inventory-load-retry" onClick={() => { void refresh() }} style={{
           marginTop: '1rem',
           padding: '0.625rem 1.25rem',
           background: accentCta.background,

@@ -336,7 +336,7 @@ describe('BETA-UX-1E · la fuente de las seis superficies', () => {
   const SOBRE_GRADIENTE: [string, string, string][] = [
     ['Usuarios · «Guardar permisos»',            'src/pages/UsersManagement.tsx', "'Guardar permisos'"],
     ['Usuarios · «Enviar Invitación»',           'src/pages/UsersManagement.tsx', 'invite-submit'],
-    ['Inventario · «Reintentar»',                'src/pages/Inventory.tsx', 'Reintentar'],
+    ['Inventario · «Reintentar»',                'src/pages/Inventory.tsx', 'data-testid="inventory-load-retry"'],
     ['Inventario · «Agregar Primer Producto»',   'src/pages/Inventory.tsx', 'inventory-new-product-empty'],
     ['Inventario · «Agregar Variante»',          'src/pages/Inventory.tsx', 'Agregar Variante'],
     ['Inventario · submit del modal de variantes', 'src/pages/Inventory.tsx', 'modalSubmitLabel'],
