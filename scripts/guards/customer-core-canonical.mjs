@@ -11,7 +11,14 @@ import { readFileSync } from 'node:fs'
 const SURFACES = [
   ['src/pages/NewCustomer.tsx', 'alta full page'],
   ['src/pages/NewOrder.tsx', 'alta rápida'],
-  ['src/pages/Customers.tsx', 'edición'],
+  // CLIENTES-UX-1A — la edición vive en un diálogo del core, compartido por el
+  // listado y la ficha. Las dos páginas lo montan (EDIT_HOSTS, abajo).
+  ['src/features/customer-core/CustomerEditDialog.tsx', 'edición'],
+]
+/** Páginas que editan clientes: montan el diálogo canónico, no un formulario propio. */
+const EDIT_HOSTS = [
+  ['src/pages/Customers.tsx', 'edición desde el listado'],
+  ['src/pages/CustomerDetail.tsx', 'edición desde la ficha'],
 ]
 const CORE = 'src/features/customer-core/model.ts'
 const DOCUMENT = 'src/features/customer-core/document.ts'
@@ -75,6 +82,15 @@ function inspectQuick(text) {
 /** Las tres superficies montan el cuerpo con el paquete del core, sin armarlo a mano. */
 function mountsCoreFieldProps(text) {
   return /<CustomerCreateFields\s+\{\.\.\.\w*[Ff]ieldProps\}/.test(text)
+}
+
+/** Un host de edición monta el diálogo del core y no arma su propio cuerpo. */
+function inspectEditHost(text) {
+  const findings = []
+  if (!/<CustomerEditDialog\b/.test(text)) findings.push('no monta CustomerEditDialog')
+  if (/<CustomerCreateFields\b/.test(text)) findings.push('arma su propio formulario de edición en vez del diálogo del core')
+  if (/customersService\.update\(/.test(text)) findings.push('guarda la edición por su cuenta, fuera del diálogo del core')
+  return findings
 }
 
 /** Gate Mayorista y validación visible: únicos, y en el core. */
@@ -153,7 +169,15 @@ function inspectCore(model, document) {
   }
   // PRE-BETA-3A-2: la única excepción admitida es `preserved`, donde la
   // edición no escribe tipo ni razón social. Cualquier otra condición la debilita.
-  if (!/if \((?:access !== 'preserved' && )?values\.customerType === 'mayorista' && !text\(values\.businessName\)\)/.test(model)) {
+  // CLIENTES-UX-1A agrega UNA sola excepción más, literal: editar un mayorista
+  // que YA estaba guardado sin razón social (dato legacy) no queda bloqueado
+  // hasta inventarle una. No alcanza para crear ni para convertir a mayorista.
+  const wholesaleRule = model.match(
+    /if \(\s*(?:access !== 'preserved' &&\s*)?values\.customerType === 'mayorista' &&\s*!text\(values\.businessName\)(\s*&&\s*!legacyWholesaleWithoutName)?\s*\)/
+  )
+  const legacyExceptionIsNarrow =
+    /const legacyWholesaleWithoutName =\s*mode === 'update' && stored\?\.customerType === 'mayorista' && !text\(stored\.businessName\)\n\s*\n\s*if \(/.test(model)
+  if (!wholesaleRule || (wholesaleRule[1] && !legacyExceptionIsNarrow)) {
     findings.push('regla de mayorista condicionada a algo más que `preserved`')
   }
   if (!/business_name:\s*orNull\(businessName\)/.test(model)) {
@@ -216,6 +240,16 @@ if (process.argv.includes('--self-test')) {
   if (mountsCoreFieldProps('<CustomerCreateFields values={values} errors={visibleErrors} />')) {
     throw new Error('self-test no detectó: cuerpo armado a mano')
   }
+  for (const [path] of EDIT_HOSTS) {
+    const host = inspectEditHost(read(path))
+    if (host.length) throw new Error(`self-test falso positivo en ${path}: ${host.join(', ')}`)
+  }
+  if (!inspectEditHost('<ResponsiveDialog><CustomerCreateFields {...editFieldProps} /></ResponsiveDialog>').length) {
+    throw new Error('self-test no detectó: edición con formulario propio')
+  }
+  if (!inspectEditHost('await customersService.update(id, payload)').length) {
+    throw new Error('self-test no detectó: edición guardada fuera del diálogo')
+  }
 
   if (!inspectQuick("onCreateNew={can('customers') ? () => setQuickOpen(true) : undefined}").length) {
     throw new Error('self-test no detectó: alta rápida gateada por customers')
@@ -231,14 +265,40 @@ if (process.argv.includes('--self-test')) {
   expectCore(
     mutate(
       model,
-      "values.customerType === 'mayorista' && !text(values.businessName)",
-      "mode === 'create' && values.customerType === 'mayorista' && !text(values.businessName)"
+      "values.customerType === 'mayorista' &&\n",
+      "mode === 'create' && values.customerType === 'mayorista' &&\n"
     ),
     document,
     'limitada a create'
   )
   expectCore(
-    mutate(model, "if (access !== 'preserved' && values.customerType", "if (access === 'full' && values.customerType"),
+    mutate(model, "access !== 'preserved' &&\n", "access === 'full' &&\n"),
+    document,
+    'condicionada a algo más'
+  )
+  // La excepción legacy de CLIENTES-UX-1A no puede ensancharse: ni a toda la
+  // edición, ni a cualquier mayorista, ni con una condición extra encadenada.
+  expectCore(
+    mutate(
+      model,
+      "mode === 'update' && stored?.customerType === 'mayorista' && !text(stored.businessName)",
+      "mode === 'update'"
+    ),
+    document,
+    'condicionada a algo más'
+  )
+  expectCore(
+    mutate(model, "stored?.customerType === 'mayorista' && !text(stored.businessName)", "stored?.customerType === 'mayorista'"),
+    document,
+    'condicionada a algo más'
+  )
+  expectCore(
+    mutate(model, '!text(stored.businessName)\n', "!text(stored.businessName)\n    || access === 'retail'\n"),
+    document,
+    'condicionada a algo más'
+  )
+  expectCore(
+    mutate(model, '!legacyWholesaleWithoutName\n', "!legacyWholesaleWithoutName &&\n    access === 'full'\n"),
     document,
     'condicionada a algo más'
   )
@@ -294,12 +354,19 @@ const failures = []
 for (const [path, label] of SURFACES) {
   const text = read(path)
   for (const finding of inspectSurface(text)) failures.push(`${label} (${path}): ${finding}`)
-  if (!/from '(?:\.\.\/)+features\/customer-core'/.test(text)) {
+  // El diálogo de edición vive DENTRO del core: lo consume por ruta relativa.
+  if (!/from '(?:\.\.\/)+features\/customer-core'|from '\.\/useCustomerCore'/.test(text)) {
     failures.push(`${label} (${path}): no consume el customer core`)
   }
   if (!mountsCoreFieldProps(text)) {
     failures.push(`${label} (${path}): no monta el cuerpo con el paquete fieldProps del core`)
   }
+}
+
+for (const [path, label] of EDIT_HOSTS) {
+  const text = read(path)
+  for (const finding of inspectSurface(text)) failures.push(`${label} (${path}): ${finding}`)
+  for (const finding of inspectEditHost(text)) failures.push(`${label} (${path}): ${finding}`)
 }
 
 for (const finding of inspectQuick(read(QUICK))) failures.push(`alta rápida (${QUICK}): ${finding}`)
@@ -313,4 +380,4 @@ if (failures.length) {
   process.exit(1)
 }
 
-console.log('UI-CONSISTENCY-1 / PRE-BETA-3A-2 guard OK: las tres superficies montan el core; documento, regla de mayorista, limpieza, validación visible y gate Mayorista intactos.')
+console.log('UI-CONSISTENCY-1 / PRE-BETA-3A-2 guard OK: las tres superficies montan el core (la edición, en el diálogo que comparten listado y ficha); documento, regla de mayorista, limpieza, validación visible y gate Mayorista intactos.')
