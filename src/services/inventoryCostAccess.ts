@@ -67,23 +67,26 @@ export interface InventoryCost {
  * producto no tiene costo).
  */
 export async function fetchInventoryCosts(
-  inventoryIds: string[]
-): Promise<{ costs: Map<string, InventoryCost>; authorized: boolean }> {
+  inventoryIds: string[],
+  businessId?: string,
+): Promise<{ costs: Map<string, InventoryCost>; authorized: boolean; error?: string }> {
   const ids = [...new Set(inventoryIds.filter(Boolean))]
-  if (ids.length === 0) return { costs: new Map(), authorized: await hasInventoryCostAuthority() }
+  if (ids.length === 0) return { costs: new Map(), authorized: businessId ? await canViewInventoryCostIn(businessId) : await hasInventoryCostAuthority() }
 
   const costs = new Map<string, InventoryCost>()
   // PostgREST arma la URL en el query string: se trocea para no pasarse de largo.
   const CHUNK = 200
   for (let i = 0; i < ids.length; i += CHUNK) {
     const slice = ids.slice(i, i + CHUNK)
-    const { data, error } = await supabase
+    let query = supabase
       .from('v_inventory_costs')
       .select('inventory_id, cost_price, cost_price_usd')
       .in('inventory_id', slice)
+    if (businessId) query = query.eq('business_id', businessId)
+    const { data, error } = await query
     if (error) {
       logger.error('INVENTORY', 'No se pudieron leer costos autorizados', error)
-      return { costs: new Map(), authorized: false }
+      return { costs: new Map(), authorized: false, error: error.message }
     }
     for (const row of data ?? []) {
       costs.set(row.inventory_id as string, {
@@ -93,7 +96,7 @@ export async function fetchInventoryCosts(
     }
   }
   // Si no volvió ni una fila para ids que existen, el actor no tiene autoridad.
-  return { costs, authorized: costs.size > 0 || (await hasInventoryCostAuthority()) }
+  return { costs, authorized: costs.size > 0 || (businessId ? await canViewInventoryCostIn(businessId) : await hasInventoryCostAuthority()) }
 }
 
 /**

@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { useRefreshOnWakeUp } from './useAppWakeUp'
-import { INVENTORY_OPERATIONAL_COLUMNS } from '../services/inventoryCostAccess'
+import { INVENTORY_OPERATIONAL_COLUMNS, fetchInventoryCosts } from '../services/inventoryCostAccess'
 import {
   assertNoStockFields,
   inventoryStockAdjustmentService,
@@ -57,7 +57,7 @@ export interface InventoryItem {
   created_by?: string
   created_at: string
   updated_at: string
-  cost_price_usd?: number
+  cost_price_usd?: number | null
   base_currency?: string
   base_price?: number
   exchange_rate_used?: number
@@ -78,20 +78,33 @@ export type InventoryMetadataInput = Omit<InventoryItem, 'id' | 'created_at' | '
 export type InventoryMetadataUpdate = Partial<Omit<InventoryItem, 'stock_quantity'>>
 
 export function useInventory() {
-  const { businessId, user } = useAuth()
-  const [items, setItems] = useState<InventoryItem[]>([])
+  const { businessId, user, profile } = useAuth()
+  // Invalidation only: permissions are still decided exclusively by the view.
+  const scope = JSON.stringify([businessId, user?.id, profile?.role, profile?.permissions])
+  const scopeRef = useRef(scope)
+  scopeRef.current = scope
+  const requestRef = useRef(0)
+  const [snapshot, setSnapshot] = useState<{ scope: string; items: InventoryItem[] }>({ scope, items: [] })
+  const items = snapshot.scope === scope ? snapshot.items : []
+  const [costStatus, setCostStatus] = useState<'loading' | 'ready' | 'restricted' | 'error'>('loading')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     void loadInventory()
-  }, [businessId])
+    return () => { requestRef.current++ }
+  }, [scope])
 
   useRefreshOnWakeUp(() => { void loadInventory({ background: true }) })
 
   async function loadInventory(options?: { background?: boolean }) {
     const background = options?.background === true
-    if (!businessId) { if (!background) setLoading(false); return }
+    const request = ++requestRef.current
+    const current = () => request === requestRef.current && scopeRef.current === scope
+    setCostStatus('loading')
+    // Remove previously authorized costs while revalidating (including wake-up).
+    setSnapshot(previous => ({ scope, items: previous.scope === scope ? previous.items.map(item => ({ ...item, cost_price: null, cost_price_usd: null })) : [] }))
+    if (!businessId) { setLoading(false); return }
     try {
       if (!background) setLoading(true)
       setError(null)
@@ -105,11 +118,19 @@ export function useInventory() {
         .limit(5000)
 
       if (fetchError) throw fetchError
-      setItems(data || [])
+      if (!current()) return
+      const rows = (data || []).map(item => ({ ...item, cost_price: null, cost_price_usd: null }))
+      setSnapshot({ scope, items: rows })
+      const { costs, authorized, error: costError } = await fetchInventoryCosts(rows.map(item => item.id), businessId)
+      if (!current()) return
+      setSnapshot({ scope, items: rows.map(item => ({ ...item, ...(costs.get(item.id) ?? {}) })) })
+      setCostStatus(costError ? 'error' : authorized ? 'ready' : 'restricted')
     } catch (err: unknown) {
+      if (!current()) return
+      setCostStatus('error')
       setError(err instanceof Error ? err.message : 'Error al cargar inventario')
     } finally {
-      if (!background) setLoading(false)
+      if (current()) setLoading(false)
     }
   }
 
@@ -229,6 +250,7 @@ export function useInventory() {
     outOfStockItems,
     loading,
     error,
+    costStatus: snapshot.scope === scope ? costStatus : 'loading',
     refresh: loadInventory,
     addItem,
     updateItem,

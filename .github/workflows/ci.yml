@@ -555,6 +555,9 @@ jobs:
       - name: Product variants V2 — contracts, negative controls and components
         run: npm run test:product-variants-v2
 
+      - name: P0 inventory cost hydration and preservation
+        run: npx vitest run --config vitest.config.ts tests/components/inventoryCostHydration.test.tsx tests/components/g2c3a2InventoryPage.test.tsx tests/components/g2c3a2ProductFormModal.test.tsx
+
       # G2-C.3A3: lockdown en base de la autoridad de stock. El guard estatico
       # (self-test primero) corre aca; la matriz SQL/PostgREST vive en el job
       # g2c3a3-inventory-lockdown, que aplica la migracion desde cero.
