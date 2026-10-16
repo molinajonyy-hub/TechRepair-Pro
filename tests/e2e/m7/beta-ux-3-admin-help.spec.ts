@@ -53,6 +53,39 @@ async function esperarConfiguracion(page: Page) {
   await expect(listaConfiguracion(page)).toBeAttached({ timeout: 20_000 })
 }
 
+/**
+ * Este spec no deja huella en el negocio E2E, que es COMPARTIDO.
+ *
+ * Moneda, al abrirse en un negocio sin fila en `business_settings`, crea los
+ * ajustes por defecto (`upsert_business_settings` con `auto_update_rate:
+ * false`). Con esa fila la cotización deja de pedirse a la fuente y sale sólo
+ * de la base: los specs que corren después y esperan el chip del dólar
+ * (`dashboard-day-one`) se quedaban sin él (CI run 38917968505, 8 rojos). Acá
+ * se mide la navegación hasta Moneda, no lo que Moneda guarda: esa escritura se
+ * responde en el navegador con la misma fila que devolvería el servidor, sin
+ * tocar la base. El comportamiento de Moneda no cambia.
+ */
+async function sinEscribirAjustesDeMoneda(page: Page) {
+  await page.route(/\/rest\/v1\/rpc\/upsert_business_settings(\?|$)/, async route => {
+    const p = (route.request().postDataJSON() ?? {}) as Record<string, unknown>
+    await route.fulfill({
+      json: [{
+        business_id: p.p_business_id,
+        default_currency: p.p_default_currency ?? 'ARS',
+        show_usd_price: p.p_show_usd_price ?? false,
+        auto_update_rate: p.p_auto_update_rate ?? false,
+        rate_api_url: p.p_rate_api_url ?? null,
+        rate_update_frequency_hours: p.p_rate_update_frequency_hours ?? 24,
+        dolar_source: p.p_dolar_source ?? 'nacional',
+      }],
+    })
+  })
+}
+
+test.beforeEach(async ({ page }) => {
+  await sinEscribirAjustesDeMoneda(page)
+})
+
 // ═══════════════════════════════════════════════════════════════════════════
 test.describe('@beta-ux-3 Administración · escritorio', () => {
   test.use({ viewport: DESKTOP })
