@@ -1,13 +1,17 @@
 // BETA-UX-3 — láminas «antes | después» a partir de las capturas de capture.mjs
 // (una corrida sobre `main`, otra sobre la rama).
 //
-// Uso: node contact-sheet.mjs <root> <dirAntes> <dirDespues> <dirSalida>
+// Uso: node contact-sheet.mjs <root> <dirAntes> <dirDespues> <dirSalida> [usuarios]
+//   sin modo: láminas 01–05 (menú, Configuración, Centro de ayuda, celular)
+//   usuarios: láminas 06–07 (ronda 2: tabla de Usuarios entre 1024 y 1280)
 // CHROMIUM_PATH (opcional): un Chromium ya instalado.
 import path from 'node:path'
 import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
 
-const [root, antes, despues, salida] = process.argv.slice(2)
+const [root, antes, despues, salida, modo] = process.argv.slice(2)
+// En la ronda 2 el «antes» es la primera versión de este PR, no `main`.
+const ANTES = modo === 'usuarios' ? 'Antes · ronda 1 del PR' : 'Antes · main'
 const { chromium } = await import(pathToFileURL(path.join(root, 'node_modules', 'playwright-core/index.mjs')).href)
 fs.mkdirSync(salida, { recursive: true })
 
@@ -39,11 +43,12 @@ async function lamina(nombre, titulo, nota, cuerpo, ancho = 1400) {
 
 const par = (titulo, archivoAntes, archivoDespues, w, h) => `
   <section><h2>${esc(titulo)}</h2><div class="par">
-    <figure><figcaption>Antes · main</figcaption>${img(antes, `before-${archivoAntes}`, w, h)}</figure>
+    <figure><figcaption>${ANTES}</figcaption>${img(antes, `before-${archivoAntes}`, w, h)}</figure>
     <figure><figcaption>Después · BETA-UX-3</figcaption>${img(despues, `after-${archivoDespues}`, w, h)}</figure>
   </div></section>`
 const mismo = (titulo, archivo, w, h) => par(titulo, archivo, archivo, w, h)
 
+if (modo !== 'usuarios') {
 // 1. Menú lateral por rol: la sección Administración.
 await lamina('01-menu-administracion.png', 'Menú lateral · Administración por rol',
   'Antes: seis entradas sueltas (Usuarios, Configuración, Moneda, Suscripción, Tutoriales, Ayuda). Después: «Configuración» (con Usuarios, Moneda y Suscripción adentro) y «Centro de ayuda». El técnico, sin capacidades de configuración, ve sólo el Centro de ayuda.',
@@ -75,3 +80,23 @@ await lamina('05-celular.png', 'Celular (390 px)',
   'Drawer «Más»: Administración pasa de seis a dos entradas. Configuración: lista agrupada → sección a pantalla completa con «‹ Secciones». Centro de ayuda: Soporte arriba y Tutoriales abajo.',
   `<div class="par">${[['«Más»', 'mas-mobile.png'], ['/settings (lista)', 'configuracion-mobile.png'], ['/users', 'usuarios-mobile.png'], ['/ayuda', 'ayuda-mobile.png']]
     .map(([t, f]) => mismo(t, f, 200, 520)).join('')}</div>`, 1840)
+}
+
+if (modo === 'usuarios') {
+  // 6. Usuarios entre 1024 y 1280: antes las acciones quedaban fuera de la vista.
+  await lamina('06-usuarios-1024-1280.png', 'Usuarios · entre 1024 y 1280 px (ronda 2)',
+    'Antes: cinco columnas en una columna de 428–684 px; Estado y Acciones quedaban detrás de un scroll horizontal (a 1024 ni se veía el rol completo). Después: usuario y email en una columna, «Permisos» con nombre y el menú de la fila (Activar/Desactivar). Con menos de 640 px de tabla, cada fila es una ficha de dos renglones; desde 640 px, tabla.',
+    mismo('1024 × 768', 'usuarios-1024.png', 640, 480)
+    + mismo('1152 × 800', 'usuarios-1152.png', 640, 444)
+    + mismo('1280 × 800', 'usuarios-1280.png', 640, 400)
+    + mismo('1440 × 900', 'usuarios-1440.png', 640, 400))
+
+  // 7. Acciones: menú, diálogo de permisos, tema oscuro y celular.
+  await lamina('07-usuarios-acciones.png', 'Usuarios · menú de la fila y editor de permisos',
+    'Menú abierto con el teclado (Enter): la acción de estado, destructiva, en un menú deliberado. El editor de permisos ahora es el diálogo compartido (AppModal): foco adentro, Escape, Tab que no se escapa y checkboxes que se tildan con Space; en el celular, hoja inferior.',
+    par('Menú de la fila · 1024 px (antes no existía)', 'usuarios-menu-1024.png', 'usuarios-menu-1024.png', 640, 480)
+    + mismo('Editor de permisos · 1280 px', 'usuarios-permisos-1280.png', 640, 400)
+    + mismo('Tema oscuro · 1152 px', 'usuarios-1152-dark.png', 640, 444)
+    + `<div class="par">${[['Celular · lista', 'usuarios-mobile.png'], ['Celular · permisos', 'usuarios-permisos-mobile.png']]
+      .map(([t, f]) => mismo(t, f, 220, 476)).join('')}</div>`)
+}

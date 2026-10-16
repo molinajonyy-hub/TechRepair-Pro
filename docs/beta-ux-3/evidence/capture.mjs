@@ -178,6 +178,19 @@ const scrollSidebarToEnd = page => page.evaluate(() => {
   const nav = document.querySelector('.sidebar nav')
   if (nav) nav.scrollTop = nav.scrollHeight
 })
+/** Usuarios: abre el editor de permisos de la fila del técnico (antes y después tiene el mismo título). */
+const openPermissions = async page => {
+  await page.getByRole('row', { name: /Técnico QA/ }).getByTitle('Editar permisos').click()
+  await page.waitForTimeout(400)
+}
+/** Usuarios (después): abre el menú de acciones de la fila del técnico con el teclado. */
+const openRowMenu = async page => {
+  const menu = page.getByRole('button', { name: 'Más acciones de Técnico QA' })
+  if (!(await menu.count())) return
+  await menu.focus()
+  await page.keyboard.press('Enter')
+  await page.waitForTimeout(300)
+}
 const openMore = async page => {
   await page.locator('button[aria-label="Abrir más módulos"]:visible').first().click()
   await page.waitForTimeout(400)
@@ -199,7 +212,15 @@ try {
   await shot({ name: 'suscripcion-desktop', route: '/subscription' })
   await shot({ name: 'configuracion-admin-desktop', route: '/settings', role: 'admin' })
   // Laptop de 1280: la columna de la sección es la más angosta del escritorio.
+  // Usuarios entre 1024 y 1280: la columna de la sección es la más angosta del escritorio.
+  await shot({ name: 'usuarios-1024', route: '/users', width: 1024, height: 768 })
+  await shot({ name: 'usuarios-1152', route: '/users', width: 1152, height: 800 })
   await shot({ name: 'usuarios-1280', route: '/users', width: 1280, height: 800 })
+  await shot({ name: 'usuarios-menu-1024', route: '/users', width: 1024, height: 768, steps: openRowMenu })
+  await shot({ name: 'usuarios-permisos-1280', route: '/users', width: 1280, height: 800, steps: openPermissions })
+  await shot({ name: 'usuarios-permisos-mobile', route: '/users', width: 390, height: 844, steps: openPermissions })
+  await shot({ name: 'usuarios-1152-dark', route: '/users', width: 1152, height: 800, theme: 'dark' })
+  await shot({ name: 'usuarios-1440', route: '/users', width: 1440, height: 900 })
   await shot({ name: 'suscripcion-1280', route: '/subscription', width: 1280, height: 800 })
   await shot({ name: 'moneda-1280', route: '/currency-settings', width: 1280, height: 800 })
   // Ayuda.

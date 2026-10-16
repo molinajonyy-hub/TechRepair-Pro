@@ -269,6 +269,119 @@ test.describe('@beta-ux-3 Celular', () => {
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Usuarios entre 1024 y 1280 px — ronda 2.
+//
+// Dentro de Configuración la tabla de Usuarios mide 428 px (1024) a 684 px
+// (1280): con cinco columnas, Estado y Acciones quedaban detrás de un scroll
+// horizontal. Se mide con un integrante SINTÉTICO agregado a la respuesta de
+// `business_users_view` en el navegador (el negocio E2E es compartido y no hace
+// falta escribir en él): nada se guarda —el diálogo se cierra con Escape y el
+// menú también—.
+const INTEGRANTE = 'Integrante BETA-UX-3'
+
+async function conIntegrante(page: Page) {
+  await page.route(/\/rest\/v1\/business_users_view(\?|$)/, async route => {
+    const respuesta = await route.fetch()
+    const filas: unknown = await respuesta.json().catch(() => [])
+    const lista = Array.isArray(filas) ? filas as Array<Record<string, unknown>> : []
+    const integrante = {
+      id: 'e2e0b3a3-0000-4000-8000-0000000000b3', user_id: 'e2e0b3a3-0000-4000-8000-0000000000b3',
+      business_id: lista[0]?.business_id ?? null, role: 'tech', is_active: true,
+      full_name: INTEGRANTE, email: 'integrante.beta-ux-3@e2e.local', permissions: null,
+      created_at: '2026-10-01T12:00:00Z',
+    }
+    const headers = { ...respuesta.headers(), 'content-type': 'application/json' }
+    delete headers['content-length']
+    await route.fulfill({ status: respuesta.status(), headers, body: JSON.stringify([...lista, integrante]) })
+  })
+}
+
+test.describe('@beta-ux-3 Usuarios · acciones a la vista y por teclado (1024–1280)', () => {
+  const ANCHOS = [
+    { width: 1024, height: 768, ficha: true },
+    { width: 1152, height: 800, ficha: true },
+    { width: 1280, height: 800, ficha: false },
+  ] as const
+
+  for (const { width, height, ficha } of ANCHOS) {
+    test(`${width}px: rol, Permisos y menú dentro de la tabla, sin scroll; Tab → Enter → Escape`, async ({ page }) => {
+      await page.setViewportSize({ width, height })
+      await conIntegrante(page)
+      await page.goto('/users')
+      const fila = page.getByRole('row', { name: new RegExp(INTEGRANTE) })
+      const rol = fila.getByRole('combobox', { name: `Rol de ${INTEGRANTE}` })
+      const permisos = fila.getByRole('button', { name: `Editar permisos de ${INTEGRANTE}` })
+      const menu = fila.getByRole('button', { name: `Más acciones de ${INTEGRANTE}` })
+      await expect(permisos).toBeVisible({ timeout: 30_000 })
+      await expect(fila.getByText('Activo', { exact: true })).toBeVisible()
+
+      // ── A la vista: dentro de la tabla y de la ventana, sin scroll ─────────
+      const tabla = page.getByTestId('users-table-wrap')
+      const caja = await tabla.boundingBox()
+      if (!caja) throw new Error('la tabla no tiene caja')
+      for (const [nombre, control] of [['rol', rol], ['Permisos', permisos], ['menú', menu]] as const) {
+        const c = await control.boundingBox()
+        if (!c) throw new Error(`${nombre} sin caja`)
+        expect(c.x, `${nombre} empieza dentro de la tabla`).toBeGreaterThanOrEqual(caja.x - 1)
+        expect(c.x + c.width, `${nombre} termina dentro de la tabla`).toBeLessThanOrEqual(caja.x + caja.width + 1)
+        expect(c.x + c.width, `${nombre} dentro de la ventana`).toBeLessThanOrEqual(width)
+        expect(c.height, `${nombre} se puede tocar`).toBeGreaterThanOrEqual(ficha ? TOUCH_TARGET : 36)
+      }
+      expect(await tabla.evaluate(el => el.scrollWidth - el.clientWidth), 'sin scroll horizontal en la tabla').toBeLessThanOrEqual(1)
+      expect(await desborde(page), 'sin scroll horizontal en la página').toBeLessThanOrEqual(1)
+      // Debajo de 640 px de tabla cada fila es una ficha; desde ahí, tabla.
+      expect(await fila.evaluate(el => getComputedStyle(el).display)).toBe(ficha ? 'grid' : 'table-row')
+
+      // ── Teclado: rol → Permisos (diálogo) → menú ───────────────────────────
+      await rol.focus()
+      await page.keyboard.press('Tab')
+      await expect(permisos).toBeFocused()
+      expect(await permisos.evaluate(el => getComputedStyle(el).outlineStyle), 'foco visible').toBe('solid')
+
+      await page.keyboard.press('Enter')
+      const dialogo = page.getByRole('dialog', { name: `Permisos — ${INTEGRANTE}` })
+      await expect(dialogo).toBeVisible()
+      await expect.poll(() => dialogo.evaluate(el => el.contains(document.activeElement)), { message: 'el foco entra al diálogo' }).toBe(true)
+      // La primera casilla se tilda con Space y muestra su foco; Tab no sale del diálogo.
+      await page.keyboard.press('Tab')
+      const enfocado = page.locator(':focus')
+      await expect(enfocado).toHaveAttribute('type', 'checkbox')
+      const antes = await enfocado.isChecked()
+      expect(await enfocado.evaluate(el => getComputedStyle(el.nextElementSibling as Element).outlineStyle), 'foco visible en la casilla').toBe('solid')
+      await page.keyboard.press('Space')
+      expect(await enfocado.isChecked()).toBe(!antes)
+      for (let i = 0; i < 40; i += 1) await page.keyboard.press('Tab')
+      expect(await dialogo.evaluate(el => el.contains(document.activeElement)), 'Tab no se escapa del diálogo').toBe(true)
+      // Escape cierra SIN guardar y el foco vuelve a «Permisos».
+      await page.keyboard.press('Escape')
+      await expect(dialogo).toBeHidden()
+      await expect(permisos).toBeFocused()
+
+      await page.keyboard.press('Tab')
+      await expect(menu).toBeFocused()
+      await page.keyboard.press('Enter')
+      const accion = page.getByRole('menuitem', { name: 'Desactivar usuario' })
+      await expect(accion).toBeFocused()
+      await expect(accion).toBeInViewport()
+      await page.keyboard.press('Escape')
+      await expect(accion).toBeHidden()
+      await expect(menu).toBeFocused()
+    })
+  }
+
+  test('1440px: tabla de cuatro columnas, con el email debajo del nombre', async ({ page }) => {
+    await page.setViewportSize(DESKTOP)
+    await conIntegrante(page)
+    await page.goto('/users')
+    const tabla = page.getByRole('table', { name: 'Usuarios del negocio' })
+    await expect(tabla.getByRole('columnheader')).toHaveText(['Usuario', 'Rol', 'Estado', 'Acciones'], { timeout: 30_000 })
+    const fila = tabla.getByRole('row', { name: new RegExp(INTEGRANTE) })
+    await expect(fila.getByRole('cell').first()).toContainText('integrante.beta-ux-3@e2e.local')
+    expect(await fila.evaluate(el => getComputedStyle(el).display)).toBe('table-row')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Empleados REALES. Mismo patrón que `dashboard-day-one.spec.ts`: usuario de
 // Auth por la API de servicio del stack LOCAL, perfil sembrado en el negocio
 // E2E y login por la pantalla. Necesitan la base real: no corren contra el

@@ -1171,6 +1171,119 @@ table, td, th { transition: color 0.15s ease; }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
+   BETA-UX-3 · USUARIOS — la tabla se adapta a SU ancho, no al de la ventana
+   Dentro de Configuración la columna de la sección mide 428 px a 1024 de ancho
+   y 684 a 1280. Con ≥640 px de tabla: cuatro columnas (usuario+email, rol,
+   estado, acciones). Con menos: cada fila es una ficha de dos renglones
+   (identidad + estado · rol + acciones). Nada queda detrás de un scroll.
+   La tabla conserva su semántica con roles ARIA explícitos en el marcado.
+   ══════════════════════════════════════════════════════════════════════════ */
+.users-table {
+  container-type: inline-size;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+}
+/* Sin container queries (navegadores viejos) vuelve el scroll horizontal de
+   antes: nunca recorte. Con ellas no hace falta, y un contenedor con scroll
+   recortaría el menú de la fila. */
+@supports not (container-type: inline-size) {
+  .users-table { overflow-x: auto; }
+}
+.users-table__table { width: 100%; border-collapse: collapse; }
+.users-table__table th { text-align: left; padding: 0.75rem 1rem; }
+.users-table__table td {
+  padding: 0.75rem 1rem;
+  vertical-align: middle;
+  border-top: 1px solid var(--border-subtle);
+}
+.users-table__table th.users-table__actions-hdr,
+.users-table__table td.users-table__actions { text-align: right; }
+.users-table__identity { display: flex; align-items: center; gap: 0.625rem; min-width: 0; }
+.users-table__avatar { flex-shrink: 0; color: var(--accent-primary); }
+.users-table__identity-text { display: flex; flex-direction: column; gap: 0.125rem; min-width: 0; }
+.users-table__name { color: var(--text-primary); font-weight: 600; overflow-wrap: anywhere; }
+.users-table__email {
+  display: inline-flex; align-items: center; gap: 0.375rem; min-width: 0;
+  color: var(--text-secondary); font-size: 0.8125rem;
+}
+.users-table__email svg { flex-shrink: 0; color: var(--text-muted); }
+.users-table__email span { overflow-wrap: anywhere; }
+.users-table__role-select {
+  min-height: 36px; max-width: 100%;
+  padding: 0.375rem 0.5rem;
+  background: var(--input-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+}
+.users-table__role-select:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 1px; }
+.users-table__actions-row { display: inline-flex; align-items: center; gap: 0.5rem; }
+.users-table__permissions { min-height: 36px; padding: 0.375rem 0.75rem; gap: 0.375rem; }
+.users-table__permissions:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+/* Permisos personalizados: punto + el nombre accesible lo dice («(personalizados)»). */
+.users-table__custom-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warning); }
+.users-table__menu .overflow-menu__trigger { min-width: 36px; min-height: 36px; }
+.users-table__menu .overflow-menu__trigger:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.users-table__menu .overflow-menu__popover { min-width: 14rem; text-align: left; }
+/* La única acción del menú es la de estado: sin el separador que la aparta de otras. */
+.users-table__menu .overflow-menu__action.is-destructive:first-child { margin-top: 0; border-top: 0; }
+.users-table__protected { color: var(--text-muted); font-size: 0.875rem; }
+
+@container (max-width: 639px) {
+  /* Encabezados fuera de la vista; los lectores de pantalla los siguen leyendo. */
+  .users-table__table thead {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+  }
+  .users-table__table, .users-table__table tbody { display: block; }
+  .users-table__row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "user status" "role actions";
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.875rem 1rem;
+    border-top: 1px solid var(--border-subtle);
+  }
+  .users-table__row:first-child { border-top: 0; }
+  .users-table__table td.users-table__user,
+  .users-table__table td.users-table__role,
+  .users-table__table td.users-table__status,
+  .users-table__table td.users-table__actions { display: block; padding: 0; border: 0; }
+  .users-table__user { grid-area: user; min-width: 0; }
+  .users-table__status { grid-area: status; justify-self: end; }
+  .users-table__role { grid-area: role; min-width: 0; }
+  .users-table__actions { grid-area: actions; justify-self: end; }
+  .users-table__role-select { width: 100%; max-width: 18rem; min-height: var(--mobile-touch-target); }
+  .users-table__permissions { min-height: var(--mobile-touch-target); }
+  .users-table__menu .overflow-menu__trigger { min-width: var(--mobile-touch-target); min-height: var(--mobile-touch-target); }
+}
+/* Editor de permisos: el checkbox nativo queda oculto a la vista pero enfocable;
+   el cuadro pinta su estado y el foco del teclado. Space tilda, como siempre. */
+.perm-toggle { position: relative; }
+.perm-toggle__input {
+  position: absolute; left: 0.5rem; top: 50%;
+  width: 18px; height: 18px; margin: -9px 0 0; opacity: 0;
+}
+.perm-toggle__input:focus-visible + .perm-toggle__box { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.users-perms-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 0.625rem; width: 100%; }
+/* Celular: «Guardar permisos» (la acción principal) ocupa su renglón entero. */
+@media (max-width: 639px) {
+  .users-perms-footer > button:last-child { flex: 1 1 100%; min-height: var(--mobile-touch-target); }
+}
+
+/* Ficha angosta (celular de 320): rol y acciones, cada uno en su renglón. A
+   390 px todavía entran juntos (rol ≥120 + Permisos + menú). */
+@container (max-width: 329px) {
+  .users-table__row { grid-template-areas: "user status" "role role" "actions actions"; }
+  .users-table__actions { justify-self: stretch; }
+  .users-table__actions-row { display: flex; }
+  .users-table__permissions { flex: 1; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
    BETA-UX-3 · CENTRO DE AYUDA — Soporte + Tutoriales
    Dos accesos, uno al lado del otro desde 1024px; apilados por debajo
    (Soporte primero: es lo urgente). Los tutoriales son filas táctiles de

@@ -83,8 +83,7 @@ cada sección con la capacidad que exige su destino:
 - Foco: al elegir una sección en el celular, el foco va a la sección (como en BETA-UX-2); en escritorio, pasar
   de `/settings` a una pantalla con ruta propia (o al revés) vuelve a montar el marco, y el foco del teclado va a
   la sección elegida de la lista en vez de caer al `<body>`. Entrar por URL no mueve el foco.
-- La tabla de Usuarios scrollea a lo ancho en su tarjeta en vez de recortarse (en la columna más angosta perdía
-  «Acciones»; en el celular ya se recortaba antes de este lote).
+- La tabla de Usuarios se rehízo en la ronda 2 (ver §8): ya no depende de un scroll horizontal.
 - Mi Suscripción entre 1200 y 1439 px se comporta dentro del marco como en anchos intermedios (las acciones bajan
   en vez de apretar el texto).
 
@@ -171,9 +170,78 @@ instalado en las tres herramientas.
 
 ## 7. Pendiente / fuera de alcance
 
-- Tabla de Usuarios: a 1024–1280 px, «Acciones» queda a un scroll horizontal dentro de la tarjeta. Compactarla
-  (celdas, columna de email) es trabajo de esa pantalla.
 - Los encabezados de Usuarios, Moneda y Mi Suscripción siguen escritos a mano (`.page-hdr`); migrarlos a
   `AppPageHeader` con un nivel de título configurable es refactor sin cambio visual.
 - Videos: el catálogo los admite; todavía no hay ninguno publicado.
 - Sistema de tickets / inbox de soporte: fuera de este lote (pedido explícito).
+
+## 8. Ronda 2 — Usuarios entre 1024 y 1280 px + CI
+
+Pedido de revisión: entre 1024 y 1280 px las acciones de la tabla de Usuarios no pueden quedar detrás de un scroll
+horizontal; editar usuarios y administrar permisos tiene que ser intuitivo y accesible por teclado; mismos permisos,
+funcionalidades y rutas.
+
+### 8.1 Lo que había
+
+- Dentro de Configuración la tabla mide **428 px a 1024** de ancho de ventana, 556 a 1152 y 684 a 1280. Con cinco
+  columnas (Usuario, Email, Rol, Estado, Acciones) a 1024 ni el rol entraba entero; Estado y Acciones quedaban
+  detrás del scroll (lámina 06, «antes»).
+- Acciones de la fila: dos íconos sueltos (escudo = permisos, con un punto ámbar si eran personalizados; usuario
+  tachado = desactivar) con `title` como único nombre. El selector de rol no tenía nombre accesible.
+- Editor de permisos: un overlay armado a mano, sin `role="dialog"`. El foco quedaba en la fila de atrás, Escape no
+  cerraba y Tab salía del diálogo. Las casillas eran `<div onClick>`: **con el teclado no se podía tildar nada**.
+
+### 8.2 Qué cambió (sólo `UsersManagement.tsx` y CSS acotado a `.users-table` / `.perm-toggle`)
+
+- **Columnas**: Usuario (nombre + email debajo) · Rol · Estado · Acciones.
+- **Acciones**: «Permisos» es un botón con texto (la tarea principal de la fila), nombre accesible «Editar permisos
+  de <nombre>» y «(personalizados)» cuando corresponde; el `title` «Editar permisos» se conserva. Activar/Desactivar
+  pasa al menú de la fila (`OverflowMenu`, el mismo de Clientes y Órdenes, sin modificarlo): lo destructivo en un
+  menú deliberado, con la misma confirmación de antes.
+- **Responsive por el ancho de la tabla** (container query, no por la ventana): con ≥640 px, tabla; con menos, cada
+  fila es una ficha de dos renglones (identidad + estado · rol + acciones) con objetivos de 44 px; con menos de 330
+  px (celular de 320), rol y acciones en renglones separados. Resultado: 1024 y 1152 → fichas; 1280 y 1440 → tabla.
+  Sin container queries (navegadores viejos) vuelve el scroll de antes. Los roles ARIA (`table`, `row`, `cell`,
+  `columnheader`) están en el marcado, así la semántica de tabla no depende del `display`.
+- **Teclado**: Tab recorre rol → Permisos → menú, con foco visible. Enter en «Permisos» abre el editor, que ahora es
+  `AppModal` (el diálogo compartido): foco adentro, Tab que no se escapa, Escape cierra sin guardar y el foco vuelve
+  al botón. Las casillas son checkboxes nativos (ocultos a la vista, con el foco pintado en el cuadro): Space
+  tilda; un permiso automático (Mayorista para admin) es un checkbox tildado y deshabilitado. Enter en el menú lo
+  abre con el foco en su acción; Escape lo cierra y devuelve el foco.
+- **Sin cambios**: quién gestiona usuarios (owner/admin), filas protegidas («Protegido», «Tu usuario»), cambiar el
+  rol desde la fila, activar/desactivar con confirmación, el diff de permisos que se guarda, invitaciones, rutas y
+  guards. En celular el editor es una hoja inferior y «Guardar permisos» ocupa su renglón.
+
+### 8.3 CI de la ronda 1 (run 38917968505)
+
+392 E2E en verde y 8 rojos, todos en `dashboard-day-one.spec.ts` (el chip del dólar no aparecía); `main` estaba
+verde con ese spec. Causa: el spec nuevo abre `/currency-settings`, y Moneda, en un negocio sin fila en
+`business_settings`, crea los ajustes por defecto con `auto_update_rate: false`; desde ahí la cotización sólo se lee
+de la base (vacía en el negocio E2E) y el chip no se dibuja en los specs que corren después. Arreglo sólo en el test
+(`e7260b3`): el spec responde esa escritura en el navegador con la fila que devolvería el servidor y deja el
+negocio como estaba. Moneda y `dashboard-day-one` no cambiaron.
+
+### 8.4 Tests y evidencia
+
+- `tests/components/betaUx3UsersTable.test.tsx` (nuevo, 17): columnas y roles ARIA, nombres accesibles, menú por
+  estado (activo → «Desactivar usuario» con confirmación; inactivo → «Activar usuario»), cambio de rol, permisos
+  personalizados, orden de Tab, Enter/Escape con retorno de foco en diálogo y menú, Space en la matriz con el diff
+  guardado, permiso automático deshabilitado, filas protegidas, actor con `users` sin ser owner/admin (sin acciones,
+  como antes) y el contrato de CSS. La trampa de foco con Tab necesita layout: la mide el E2E.
+- E2E `@beta-ux-3 Usuarios · acciones a la vista y por teclado (1024–1280)`, a 1024, 1152 y 1280 px: rol, Permisos
+  y menú dentro de la tabla y de la ventana, sin scroll (ni en la tabla ni en la página), objetivos de 44 px en
+  ficha; Tab → Permisos (foco visible) → Enter → diálogo con el foco adentro → Space tilda la primera casilla → 40
+  Tab sin salir → Escape cierra sin guardar y el foco vuelve → Tab → menú → Enter → foco en «Desactivar usuario» →
+  Escape. Y 1440: tabla de cuatro columnas. Usa un integrante sintético agregado a la respuesta de
+  `business_users_view` en el navegador: no escribe en la base.
+- `prebeta3a2WholesaleAccess`: el editor se ubica por su rol de diálogo (antes, por la clase `.modal-card`).
+- Láminas: `evidence/06-usuarios-1024-1280.png` (1024 · 1152 · 1280 · 1440, antes y después) y
+  `evidence/07-usuarios-acciones.png` (menú, editor de permisos, oscuro, celular). Reproducir con
+  `capture.mjs … usuarios-1024,usuarios-1152,…` y `contact-sheet.mjs <root> <antes> <después> <salida> usuarios`.
+
+### 8.5 Pendiente
+
+- Los colores de los badges de rol y de estado de la tabla siguen siendo los de antes (en claro, «Activo» tiene
+  poco contraste). Son estilos compartidos del sistema; ajustarlos es otro lote.
+- La trampa de foco de `AppModal` usa `offsetParent`: en jsdom no recorre con Tab (en el navegador sí). No se tocó
+  el componente compartido.

@@ -391,7 +391,8 @@ describe('D · matriz de permisos: `wholesale` es automático para admin', () =>
     state.users = [user]
     render(<MemoryRouter><UsersManagement /></MemoryRouter>)
     fireEvent.click(await screen.findByTitle('Editar permisos'))
-    return screen.getByText(`Permisos — ${user.full_name}`).closest('.modal-card') as HTMLElement
+    // BETA-UX-3: el editor es un `AppModal` (diálogo con nombre), no una `.modal-card` armada a mano.
+    return screen.getByRole('dialog', { name: `Permisos — ${user.full_name}` }) as HTMLElement
   }
 
   it('admin: Mayorista bloqueado en «sí», y un override viejo `false` se descarta al guardar', async () => {
