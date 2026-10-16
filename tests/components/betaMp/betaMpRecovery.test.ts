@@ -139,7 +139,8 @@ describe('approved first payment is the commercial authority', () => {
     })
     expect((await reconcile()).body.confirmed).toBe(true)
     expect(w.db.tables.payments).toHaveLength(21)
-    expect(w.mp.calls.some(c => c.path.endsWith('offset=20&limit=20'))).toBe(true)
+    expect(w.mp.calls.some(c => c.path.endsWith('offset=20'))).toBe(true)
+    expect(w.mp.calls.some(c => c.path.includes('limit='))).toBe(false)
     const before = w.db.tables.payments.length
     w.mp.authorizedPayments.set('duplicate_invoice', { ...invoice(preapprovalId), id: 'duplicate_invoice' })
     const r = await reconcile()
