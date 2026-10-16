@@ -1,7 +1,8 @@
 # BETA-MP — recuperación excepcional de una sesión Plan A
 
 Fecha de preparación: 16/10/2026. Rama: `codex/beta-mp-plan-a-recovery`.
-Base de trabajo: `main` `9f27c54`. Este documento describe un candidato y sus
+Base inicial: `main` `9f27c54`; actualización incorporada por merge desde
+`main` `cc11184`, preservando su CI de BETA-UX-2. Este documento describe un candidato y sus
 condiciones de uso. No autoriza una lectura productiva, una migración, un
 despliegue ni una intervención comercial.
 
@@ -406,4 +407,3 @@ contención. Ninguna de esas condiciones se resuelve automáticamente.
 - [PostgreSQL: locks explícitos](https://www.postgresql.org/docs/current/explicit-locking.html).
 - [Autoridad canónica y limitaciones de Recovery](recovery-runbook.md).
 - [Auditoría de la reserva NULL e aislamiento](email-reservation-audit.md).
-
