@@ -41,6 +41,11 @@ export function CustomerCreateFields({
 }: CustomerCreateFieldsProps) {
   const [additionalOpen, setAdditionalOpen] = useState(additionalInitiallyOpen)
   const additionalId = useId()
+  // CLIENTES-UX-1B — abierto si ya hay un contacto cargado: nunca se esconde un dato guardado.
+  const [noticeOpen, setNoticeOpen] = useState(
+    additionalInitiallyOpen || Boolean(values.noticeName || values.noticePhone)
+  )
+  const noticeId = useId()
   const rootRef = useRef<HTMLDivElement>(null)
   const pendingFocus = useRef(false)
 
@@ -49,6 +54,10 @@ export function CustomerCreateFields({
   useEffect(() => {
     if (errors.email) setAdditionalOpen(true)
   }, [errors.email, submitCount])
+
+  useEffect(() => {
+    if (errors.noticeName || errors.noticePhone) setNoticeOpen(true)
+  }, [errors.noticeName, errors.noticePhone, submitCount])
 
   useEffect(() => {
     if (submitCount > 0) pendingFocus.current = true
@@ -230,6 +239,61 @@ export function CustomerCreateFields({
           </dl>
         </section>
       )}
+
+      {/* CLIENTES-UX-1B — contacto alternativo para avisos. No es la «Persona
+          de contacto» mayorista de arriba: es a quién se le puede avisar en
+          lugar del cliente. */}
+      <section className="customer-create-section customer-create-additional">
+        <h2 className="customer-create-disclosure-heading">
+          <button
+            type="button"
+            className="customer-create-disclosure"
+            aria-expanded={noticeOpen}
+            aria-controls={noticeId}
+            data-testid="customer-notice-toggle"
+            onClick={() => setNoticeOpen((current) => !current)}
+          >
+            <span>
+              Contacto para avisos <span className="customer-create-optional-label">(opcional)</span>
+            </span>
+            <ChevronDown aria-hidden="true" size={18} />
+          </button>
+        </h2>
+        <div
+          id={noticeId}
+          className="customer-create-section-body customer-create-additional-body"
+          hidden={!noticeOpen}
+        >
+          <p className="customer-create-notice-help">
+            Otra persona a la que se le puede avisar por WhatsApp (por ejemplo, quien retira el equipo).
+            El teléfono principal sigue siendo del cliente.
+          </p>
+          <FormGrid>
+            <AppInput
+              id="customer-notice-name"
+              label="Nombre del contacto"
+              data-testid="customer-notice-name-input"
+              value={values.noticeName}
+              error={errors.noticeName}
+              onChange={(event) => setField('noticeName', event.target.value)}
+              onBlur={blur('noticeName')}
+              placeholder="Ej: María Pérez"
+              autoComplete="off"
+            />
+            <AppInput
+              id="customer-notice-phone"
+              semantic="tel"
+              label="Teléfono para avisos"
+              data-testid="customer-notice-phone-input"
+              value={values.noticePhone}
+              error={errors.noticePhone}
+              onChange={(event) => setField('noticePhone', event.target.value)}
+              onBlur={blur('noticePhone')}
+              placeholder="Ej: +54 9 351 123-4567"
+            />
+          </FormGrid>
+        </div>
+      </section>
 
       <section className="customer-create-section customer-create-additional">
         <h2 className="customer-create-disclosure-heading">

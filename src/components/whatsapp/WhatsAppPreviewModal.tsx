@@ -66,6 +66,11 @@ export interface WhatsAppPreviewModalProps {
   onClose: () => void
   /** Display name for the recipient (for UI only) */
   recipientName: string
+  /**
+   * CLIENTES-UX-1B — quién es el destinatario respecto de la orden
+   * («Cliente» o «Contacto alternativo»). Sólo se muestra.
+   */
+  recipientRole?: string
   /** Phone number (raw, will be normalized; editable in the modal) */
   phone: string | null | undefined
   /** Pre-select this template key on open */
@@ -139,7 +144,7 @@ const STATUS_UI: Record<SendStatus, { label: string; color: string } | null> = {
 
 export function WhatsAppPreviewModal({
   isOpen, onClose,
-  recipientName, phone,
+  recipientName, recipientRole, phone,
   defaultTemplateKey = 'free_message',
   vars = {},
   context = {},
@@ -541,8 +546,9 @@ export function WhatsAppPreviewModal({
             </div>
             <div>
               <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)' }}>Enviar por WhatsApp</h3>
-              <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+              <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--text-muted)' }} data-testid="whatsapp-recipient">
                 {recipientName} · {phoneResult.valid ? `+${phoneResult.normalized}` : <span style={{ color: '#f87171' }}>{phoneResult.error}</span>}
+                {recipientRole && <> · <span data-testid="whatsapp-recipient-role" style={{ fontWeight: 700, color: 'var(--text-secondary)' }}>{recipientRole}</span></>}
               </p>
             </div>
           </div>
@@ -560,6 +566,20 @@ export function WhatsAppPreviewModal({
             </div>
           ) : (
             <>
+              {/* CLIENTES-UX-1B — a quién va el mensaje, dicho sin ambigüedad. */}
+              {recipientRole && (
+                <div
+                  data-testid="whatsapp-recipient-summary"
+                  style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: '0.375rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}
+                >
+                  <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Para</span>
+                  <strong style={{ color: 'var(--text-primary)' }}>{recipientName || 'Sin nombre'}</strong>
+                  <span style={{ padding: '0.05rem 0.5rem', borderRadius: '9999px', fontSize: '0.72rem', fontWeight: 700, color: 'var(--accent-primary)', background: 'var(--accent-primary-subtle)' }}>
+                    {recipientRole}
+                  </span>
+                </div>
+              )}
+
               {/* Phone editor / warning */}
               <div>
                 <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.375rem' }}>

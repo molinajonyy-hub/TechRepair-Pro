@@ -1,4 +1,4 @@
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useLocation } from 'react-router-dom'
 import {
   ArrowLeft,
   Smartphone,
@@ -44,6 +44,9 @@ import { formatImporteWhatsApp } from '../services/whatsappTemplate'
 import { comprobanteTipoLabel } from '../lib/comprobanteTipoLabel'
 import { OverflowMenu, type OverflowMenuAction } from '../ui'
 import { accentCta } from '../lib/tokens'
+import { usePermissions } from '../hooks/usePermissions'
+import { NotificationRecipientPanel } from '../components/order/NotificationRecipientPanel'
+import { firstNameOf, useOrderNotificationRecipient } from '../features/order-notify'
 
 /**
  * Plantillas de WhatsApp que se ofrecen desde la orden. Una sola lista para el
@@ -87,6 +90,14 @@ export function OrderDetail() {
 
   // Cargar datos reales desde Supabase
   const { order, loading, error, refresh } = useOrderSimple(id)
+
+  // CLIENTES-UX-1B — a quién se avisa en esta orden. Sin elección (o sin la
+  // migración) es el titular, como siempre; la titularidad no cambia.
+  const { can } = usePermissions()
+  const notify = useOrderNotificationRecipient(id, order?.customer)
+  const recipient = notify.recipient
+  const location = useLocation()
+  const intakeRecipientWarning = (location.state as { notifyRecipientWarning?: string } | null)?.notifyRecipientWarning
 
   // Importes CANÓNICOS (server-side, vía get_order_financial_amounts). Son la
   // única fuente de las variables económicas de WhatsApp: `orders.total_cost`
@@ -300,7 +311,7 @@ export function OrderDetail() {
                   onClick={() => setWaDropdownOpen(v => !v)}
                   className="btn btn-ghost btn-sm"
                   style={{ color: '#25d366', borderColor: 'rgba(37,211,102,0.3)', background: 'rgba(37,211,102,0.08)' }}
-                  title={!order.customer?.phone ? 'El cliente no tiene teléfono válido para WhatsApp' : undefined}
+                  title={!recipient.phone ? 'No hay un teléfono válido para WhatsApp en esta orden' : undefined}
                 >
                   <MessageCircle size={15} />
                   WhatsApp
@@ -352,12 +363,21 @@ export function OrderDetail() {
         </div>
       </div>
 
+      {/* CLIENTES-UX-1B — la orden se creó pero no se pudo guardar a quién avisar. */}
+      {intakeRecipientWarning && (
+        <div className="alert-inline alert-warning" role="alert" data-testid="order-notify-intake-warning" style={{ marginBottom: '1rem' }}>
+          {intakeRecipientWarning}
+        </div>
+      )}
+
       {/* Status Change Component - Solo visible en overview */}
       {activeTab === 'overview' && (
         <StatusChange 
           orderId={order.id}
           currentStatus={order.status}
-          order={order}
+          // CLIENTES-UX-1B — el envío automático (sólo con Cloud API conectada)
+          // usa el mismo destinatario que el preview.
+          order={{ ...order, notification_recipient: recipient }}
           onStatusChange={refresh}
         />
       )}
@@ -414,6 +434,14 @@ export function OrderDetail() {
                       </span>
                     )}
                   </div>
+                )}
+                {order.customer && (
+                  <NotificationRecipientPanel
+                    customerId={order.customer.id ?? order.customer_id}
+                    customer={order.customer}
+                    state={notify}
+                    canChange={can('orders_create') || can('orders_change_status')}
+                  />
                 )}
               </div>
             </div>
@@ -709,11 +737,15 @@ export function OrderDetail() {
       <WhatsAppPreviewModal
         isOpen={waPreview.open}
         onClose={() => setWaPreview(p => ({ ...p, open: false }))}
-        recipientName={order.customer?.name ?? ''}
-        phone={order.customer?.phone}
+        // CLIENTES-UX-1B — el preview propone el destinatario de la orden
+        // (cliente o contacto alternativo); el número se sigue pudiendo corregir.
+        // `{nombre}` saluda a quien recibe; `{cliente}` sigue siendo el titular.
+        recipientName={recipient.name}
+        recipientRole={recipient.roleLabel}
+        phone={recipient.phone}
         defaultTemplateKey={waPreview.templateKey}
         vars={{
-          nombre:      (order.customer?.name ?? '').split(' ')[0],
+          nombre:      firstNameOf(recipient.name) || (order.customer?.name ?? '').split(' ')[0],
           cliente:     order.customer?.name ?? '',
           telefono:    order.customer?.phone ?? '',
           equipo:      [order.device?.brand, order.device?.model].filter(Boolean).join(' '),

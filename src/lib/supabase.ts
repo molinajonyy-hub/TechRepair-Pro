@@ -100,6 +100,9 @@ export type Customer = {
   customer_type?: string
   business_name?: string
   contact_person?: string
+  /** CLIENTES-UX-1B — contacto alternativo para avisos (no es `contact_person`). */
+  notification_contact_name?: string | null
+  notification_contact_phone?: string | null
   business_id?: string
   created_by?: string
   created_at: string

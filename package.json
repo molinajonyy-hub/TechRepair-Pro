@@ -288,6 +288,7 @@
     "test:beta-ux-2": "vitest run --config vitest.config.ts tests/components/betaUx2Consistency.test.tsx tests/components/orderIntakeWizard.test.tsx tests/components/orderIntakeModel.test.ts tests/components/orderIntakeMobile.test.tsx",
     "test:beta-ux-3": "vitest run --config vitest.config.ts tests/components/betaUx3AdminHelp.test.tsx tests/components/betaUx3UsersTable.test.tsx tests/components/prebeta3a2WholesaleAccess.test.tsx tests/components/betaUx2Consistency.test.tsx tests/components/beta1Ayuda.test.tsx tests/components/rbacCapabilities.test.tsx tests/components/mobileNavigation.test.tsx tests/components/supportContact.test.tsx",
     "test:clientes-ux-1a": "vitest run --config vitest.config.ts tests/components/clientesUx1aEdit.test.tsx tests/components/customerEdit.test.tsx tests/components/prebeta3a2CustomerCreation.test.tsx tests/components/betaUx1dCustomersList.test.tsx tests/components/customerSurfaces.test.tsx",
+    "test:clientes-ux-1b": "vitest run --config vitest.config.ts tests/components/clientesUx1bNoticeContact.test.tsx tests/components/customerCreateFields.test.tsx tests/components/betaUx1dOrderDetail.test.tsx tests/components/orderDetailHistory.test.tsx tests/components/orderIntakeWizard.test.tsx tests/components/whatsappW1.test.tsx",
     "guard:auth-email-templates": "node scripts/guards/auth-email-templates.mjs",
     "guard:auth-email-templates:self-test": "node scripts/guards/auth-email-templates.mjs --self-test",
     "guard:no-hardcoded-credentials": "node scripts/guards/no-hardcoded-credentials.mjs",
@@ -309,7 +310,8 @@
     "guard:mobile-session-1a:self-test": "node scripts/guards/mobile-session-1a.mjs --self-test",
     "pwa:iconos": "node scripts/pwa/generar-iconos.mjs",
     "test:product-variants-v2": "node scripts/guards/product-variants-v2.mjs --self-test && node scripts/guards/product-variants-v2.mjs && vitest run --config vitest.config.ts tests/components/productVariantsV2.test.tsx tests/components/productSearchService.test.tsx tests/components/g2c3a2ProductFormModal.test.tsx tests/components/g2c3a2InventoryPage.test.tsx",
-    "test:sql:product-variants-v2": "docker cp tests/sql/product_variants_v2.test.sql supabase_db_techrepair-vite:/tmp/product-variants-v2.sql && docker exec supabase_db_techrepair-vite psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/product-variants-v2.sql"
+    "test:sql:product-variants-v2": "docker cp tests/sql/product_variants_v2.test.sql supabase_db_techrepair-vite:/tmp/product-variants-v2.sql && docker exec supabase_db_techrepair-vite psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/product-variants-v2.sql",
+    "test:sql:clientes-ux-1b": "docker cp tests/sql/clientes_ux_1b.test.sql supabase_db_techrepair-vite:/tmp/clientes-ux-1b.sql && docker exec supabase_db_techrepair-vite psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/clientes-ux-1b.sql"
   },
   "dependencies": {
     "@rollup/rollup-linux-x64-gnu": "^4.60.2",

@@ -112,6 +112,9 @@ export interface OrderDetailSimple {
     phone: string
     email?: string
     address?: string
+    /** CLIENTES-UX-1B — contacto alternativo para avisos (si la base ya lo tiene). */
+    notification_contact_name?: string | null
+    notification_contact_phone?: string | null
   } | null
   device?: {
     id: string
@@ -216,7 +219,9 @@ export function useOrderSimple(orderId: string | undefined) {
           try {
             const { data: customerData } = await supabase
               .from('customers')
-              .select('id, name, phone, email, address')
+              // CLIENTES-UX-1B — `*`: trae el contacto para avisos cuando la
+              // columna existe, sin nombrarla (una base sin migrar respondería 400).
+              .select('*')
               .eq('id', orderData.customer_id)
               .single()
             if (customerData) {
@@ -391,7 +396,7 @@ export function useOrderSimple(orderId: string | undefined) {
 
       // Recargar relaciones
       if (orderData.customer_id) {
-        const { data } = await supabase.from('customers').select('id, name, phone, email, address').eq('id', orderData.customer_id).single()
+        const { data } = await supabase.from('customers').select('*').eq('id', orderData.customer_id).single()
         result.customer = data || null
       }
       if (orderData.device_id) {

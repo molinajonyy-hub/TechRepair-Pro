@@ -1,13 +1,15 @@
 // CLIENTES-UX-1A — láminas «antes | después» a partir de las capturas de
 // capture-1a.mjs (una corrida sobre `main`, otra sobre la rama).
 //
-// Uso: node contact-sheet.mjs <repoRoot> <dirCapturas> <dirSalida>
+// Uso: node contact-sheet.mjs <repoRoot> <dirCapturas> <dirSalida> [1b]
+//   sin modo: láminas 01–02 (1A, edición). `1b`: láminas 03–05 (contacto y avisos);
+//   en 1B el «antes» es la rama de 1A.
 // CHROMIUM_PATH (opcional): un Chromium ya instalado.
 import path from 'node:path'
 import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
 
-const [root, shots, salida] = process.argv.slice(2)
+const [root, shots, salida, modo] = process.argv.slice(2)
 const { chromium } = await import(pathToFileURL(path.join(root, 'node_modules', 'playwright-core/index.mjs')).href)
 fs.mkdirSync(salida, { recursive: true })
 
@@ -38,6 +40,7 @@ async function lamina(nombre, titulo, nota, cuerpo, ancho = 1400) {
 
 const section = (titulo, figs) => `<section><h2>${esc(titulo)}</h2><div class="par">${figs.join('')}</div></section>`
 
+if (modo !== '1b') {
 await lamina('01-ficha-editar-cliente.png', 'Ficha del cliente · «Editar cliente»',
   'Antes: la ficha no tenía ninguna forma de editar, y en el celular la grilla fija de 260 px dejaba las pestañas cortadas fuera de la pantalla. Después: «Editar cliente» abre el mismo diálogo que el listado; al guardar, un aviso confirma y la tarjeta Contacto muestra lo guardado (también documento y notas, que antes no se veían).',
   section('Escritorio · 1440 px', [
@@ -62,3 +65,38 @@ await lamina('02-listado-y-mayorista.png', 'Listado · confirmación y mayorista
     fig('Antes · main (bloqueado)', 'before-portal-mayorista-guardar-1440.png', 620, 380),
     fig('Después (guardado)', 'after-portal-mayorista-guardar-1440.png', 620, 380),
   ]))
+}
+
+if (modo === '1b') {
+  await lamina('03-contacto-para-avisos.png', 'Contacto para avisos · alta, edición y ficha',
+    'Una sección opcional en el formulario compartido (alta, edición y alta rápida desde Nueva orden): nombre y teléfono de otra persona a la que se le puede avisar. No es la «Persona de contacto» mayorista. La ficha lo muestra en la tarjeta Contacto.',
+    section('Editar cliente · 1440 px', [
+      fig('Antes · CLIENTES-UX-1A', 'before-editar-cliente-1440.png', 620, 400),
+      fig('Después · CLIENTES-UX-1B', 'after-editar-cliente-1440.png', 620, 400),
+    ])
+    + section('Ficha del cliente', [fig('Después · guardado', 'after-ficha-1440.png', 620, 380)]))
+
+  await lamina('04-recepcion-destinatario.png', 'Nueva orden · ¿A quién avisamos por WhatsApp?',
+    'Si el cliente tiene contacto para avisos, la recepción ofrece elegir; por defecto, el teléfono principal. La elección queda en el resumen y se guarda en la orden. Sin contacto, la recepción no cambia.',
+    section('Escritorio · 1440 px', [
+      fig('Antes', 'before-recepcion-cliente-1440.png', 620, 420),
+      fig('Después', 'after-recepcion-cliente-1440.png', 620, 420),
+    ])
+    + section('Celular · 390 px y resumen', [
+      fig('Antes · 390', 'before-recepcion-cliente-390.png', 240, 520),
+      fig('Después · 390', 'after-recepcion-cliente-390.png', 240, 520),
+      fig('Después · resumen 1440', 'after-recepcion-resumen-1440.png', 620, 520),
+    ]), 1600)
+
+  await lamina('05-orden-y-whatsapp.png', 'Orden · Avisos por WhatsApp y preview',
+    'La tarjeta Cliente dice a quién se avisa (rol, nombre y número) y permite cambiarlo. El preview de WhatsApp propone ese destinatario —«Para María Hija · Contacto alternativo»— y el número se sigue pudiendo corregir. No se envía nada automáticamente.',
+    section('Tarjeta Cliente', [
+      fig('Antes · 1440', 'before-orden-tarjeta-1440.png', 546, 300),
+      fig('Después · 1440', 'after-orden-tarjeta-1440.png', 546, 300),
+      fig('Después · 390', 'after-orden-390.png', 240, 520),
+    ])
+    + section('Preview de WhatsApp · 1440 px', [
+      fig('Antes', 'before-whatsapp-1440.png', 620, 560),
+      fig('Después', 'after-whatsapp-1440.png', 620, 560),
+    ]), 1500)
+}

@@ -52,6 +52,9 @@ describe('CUSTOMER-CREATION-PARITY-1A · cuerpo canónico', () => {
       'Tipo de cliente',
       'Datos principales',
       'Datos mayoristas',
+      // CLIENTES-UX-1B — contacto alternativo para avisos (no es «Persona de
+      // contacto», que es el dato mayorista de arriba).
+      'Contacto para avisos (opcional)',
       'Datos adicionales (opcional)',
     ])
     expect(screen.getByLabelText('Nombre completo')).toBeInTheDocument()

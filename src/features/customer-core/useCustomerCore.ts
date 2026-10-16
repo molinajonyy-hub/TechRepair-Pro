@@ -181,7 +181,7 @@ export function useCustomerCore(options: UseCustomerCoreOptions = {}): UseCustom
     attemptSubmit,
     reset,
     toCreatePayload: useCallback(() => toCreatePayload(values, customerTypeAccess), [values, customerTypeAccess]),
-    toUpdatePayload: useCallback(() => toUpdatePayload(values, customerTypeAccess), [values, customerTypeAccess]),
+    toUpdatePayload: useCallback(() => toUpdatePayload(values, customerTypeAccess, stored), [values, customerTypeAccess, stored]),
     fieldProps,
   }
 }

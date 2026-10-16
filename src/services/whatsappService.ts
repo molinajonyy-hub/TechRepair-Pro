@@ -270,9 +270,12 @@ export function buildOrderVars(order: any, settings: WhatsAppSettings): WhatsApp
   const customer = order.customer || {}
   const device   = order.device   || {}
 
-  // Primer nombre solamente
+  // Primer nombre solamente. CLIENTES-UX-1B — `{nombre}` saluda a quien
+  // RECIBE el mensaje (el contacto alternativo si la orden lo eligió);
+  // `{cliente}` y `{apellido}` siguen siendo los del titular.
   const fullName = customer.name || ''
-  const firstName = fullName.split(' ')[0] || fullName
+  const greetingName = order.notification_recipient?.name || fullName
+  const firstName = greetingName.split(' ')[0] || greetingName
   const lastName  = fullName.split(' ').slice(1).join(' ') || ''
 
   const total = order.total_cost || order.estimated_total || 0
@@ -585,7 +588,9 @@ export const whatsappService = {
       if (!settings.enabled) return { sent: false, reason: 'WhatsApp deshabilitado' }
       if (!settings.auto_send_enabled) return { sent: false, reason: 'Envío automático deshabilitado' }
 
-      const phone = order.customer?.phone
+      // CLIENTES-UX-1B — mismo destinatario que el preview: el contacto
+      // alternativo si la orden lo eligió, si no el teléfono del cliente.
+      const phone = order.notification_recipient?.phone || order.customer?.phone
       if (!phone) return { sent: false, reason: 'Cliente sin teléfono' }
 
       const templateKey = STATUS_TO_TEMPLATE_KEY[newStatus]
