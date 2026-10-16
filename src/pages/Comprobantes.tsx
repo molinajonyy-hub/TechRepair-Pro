@@ -11,6 +11,7 @@ import { useAuth } from '../contexts/AuthContext';
 import comprobanteService, { Comprobante } from '../services/comprobanteService';
 import { smartSearch } from '../utils/searchUtils';
 import { formatDisplayMessage } from '../utils/formatMessage';
+import { AppPageHeader } from '../ui';
 
 export default function ComprobantesPage() {
   const { businessId, user } = useAuth();
@@ -195,26 +196,22 @@ export default function ComprobantesPage() {
 
   return (
     <div className="page-shell">
-      {/* ── Encabezado ── */}
-      <div className="page-top">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
-          <div className="stat-icon" style={{ background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)' }}>
-            <Receipt size={20} style={{ color: '#818cf8' }} />
-          </div>
-          <div>
-            <h1 className="page-title">Comprobantes</h1>
-            <p className="page-subtitle">Facturas, remitos y notas de crédito</p>
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
-          <button onClick={cargarComprobantes} disabled={loading} className="btn btn-ghost btn-sm">
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Actualizar
+      {/* ── Encabezado ── BETA-UX-2: el patrón compartido. «Actualizar» pasa a
+          acción de página (mismo alto que la primaria, variante ghost): dentro
+          de una fila centrada un `btn-sm` quedaba de 33px junto a uno de 44. */}
+      <AppPageHeader
+        icon={<Receipt size={24} />}
+        title="Comprobantes"
+        description="Facturas, remitos y notas de crédito"
+        actions={<>
+          <button onClick={cargarComprobantes} disabled={loading} className="btn btn-ghost btn-page-action">
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Actualizar
           </button>
           <button data-testid="comprobantes-new-button" onClick={() => setShowModal(true)} disabled={loading} className="btn btn-primary btn-page-action">
             <Plus size={16} /> Nuevo Comprobante
           </button>
-        </div>
-      </div>
+        </>}
+      />
 
       {/* ── Stat Cards ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>

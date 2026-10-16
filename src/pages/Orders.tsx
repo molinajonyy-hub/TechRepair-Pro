@@ -12,7 +12,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { useOrderPrintSettings } from '../hooks/useOrderPrintSettings'
 import { buildOrderPrintTitle } from '../lib/printFilename'
-import { CompactList, OverflowMenu, type CompactListItem } from '../ui'
+import { AppPageHeader, CompactList, OverflowMenu, type CompactListItem } from '../ui'
 import { NewOrderIcon } from '../ui/icons'
 
 const getStatusStyle = (status: string) => {
@@ -291,12 +291,7 @@ export function Orders() {
   if (error) {
     return (
       <div>
-        <div className="page-hdr">
-          <div className="page-hdr-left">
-            <div className="page-hdr-icon"><ClipboardList size={22} /></div>
-            <div><h1 className="page-hdr-title">Órdenes de Trabajo</h1></div>
-          </div>
-        </div>
+        <AppPageHeader icon={<ClipboardList size={24} />} title="Órdenes de Trabajo" />
         <div className="alert-inline alert-error">{error}</div>
       </div>
     )
@@ -304,23 +299,21 @@ export function Orders() {
 
   return (
     <div className="mobile-list-page">
-      <div className="page-hdr">
-        <div className="page-hdr-left">
-          <div className="page-hdr-icon"><ClipboardList size={22} /></div>
-          <div>
-            <h1 className="page-hdr-title">Órdenes de Trabajo</h1>
-            <p className="page-hdr-subtitle">Gestiona todas las órdenes de reparación del taller</p>
-          </div>
-        </div>
-        <div className="page-hdr-right">
-          {/* BUTTON-SYSTEM-1A: acción de página. Mismo botón —variante, tamaño e
-              ícono— que «Nueva Orden» en Inicio. */}
+      {/* BETA-UX-2: la referencia visual del lote, ahora con el componente
+          compartido (mismo marcado `.page-hdr*` que antes). */}
+      <AppPageHeader
+        icon={<ClipboardList size={24} />}
+        title="Órdenes de Trabajo"
+        description="Gestiona todas las órdenes de reparación del taller"
+        actions={
+          /* BUTTON-SYSTEM-1A: acción de página. Mismo botón —variante, tamaño e
+             ícono— que «Nueva Orden» en Inicio. */
           <Link to="/orders/new" data-testid="orders-new-button" className="btn btn-primary btn-page-action" style={{ textDecoration: 'none' }}>
             <NewOrderIcon size={16} />
             Nueva Orden
           </Link>
-        </div>
-      </div>
+        }
+      />
 
       {/* BETA-UX-1D: los anchos mínimos de la barra pasaron a clases para que
           mobile pueda acomodarla (búsqueda de lado a lado, filtros de a dos). */}

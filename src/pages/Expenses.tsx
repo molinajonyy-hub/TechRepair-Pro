@@ -1001,18 +1001,19 @@ export function Expenses() {
 
   return (
     <div className="page-shell">
+      {/* BETA-UX-2: las tres acciones visibles son una categoría (acción de
+          página). «Nuevo Gasto» usa `danger`, la misma variante que «Registrar
+          gasto» en Inicio: es la misma acción. */}
       <AppPageHeader
-        icon={<ExpenseReceiptIcon size={20} />}
-        iconColor="var(--error-subtle)"
+        icon={<ExpenseReceiptIcon size={24} />}
+        tone="danger"
         title="Gastos"
         description="Control de egresos, facturas y compras del negocio"
-        actions={
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <AppButton variant="ghost" size="sm" leftIcon={<RefreshIcon size={14} />} onClick={() => { loadExpenses(); loadCategories() }}>Actualizar</AppButton>
-            <AppButton variant="secondary" size="sm" leftIcon={<ChevronDown size={14} />} onClick={() => setShowCategories(v => !v)}>Categorías</AppButton>
-            <AppButton data-testid="expense-new-button" variant="red" size="sm" leftIcon={<AddIcon size={14} />} onClick={() => setShowModal(true)}>Nuevo Gasto</AppButton>
-          </div>
-        }
+        actions={<>
+          <AppButton variant="ghost" size="page" leftIcon={<RefreshIcon size={16} />} onClick={() => { loadExpenses(); loadCategories() }}>Actualizar</AppButton>
+          <AppButton variant="secondary" size="page" leftIcon={<ChevronDown size={16} />} onClick={() => setShowCategories(v => !v)}>Categorías</AppButton>
+          <AppButton data-testid="expense-new-button" variant="danger" size="page" leftIcon={<AddIcon size={16} />} onClick={() => setShowModal(true)}>Nuevo Gasto</AppButton>
+        </>}
       />
 
       {allAlerts.length > 0 && (

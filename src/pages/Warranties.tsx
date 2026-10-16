@@ -33,6 +33,7 @@ import { WarrantyPrintLayout } from '../components/warranties/WarrantyPrintLayou
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 import { fmtDate as _fmtDateUtil } from '../utils/dateUtils'
+import { AppPageHeader } from '../ui'
 function fmtDate(iso?: string | null): string {
   if (!iso) return '-'
   try { return _fmtDateUtil(iso) } catch { return iso }
@@ -269,22 +270,19 @@ export function Warranties() {
 
   return (
     <div>
-      {/* Header */}
-      <div className="page-hdr">
-        <div className="page-hdr-left">
-          <div className="page-hdr-icon green"><ShieldCheck size={22} /></div>
-          <div>
-            <h1 className="page-hdr-title">Garantías</h1>
-            <p className="page-hdr-subtitle">Gestiona las garantías entregadas a clientes</p>
-          </div>
-        </div>
-        <div className="page-hdr-right">
+      {/* Header — BETA-UX-2: patrón compartido */}
+      <AppPageHeader
+        icon={<ShieldCheck size={24} />}
+        tone="success"
+        title="Garantías"
+        description="Gestiona las garantías entregadas a clientes"
+        actions={
           <button onClick={openCreate} className="btn btn-primary btn-page-action">
             <Plus size={16} />
             Nueva garantía
           </button>
-        </div>
-      </div>
+        }
+      />
 
       {/* Stats row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem', marginBottom: '1rem' }}>

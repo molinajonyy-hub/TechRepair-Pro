@@ -43,6 +43,12 @@ export { AppCard, AppStatCard }                from './components/AppCard'
 
 // ── Page structure ────────────────────────────────────────────────────────────
 export { AppPageHeader, AppSectionHeader, AppToolbar } from './components/AppPageHeader'
+export type { PageHeaderTone }                 from './components/AppPageHeader'
+
+// ── Stepper ───────────────────────────────────────────────────────────────────
+// Progreso de un flujo por pasos con nombre (recepción de equipos).
+export { AppStepper }                          from './components/AppStepper'
+export type { AppStepperProps }                from './components/AppStepper'
 
 // ── Table ─────────────────────────────────────────────────────────────────────
 export { AppTable, TableActions }              from './components/AppTable'

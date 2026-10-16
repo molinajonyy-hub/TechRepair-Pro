@@ -16,6 +16,7 @@ import { currencyService } from '../services/currencyService'
 import { formatDisplayMessage } from '../utils/formatMessage'
 import { showToast } from '../utils/toast'
 import { businessDayStartInstant, businessToday } from '../lib/businessDate'
+import { AppPageHeader } from '../ui'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -545,26 +546,25 @@ export function CajaPage() {
   const isLoading = loading || activeCaja === undefined
 
   return (
-    <div style={{ padding: '1.5rem', maxWidth: '1100px', margin: '0 auto' }}>
+    // BETA-UX-2: sin padding propio (el layout ya pone el margen de página;
+    // con 1.5rem encima, Caja quedaba 24px más abajo que Órdenes) y alineada a
+    // la izquierda: centrada, su encabezado arrancaba en otra columna que el
+    // del resto de las pantallas en cuanto el layout pasaba de 1100px.
+    <div style={{ maxWidth: '1100px' }}>
 
-      {/* ── Header ── */}
-      <div className="page-hdr">
-        <div className="page-hdr-left">
-          <div className="page-hdr-icon green"><Wallet size={22} /></div>
-          <div>
-            <h1 className="page-hdr-title">Caja</h1>
-            <p data-testid="caja-status" className="page-hdr-subtitle">
-              {activeCaja
-                ? `Abierta ${fmtDateLong(activeCaja.opened_at)}`
-                : activeCaja === null ? 'Sin caja abierta' : 'Cargando...'}
-            </p>
-          </div>
-        </div>
-
-        {activeCaja && (
-          <div className="page-hdr-right">
-            <button onClick={loadCaja} className="btn btn-ghost btn-sm"><RefreshCw size={14} /> Actualizar</button>
-            <button data-testid="caja-add-movement-button" onClick={() => setShowAddMov(true)} className="btn btn-indigo btn-sm btn-lift"><Plus size={15} /> Movimiento</button>
+      {/* ── Header ── BETA-UX-2: patrón compartido. Las tres acciones visibles
+          pasan a acción de página (44px); la jerarquía la da la variante. */}
+      <AppPageHeader
+        icon={<Wallet size={24} />}
+        tone="success"
+        title="Caja"
+        descriptionTestId="caja-status"
+        description={activeCaja
+          ? `Abierta ${fmtDateLong(activeCaja.opened_at)}`
+          : activeCaja === null ? 'Sin caja abierta' : 'Cargando...'}
+        actions={activeCaja ? <>
+            <button onClick={loadCaja} className="btn btn-ghost btn-page-action"><RefreshCw size={16} /> Actualizar</button>
+            <button data-testid="caja-add-movement-button" onClick={() => setShowAddMov(true)} className="btn btn-primary btn-page-action"><Plus size={16} /> Movimiento</button>
             <button onClick={() => {
               // Pre-fill con montos esperados para que el cierre no quede en null/0
               if (totals) {
@@ -576,10 +576,9 @@ export function CajaPage() {
                 })
               }
               setShowClose(true)
-            }} className="btn btn-danger btn-sm btn-lift"><Lock size={14} /> Cerrar Caja</button>
-          </div>
-        )}
-      </div>
+            }} className="btn btn-danger btn-page-action"><Lock size={16} /> Cerrar Caja</button>
+        </> : undefined}
+      />
 
       {error && (
         <div className="alert-inline alert-error" style={{ marginBottom: '1rem' }}>

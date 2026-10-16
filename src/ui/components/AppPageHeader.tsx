@@ -1,73 +1,84 @@
 // ─── AppPageHeader ────────────────────────────────────────────────────────────
-// Encabezado estándar de página con título, descripción y acciones.
-// Reemplaza el patrón manual de .page-top + .page-title que cada página repite.
+// BETA-UX-2 — EL encabezado de página. Un solo patrón para todas las pantallas
+// internas: ícono del módulo, título, subtítulo y acciones.
+//
+// Emite la familia de clases `.page-hdr*` (la de Órdenes de Trabajo, la
+// referencia visual del lote). Las pantallas que todavía escriben ese marcado a
+// mano se ven idénticas porque comparten las mismas reglas de index.css
+// («BETA-UX-2 · Encabezado de página»); migrarlas a este componente no cambia
+// un píxel. Antes este componente pintaba otra cosa (`.page-top`, ícono de 40px
+// con estilos en línea) y había tres encabezados distintos en la app.
+//
+// Las medidas (caja del ícono, glifo, tipografía, separación con el contenido)
+// las deciden los tokens `--page-header-*` del CSS, no cada pantalla: el tamaño
+// del ícono que se le pase acá se normaliza.
+
+/**
+ * Tono semántico del ícono. Índigo es la identidad de gestión; los demás sólo
+ * cuando el módulo ES ese significado (caja/garantías = éxito, gastos = egreso).
+ */
+export type PageHeaderTone = 'accent' | 'success' | 'warning' | 'danger' | 'info'
 
 interface AppPageHeaderProps {
-  /** Icono del módulo (lucide-react o SVG inline) */
+  /** Icono del módulo (lucide-react o SVG inline). Es decorativo: el título nombra la pantalla. */
   icon?: React.ReactNode
-  /** Color de fondo del contenedor del icono. Default: indigo */
-  iconColor?: string
+  /** Tono del ícono. Default: índigo (`accent`). */
+  tone?: PageHeaderTone
   title: string
-  description?: string
-  /** Acciones que van a la derecha (AppButton components) */
+  description?: React.ReactNode
+  /** `data-testid` del subtítulo, para las pantallas que lo usan como estado. */
+  descriptionTestId?: string
+  /** Acciones que van a la derecha (AppButton size="page"). */
   actions?: React.ReactNode
   /**
-   * Clase para el contenedor de `actions`. Sin ella el contenedor conserva su
-   * estilo de siempre (una fila que no se achica). Con ella el layout lo decide
-   * esa clase: es lo que permite que un grupo de acciones envuelva o cambie de
-   * composición en mobile, que un `style` en línea no deja pisar desde el CSS.
+   * Clase extra para el contenedor de `actions` (`.page-hdr-right`). Permite
+   * que una pantalla recomponga sus acciones en mobile desde el CSS, cosa que
+   * un `style` en línea no deja pisar.
    */
   actionsClassName?: string
   /** Breadcrumb opcional arriba del título */
   breadcrumb?: React.ReactNode
   /** Contador o badge junto al título */
   badge?: React.ReactNode
+  /** Clase extra para el contenedor (`.page-hdr`). */
+  className?: string
+}
+
+const TONE_CLASS: Record<PageHeaderTone, string> = {
+  accent: '',
+  success: 'page-hdr-icon--success',
+  warning: 'page-hdr-icon--warning',
+  danger: 'page-hdr-icon--danger',
+  info: 'page-hdr-icon--info',
 }
 
 export function AppPageHeader({
-  icon, iconColor, title, description, actions, actionsClassName, breadcrumb, badge,
+  icon, tone = 'accent', title, description, descriptionTestId, actions, actionsClassName,
+  breadcrumb, badge, className,
 }: AppPageHeaderProps) {
-  const iconBg = iconColor || 'var(--accent-primary-subtle)'
-  const iconBorder = 'var(--accent-primary-light)'
-
   return (
-    <div className="page-top">
-      {/* Breadcrumb */}
-      {breadcrumb && (
-        <div style={{ width: '100%', marginBottom: '0.25rem' }}>
-          {breadcrumb}
-        </div>
-      )}
+    <div className={['page-hdr', className].filter(Boolean).join(' ')}>
+      {breadcrumb && <div className="page-hdr-breadcrumb">{breadcrumb}</div>}
 
-      {/* Título + icono */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', flex: 1 }}>
+      <div className="page-hdr-left">
         {icon && (
-          <div style={{
-            width: 40, height: 40, borderRadius: 'var(--radius-lg)',
-            background: iconBg, border: `1px solid ${iconBorder}`,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            flexShrink: 0, color: 'var(--accent-primary)',
-          }}>
+          <div className={['page-hdr-icon', TONE_CLASS[tone]].filter(Boolean).join(' ')} aria-hidden="true">
             {icon}
           </div>
         )}
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <h1 className="page-title">{title}</h1>
+        <div className="page-hdr-text">
+          <div className="page-hdr-heading">
+            <h1 className="page-hdr-title">{title}</h1>
             {badge}
           </div>
           {description && (
-            <p className="page-subtitle">{description}</p>
+            <p className="page-hdr-subtitle" data-testid={descriptionTestId}>{description}</p>
           )}
         </div>
       </div>
 
-      {/* Acciones */}
       {actions && (
-        <div
-          className={actionsClassName}
-          style={actionsClassName ? undefined : { display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}
-        >
+        <div className={['page-hdr-right', actionsClassName].filter(Boolean).join(' ')}>
           {actions}
         </div>
       )}

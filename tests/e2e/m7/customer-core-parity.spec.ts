@@ -246,8 +246,8 @@ test.describe('@customer-core CUSTOMER-CREATION-PARITY-1A · responsive y tema',
         await expectReachable(fullCta)
         const fullActionPosition = await page.getByTestId('mobile-action-bar').evaluate((element) => getComputedStyle(element).position)
         expect(fullActionPosition).toBe(width < 1024 ? 'fixed' : 'static')
-        // PRE-BETA-3A-2: el header es AppPageHeader (`.page-top`), no `.page-hdr`.
-        await expectTouchTargets(page.locator('.customer-create-page .customer-create-fields input, .customer-create-page .customer-create-fields textarea, .customer-create-page .customer-create-fields button, .customer-create-page .page-top .btn, .customer-create-page [data-testid="customer-save-button"]'))
+        // BETA-UX-2: AppPageHeader emite el encabezado compartido (`.page-hdr`).
+        await expectTouchTargets(page.locator('.customer-create-page .customer-create-fields input, .customer-create-page .customer-create-fields textarea, .customer-create-page .customer-create-fields button, .customer-create-page .page-hdr .btn, .customer-create-page [data-testid="customer-save-button"]'))
 
         await page.goto('/orders/new')
         const trigger = page.getByRole('button', { name: 'Crear cliente rápido' })

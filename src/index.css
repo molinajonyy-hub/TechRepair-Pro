@@ -950,30 +950,235 @@ table, td, th { transition: color 0.15s ease; }
 .data-table .empty-row td { text-align: center; border: none; padding: 0; }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   PAGE HEADER — encabezado de página consistente
+   BETA-UX-2 · ENCABEZADO DE PÁGINA — un solo patrón
+   El componente es `AppPageHeader` (src/ui). Las pantallas que todavía escriben
+   el marcado `.page-hdr*` a mano usan estas mismas reglas y se ven idénticas.
+
+   Medido antes del lote (docs/beta-ux-2): convivían tres encabezados —ícono
+   de 44px con gradiente, de 40px plano y de 36px (`.stat-icon`)—, glifos de 20
+   y 22px, subtítulos de 12,8 y 14px (uno en `--text-subtle`, 2,6:1 sobre el
+   fondo claro) y dos distancias a la barra superior (24 y 48px).
+
+   El ritmo vertical vive en tokens: la barra superior deja 24px (TopHeader),
+   el layout pone el margen lateral y las páginas no suman padding propio
+   (`.page-shell` quedó en 0). Referencia de densidad: Órdenes de Trabajo.
    ══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --page-header-gap: 1.5rem;        /* encabezado → primer bloque */
+  --page-block-gap: 1.25rem;        /* entre bloques: filtros, tarjetas, listas */
+  --page-header-icon: 48px;
+  --page-header-glyph: 24px;
+  --page-header-icon-radius: 14px;
+}
 
 .page-hdr {
   display: flex; align-items: center; justify-content: space-between;
-  flex-wrap: wrap; gap: 1rem; margin-bottom: 1.75rem;
+  flex-wrap: wrap; gap: 0.75rem 1.25rem;
+  margin-bottom: var(--page-header-gap);
 }
-.page-hdr-left  { display: flex; align-items: center; gap: 0.875rem; }
-.page-hdr-right { display: flex; align-items: center; gap: 0.625rem; flex-wrap: wrap; }
+.page-hdr-breadcrumb { flex: 1 1 100%; }
+.page-hdr-left  { display: flex; align-items: center; gap: 1rem; min-width: 0; }
+.page-hdr-text  { display: flex; flex-direction: column; gap: 0.125rem; min-width: 0; }
+.page-hdr-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 0.25rem 0.5rem; min-width: 0; }
+.page-hdr-right { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 
+/* Ícono del módulo: tinte plano del tono (sin gradiente), aro de 1px y glifo
+   normalizado. Un `size` distinto en el JSX (20, 22) no cambia lo pintado. */
 .page-hdr-icon {
-  width: 44px; height: 44px; border-radius: 0.75rem; flex-shrink: 0;
-  background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(139,92,246,0.2));
-  border: 1px solid rgba(99,102,241,0.3);
+  --page-icon-bg: var(--accent-primary-light);
+  --page-icon-ring: rgba(99, 102, 241, 0.28);
+  --page-icon-fg: var(--indigo-400);
+  width: var(--page-header-icon); height: var(--page-header-icon);
+  border-radius: var(--page-header-icon-radius); flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
-  color: #818cf8;
+  background: var(--page-icon-bg);
+  box-shadow: inset 0 0 0 1px var(--page-icon-ring);
+  color: var(--page-icon-fg);
 }
-.page-hdr-icon.green  { background: linear-gradient(135deg,rgba(34,197,94,0.15),rgba(16,185,129,0.15)); border-color: rgba(34,197,94,0.3);  color: #34d399; }
-.page-hdr-icon.amber  { background: linear-gradient(135deg,rgba(245,158,11,0.15),rgba(251,191,36,0.15)); border-color: rgba(245,158,11,0.3); color: #fbbf24; }
-.page-hdr-icon.red    { background: linear-gradient(135deg,rgba(239,68,68,0.15),rgba(248,113,113,0.15));  border-color: rgba(239,68,68,0.3);  color: #f87171; }
-.page-hdr-icon.cyan   { background: linear-gradient(135deg,rgba(6,182,212,0.15),rgba(34,211,238,0.15));   border-color: rgba(6,182,212,0.3);  color: #22d3ee; }
+[data-theme="light"] .page-hdr-icon {
+  --page-icon-ring: rgba(79, 70, 229, 0.2);
+  --page-icon-fg: var(--indigo-600);
+}
+.page-hdr-icon svg { width: var(--page-header-glyph); height: var(--page-header-glyph); flex-shrink: 0; }
+.page-hdr-icon--success, .page-hdr-icon.green {
+  --page-icon-bg: var(--success-light); --page-icon-ring: var(--success-border); --page-icon-fg: var(--success);
+}
+.page-hdr-icon--warning, .page-hdr-icon.amber {
+  --page-icon-bg: var(--warning-light); --page-icon-ring: var(--warning-border); --page-icon-fg: var(--warning);
+}
+.page-hdr-icon--danger, .page-hdr-icon.red {
+  --page-icon-bg: var(--error-light); --page-icon-ring: var(--error-border); --page-icon-fg: var(--error);
+}
+.page-hdr-icon--info, .page-hdr-icon.cyan {
+  --page-icon-bg: var(--info-light); --page-icon-ring: var(--info-border); --page-icon-fg: var(--info);
+}
 
-.page-hdr-title    { margin: 0; font-size: 1.5rem; font-weight: 800; color: var(--text-primary); letter-spacing: -0.025em; line-height: 1.2; }
-.page-hdr-subtitle { margin: 0; font-size: 0.8rem; color: var(--text-muted); margin-top: 0.125rem; }
+.page-hdr-title {
+  margin: 0; font-size: 1.5rem; font-weight: 800; line-height: 1.2;
+  letter-spacing: -0.02em; color: var(--text-primary); overflow-wrap: anywhere;
+}
+/* `--text-secondary`: AA sobre el fondo del shell en los dos temas (9,4:1 en
+   claro). `--text-muted` daba 4,3:1 sobre el degradé claro y `--text-subtle`,
+   2,6:1. La jerarquía con el título la dan el tamaño y el peso. */
+.page-hdr-subtitle { margin: 0; font-size: 0.875rem; line-height: 1.45; color: var(--text-secondary); }
+
+@media (max-width: 767px) {
+  :root {
+    --page-header-gap: 1rem;
+    --page-block-gap: 1rem;
+    --page-header-icon: 44px;
+    --page-header-glyph: 22px;
+    --page-header-icon-radius: 12px;
+  }
+  .page-hdr-left { gap: 0.75rem; }
+  .page-hdr-title { font-size: 1.375rem; }
+  .page-hdr-subtitle { font-size: 0.8125rem; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   BETA-UX-2 · CONFIGURACIÓN — navegación agrupada (SettingsNav)
+   ≥1024: columna lateral fija + sección. <1024: lista agrupada estilo iOS que
+   abre la sección a pantalla completa; `.settings-page[data-view]` elige qué
+   se ve. La selección no depende sólo del color: peso 700 + barra lateral.
+   ══════════════════════════════════════════════════════════════════════════ */
+/* Alineada a la izquierda, como el resto: el encabezado arranca en la misma
+   columna en todas las pantallas aunque el layout sea más ancho que 1200px. */
+.settings-page { max-width: 1200px; }
+.settings-layout {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+.settings-nav {
+  position: sticky; top: 1rem;
+  display: flex; flex-direction: column; gap: 0.875rem;
+  padding: 0.75rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+}
+.settings-nav__group-label {
+  margin: 0; padding: 0.125rem 0.625rem 0.375rem;
+  font-size: 0.6875rem; font-weight: 700; line-height: 1.3;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.settings-nav__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.settings-nav__item {
+  position: relative; width: 100%;
+  display: flex; align-items: center; gap: 0.625rem;
+  min-height: 40px; padding: 0.5rem 0.625rem;
+  border: 0; border-radius: var(--radius-md);
+  background: transparent; color: var(--text-secondary);
+  font-size: 0.875rem; font-weight: 500; line-height: 1.3; text-align: left;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+.settings-nav__item:hover { background: var(--bg-hover); color: var(--text-primary); }
+.settings-nav__item:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 1px; }
+.settings-nav__item.is-active { background: var(--accent-primary-subtle); color: var(--text-primary); font-weight: 700; }
+.settings-nav__item.is-active::before {
+  content: ''; position: absolute; left: 0; top: 8px; bottom: 8px;
+  width: 3px; border-radius: 3px; background: var(--accent-primary);
+}
+.settings-nav__icon { display: inline-flex; flex-shrink: 0; color: var(--text-muted); }
+.settings-nav__item.is-active .settings-nav__icon { color: var(--accent-primary); }
+.settings-nav__label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.settings-nav__chevron { display: none; flex-shrink: 0; color: var(--text-muted); }
+.settings-content { min-width: 0; outline: none; }
+.settings-content__bar { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-nav__item { transition: none; }
+}
+
+@media (max-width: 1023px) {
+  .settings-layout { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .settings-page[data-view="list"] .settings-content { display: none; }
+  .settings-page[data-view="section"] .settings-nav { display: none; }
+
+  .settings-nav { position: static; padding: 0; gap: 1.25rem; background: transparent; border: 0; border-radius: 0; }
+  .settings-nav__group-label { padding: 0 0.25rem 0.5rem; }
+  .settings-nav__list {
+    gap: 0; overflow: hidden;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+  }
+  .settings-nav__list > li + li { border-top: 1px solid var(--border-subtle); }
+  .settings-nav__item {
+    min-height: 52px; padding: 0.75rem 1rem; border-radius: 0;
+    font-size: 1rem; color: var(--text-primary);
+  }
+  /* En la lista nada está «elegido»: es un menú, no un estado. */
+  .settings-nav__item.is-active { background: transparent; font-weight: 500; }
+  .settings-nav__item.is-active::before { display: none; }
+  .settings-nav__item.is-active .settings-nav__icon { color: var(--text-muted); }
+  .settings-nav__chevron { display: inline-flex; }
+
+  .settings-content__bar { display: flex; align-items: center; gap: 0.5rem; margin: -0.25rem 0 1rem; min-width: 0; }
+  .settings-back { min-height: var(--mobile-touch-target); padding-inline: 0.5rem 0.75rem; gap: 0.25rem; flex-shrink: 0; }
+  .settings-content__current {
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-weight: 700; color: var(--text-primary);
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   BETA-UX-2 · AppStepper — progreso de un flujo por pasos con nombre
+   Reemplaza la barra de progreso de la recepción (gradiente índigo→cyan, sin
+   nombres de paso). Hecho = check, actual = número sobre índigo + peso 700,
+   pendiente = número sobre neutro: el estado no depende sólo del color.
+   ══════════════════════════════════════════════════════════════════════════ */
+.app-stepper {
+  display: flex; align-items: flex-start; gap: 0;
+  margin: 0 0 1rem; padding: 0; list-style: none;
+  counter-reset: none;
+}
+.app-stepper__step { position: relative; flex: 1 1 0; min-width: 0; display: flex; }
+/* Conector: del centro de un marcador al siguiente. */
+.app-stepper__step + .app-stepper__step::before {
+  content: ''; position: absolute; top: 21px; right: calc(50% + 18px); left: calc(-50% + 18px);
+  height: 2px; border-radius: 2px; background: var(--border-strong);
+}
+.app-stepper__step[data-state="done"] + .app-stepper__step::before { background: var(--accent-primary); }
+.app-stepper__target {
+  flex: 1; min-width: 0; min-height: 44px;
+  display: flex; flex-direction: column; align-items: center; gap: 0.375rem;
+  padding: 0.25rem 0.125rem; border: 0; border-radius: var(--radius-md);
+  background: transparent; color: var(--text-secondary); font: inherit; text-align: center;
+}
+button.app-stepper__target { cursor: pointer; }
+button.app-stepper__target:hover .app-stepper__label { color: var(--text-primary); text-decoration: underline; text-underline-offset: 3px; }
+button.app-stepper__target:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.app-stepper__marker {
+  width: 28px; height: 28px; margin-top: 3px; flex-shrink: 0;
+  display: grid; place-items: center;
+  border-radius: 999px; border: 2px solid var(--border-strong);
+  background: var(--bg-card-solid); color: var(--text-secondary);
+  font-size: 0.8125rem; font-weight: 700; font-variant-numeric: tabular-nums;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+.app-stepper__label {
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 0.8125rem; font-weight: 500; line-height: 1.2;
+}
+.app-stepper__step[data-state="done"] .app-stepper__marker {
+  border-color: var(--accent-primary); background: var(--accent-primary-light); color: var(--accent-primary);
+}
+.app-stepper__step[data-state="current"] .app-stepper__marker {
+  border-color: var(--indigo-600); background: var(--indigo-600); color: var(--text-on-accent);
+}
+.app-stepper__step[data-state="current"] .app-stepper__label { color: var(--text-primary); font-weight: 700; }
+@media (prefers-reduced-motion: reduce) {
+  .app-stepper__marker { transition: none; }
+}
+@media (max-width: 359px) {
+  /* A 320px cuatro rótulos no entran: queda el del paso actual. */
+  .app-stepper__step:not([data-state="current"]) .app-stepper__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
 
 /* ══════════════════════════════════════════════════════════════════════════
    MODAL — overlay y card estándar
@@ -1489,12 +1694,37 @@ table { width: 100%; border-collapse: collapse; }
 
 /* MOBILE-2A · recepción de equipos */
 .intake-page { max-width: 860px; margin: 0 auto; padding-bottom: 1rem; }
-.intake-header { display:flex; align-items:center; gap:.75rem; margin-bottom:.75rem; }
-.intake-header h1 { margin:0; font-size:clamp(1.35rem,4vw,1.8rem); outline:none; }
-.intake-eyebrow { margin:0 0 .15rem; color:var(--text-subtle); font-size:.75rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em; }
-.intake-progress { height:6px; overflow:hidden; border-radius:999px; background:var(--border-subtle); margin-bottom:1rem; }
-.intake-progress span { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,var(--accent-primary),#22d3ee); transition:width .2s ease; }
+/* BETA-UX-2: el título usa la escala del encabezado de página (`.page-hdr-title`)
+   y el eyebrow sale de `--text-subtle` (2,6:1 sobre el fondo claro). La barra
+   de progreso (`.intake-progress`) se reemplazó por `AppStepper`. */
+.intake-header { display:flex; align-items:center; gap:.75rem; margin-bottom:1rem; }
+.intake-header h1 { margin:0; font-size:1.5rem; font-weight:800; line-height:1.2; letter-spacing:-0.02em; color:var(--text-primary); outline:none; }
+.intake-eyebrow { margin:0 0 .15rem; color:var(--text-secondary); font-size:.75rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em; }
+.intake-exit { min-width:44px; min-height:44px; padding:0; justify-content:center; flex-shrink:0; }
 .intake-step-card .card-body { display:flex; flex-direction:column; gap:1rem; }
+/* Un paso puede tener más de una sección: cada una es su tarjeta. */
+.intake-step-card + .intake-step-card { margin-top:var(--page-block-gap); }
+.intake-section-title { margin:0; font-size:1rem; font-weight:700; letter-spacing:-0.01em; color:var(--text-primary); }
+/* La leyenda de un grupo se lee como una etiqueta de campo, no con el 1.5rem de Bootstrap. */
+.intake-step-card fieldset { margin:0; padding:0; border:0; min-width:0; }
+.intake-step-card legend { float:none; width:auto; margin:0 0 .5rem; padding:0; font-size:13px; font-weight:600; line-height:1.3; color:var(--text-secondary); }
+.intake-id-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
+/* Ayuda del acceso: aviso suave, nunca un error. Ícono + texto, no sólo color. */
+.intake-access-notice { display:flex; align-items:flex-start; gap:.5rem; margin:0; padding:.7rem .8rem; border-radius:var(--radius-md); font-size:.875rem; line-height:1.45; color:var(--text-primary); border:1px solid var(--info-border); background:var(--info-subtle); }
+.intake-access-notice svg { flex-shrink:0; margin-top:.15rem; color:var(--info); }
+.intake-access-notice[data-level="warning"] { border-color:var(--warning-border); background:var(--warning-subtle); }
+.intake-access-notice[data-level="warning"] svg { color:var(--warning); }
+/* Checklist plegable (`<details>`): el resumen es la fila táctil completa. */
+.intake-disclosure__summary { display:flex; align-items:center; gap:.75rem; min-height:56px; padding:.75rem 1.25rem; cursor:pointer; list-style:none; color:var(--text-primary); }
+.intake-disclosure__summary::-webkit-details-marker { display:none; }
+.intake-disclosure__summary:focus-visible { outline:2px solid var(--accent-primary); outline-offset:-2px; }
+.intake-disclosure__title { flex:1; min-width:0; font-weight:700; }
+.intake-disclosure__title small { font-weight:500; color:var(--text-secondary); }
+.intake-disclosure__meta { font-size:.8125rem; color:var(--text-secondary); white-space:nowrap; font-variant-numeric:tabular-nums; }
+.intake-disclosure__chevron { flex-shrink:0; color:var(--text-secondary); transition:transform .15s ease; }
+.intake-disclosure[open] .intake-disclosure__chevron { transform:rotate(90deg); }
+.intake-disclosure[open] .intake-disclosure__summary { border-bottom:1px solid var(--border-subtle); }
+@media (prefers-reduced-motion: reduce) { .intake-disclosure__chevron { transition:none; } }
 .intake-customer-list { display:flex; flex-direction:column; gap:.5rem; max-height:42dvh; overflow:auto; }
 .intake-customer-list button { min-height:56px; padding:.7rem .8rem; text-align:left; border:1px solid var(--border-subtle); border-radius:var(--radius-md); background:var(--bg-card); color:var(--text-primary); display:grid; grid-template-columns:1fr auto; }
 .intake-customer-list button small { grid-column:1; color:var(--text-subtle); }
@@ -1531,11 +1761,36 @@ table { width: 100%; border-collapse: collapse; }
 .intake-pattern button.is-selected { border-color:var(--accent-primary); background:var(--accent-primary); }
 .intake-summary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.75rem; }
 .intake-summary section { padding:.8rem; border:1px solid var(--border-subtle); border-radius:var(--radius-md); }
-.intake-summary section>div { display:flex; justify-content:space-between; gap:.5rem; }
-.intake-summary h2 { margin:0; font-size:.86rem; }
-.intake-summary button { border:0; background:none; color:var(--accent-primary); }
+.intake-summary section>div { display:flex; align-items:center; justify-content:space-between; gap:.5rem; }
+.intake-summary h3 { margin:0; font-size:.86rem; font-weight:700; color:var(--text-primary); }
+.intake-summary button { min-height:32px; padding:0 .25rem; border:0; background:none; color:var(--accent-primary); font-weight:600; }
 .intake-summary p { margin:.4rem 0 0; color:var(--text-secondary); overflow-wrap:anywhere; }
 .intake-desktop-actions { display:flex; justify-content:space-between; gap:1rem; margin-top:1rem; }
+
+/* BETA-UX-2 · hotfix — «Acceso del equipo» revelado.
+   Un patrón legible se ve como grilla 3×3 con el trazo (PatternPreview), no
+   como «Patrón: 1 → 4 → 7». Uno de formato anterior que no puede leerse con
+   certeza NO se dibuja: aviso ámbar con ícono, texto y CTA. Sólo tokens. */
+.device-access-reveal { display:flex; align-items:center; gap:1rem; padding:.875rem 1rem; border:1px solid var(--border-color); border-radius:var(--radius-lg); background:var(--bg-tertiary); }
+.device-access-reveal__info { display:flex; flex-direction:column; gap:.25rem; min-width:0; }
+.device-access-reveal__title { margin:0; font-size:.9375rem; font-weight:700; color:var(--text-primary); }
+.device-access-reveal__meta { margin:0; font-size:.8125rem; line-height:1.4; color:var(--text-secondary); }
+.device-access-reveal__secret { margin:0; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:1.25rem; font-weight:700; letter-spacing:.12em; color:var(--text-primary); overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
+.device-access-legacy { display:flex; align-items:flex-start; gap:.75rem; padding:.875rem 1rem; border:1px solid var(--warning-border); border-radius:var(--radius-lg); background:var(--warning-subtle); }
+.device-access-legacy > svg { flex-shrink:0; margin-top:.125rem; color:var(--warning); }
+.device-access-legacy__title { margin:0; font-size:.9375rem; font-weight:700; color:var(--text-primary); }
+.device-access-legacy__body { margin:.25rem 0 .75rem; font-size:.875rem; line-height:1.45; color:var(--text-secondary); }
+
+.pattern-preview { width:120px; height:120px; flex-shrink:0; overflow:visible; }
+.pattern-preview__surface { fill:var(--bg-card-solid); stroke:var(--border-color); }
+.pattern-preview__dot { fill:var(--text-subtle); opacity:.55; }
+.pattern-preview__line { fill:none; stroke:var(--indigo-600); stroke-width:5; stroke-linecap:round; stroke-linejoin:round; opacity:.5; }
+.pattern-preview__node { fill:var(--indigo-600); }
+.pattern-preview__order { fill:var(--text-on-accent); font-size:10px; font-weight:800; font-family:inherit; }
+.pattern-preview__start { fill:none; stroke:var(--indigo-600); stroke-width:2; }
+@media (max-width: 359px) {
+  .device-access-reveal { flex-direction:column; align-items:flex-start; }
+}
 .intake-scanner { display:flex; min-height:55dvh; flex-direction:column; align-items:center; justify-content:center; gap:1rem; text-align:center; }
 .intake-scanner video { width:100%; max-height:55dvh; border-radius:var(--radius-lg); background:#020617; }
 /* El video ocupa lugar recién cuando hay imagen: si no, deja un rectángulo
@@ -1610,12 +1865,24 @@ body.app-modal-open .mobile-bottom-nav { visibility:hidden; pointer-events:none;
   .intake-desktop-actions { display:none; }
   .intake-photo-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
   .intake-summary { grid-template-columns:1fr; }
-  .intake-choice-grid { grid-template-columns:1fr; }
+  .intake-id-grid { grid-template-columns:minmax(0,1fr); }
+  .intake-header h1 { font-size:1.375rem; }
+  .intake-disclosure__summary { padding:.75rem 1rem; }
+  /* BETA-UX-2: dos columnas también en el celular (el acceso eran seis
+     opciones apiladas, ~400px de alto); a una sola por debajo de 360px. La
+     ayuda de cada opción se oculta acá: con ella las tarjetas quedaban de
+     alturas distintas y el título ya dice qué es cada una. Se oculta a la
+     vista, no al lector de pantalla: sigue en el nombre accesible del botón. */
+  .intake-choice { position:relative; min-height:52px; justify-content:center; }
+  .intake-choice small { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
   /* A 390 px, «No probado» en cuatro columnas queda a ~80 px por opción y se
      parte en tres líneas. Etiqueta arriba y 2×2 abajo mantiene el target de
      44 px con el texto en una sola línea. */
   .intake-check-row { grid-template-columns:minmax(0,1fr); gap:.4rem; padding:.55rem 0; }
   .intake-check-seg { grid-template-columns:repeat(2,minmax(0,1fr)); gap:.4rem; }
+}
+@media (max-width: 359px) {
+  .intake-choice-grid { grid-template-columns:1fr; }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -1893,9 +2160,12 @@ tbody tr:hover td {
 }
 
 /* ── Page layout helpers ── */
-.page-shell  { padding: 1.5rem 2rem; }
+/* BETA-UX-2 — sin padding propio: `.main-layout-inner` (MainLayout) ya pone el
+   margen de página en cada ancho. Con 1.5rem 2rem encima, nueve pantallas
+   quedaban 24px más abajo y 64px más angostas que Órdenes o Clientes. */
+.page-shell  { padding: 0; }
 .page-title  { font-size: 1.5rem; font-weight: 800; color: var(--text-primary); letter-spacing: -0.025em; }
-.page-subtitle { font-size: 0.875rem; color: var(--text-subtle); }
+.page-subtitle { font-size: 0.875rem; color: var(--text-secondary); }
 
 .page-top {
   display: flex;
@@ -2682,13 +2952,11 @@ tbody tr:hover td {
    ══════════════════════════════════════════════════════════════════════════ */
 
 @media (max-width: 1023px) {
-  .page-shell { padding: 1.25rem; }
   .grid-3-col { grid-template-columns: 1fr 1fr; }
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
 @media (max-width: 767px) {
-  .page-shell { padding: 1rem; }
   .grid-2-col { grid-template-columns: 1fr; }
   .grid-3-col { grid-template-columns: 1fr; }
   .page-top   { flex-direction: column; align-items: flex-start; }
@@ -3001,13 +3269,8 @@ tbody tr:hover td {
   white-space: nowrap;
 }
 
-/* Responsive page-shell */
-@media (max-width: 767px) {
-  .page-shell { padding: 1rem; }
-}
 @media (max-width: 359px) {
   :root { --mobile-page-padding: 12px; }
-  .page-shell { padding: 0.75rem; }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -3172,6 +3435,20 @@ tbody tr:hover td {
 }
 .mobile-action-bar__spacer {
   height: calc(var(--mobile-cta-height) + 1.5rem + env(safe-area-inset-bottom, 0px));
+}
+/* BETA-UX-2 — el espaciador reserva lugar al FINAL de la página, pero no le
+   dice al navegador que el borde inferior de la pantalla está tapado. Sin
+   esto, el scroll al foco (Tab) o a `scrollIntoView` considera «visible» un
+   control que quedó debajo de la barra de acción y de la navegación inferior.
+   Medido en CI (320×568, recepción con la lista en «Buscando…»): «Crear
+   cliente rápido» terminaba 1–3 px debajo del borde de la barra y el navegador
+   no lo movía. Con el `scroll-padding` el área útil es la que queda encima de
+   las dos barras (WCAG 2.4.11, foco no tapado), más 0.5rem de aire: el scroll
+   va en píxeles enteros y con el alto justo quedaba una fracción tapada. */
+@media (max-width: 1023px) {
+  html:has(.mobile-action-bar) {
+    scroll-padding-bottom: calc(var(--mobile-bottom-nav-height) + var(--mobile-cta-height) + 1.5rem + 1px + 0.5rem + env(safe-area-inset-bottom, 0px));
+  }
 }
 
 .mobile-action-bar__inner {
@@ -3348,7 +3625,6 @@ tbody tr:hover td {
 @media (min-width: 1024px) {
   .mobile-action-bar, .mobile-action-bar__spacer { display: none; }
 }
-
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   .modal-content-responsive,
@@ -3382,7 +3658,7 @@ tbody tr:hover td {
   color: var(--accent-primary);
 }
 
-.customer-create-page .page-top .btn {
+.customer-create-page .page-hdr .btn {
   min-height: var(--mobile-touch-target);
 }
 
@@ -4028,10 +4304,15 @@ tbody tr:hover td {
    padding, tipografía e ícono; acá no se redefine ninguno. La jerarquía la da
    la variante: Nueva Orden es la única primaria; Nuevo Comprobante y Gestionar
    Caja, secundarias; Registrar gasto, `danger`. Actualizar es un ícono del
-   mismo alto. */
-.dash-page .page-subtitle { color: var(--text-secondary); }
-
-.dash-actions-slot { min-width: 0; max-width: 100%; }
+   mismo alto. El subtítulo ya no necesita regla propia: BETA-UX-2 llevó a
+   `--text-secondary` el de todas las pantallas (`.page-hdr-subtitle`). */
+/* BETA-UX-2: el slot es `.page-hdr-right` (flex) desde que Inicio usa el
+   encabezado compartido. Como flex, `.dash-actions` pasaba a medir lo que su
+   contenido: «Nueva Orden» dejaba de ir de lado a lado en mobile y «Actualizar»
+   (absoluto, arriba a la derecha del encabezado) quedaba fuera de su fila
+   — CI, técnico a 375px: +194px. En bloque, `.dash-actions` vuelve a ocupar
+   el ancho del slot, como antes. */
+.dash-actions-slot { display: block; min-width: 0; max-width: 100%; }
 .dash-actions {
   display: flex;
   flex-wrap: wrap;
@@ -4313,15 +4594,11 @@ a.dash-today__item:hover { background: var(--bg-hover); }
 }
 
 @media (max-width: 767px) {
-  /* `main-layout-inner` ya pone el margen de página: sin esto Inicio quedaba
-     con 32px por lado a 375. */
-  .dash-page.page-shell { padding: 0; }
-
   /* Acciones: la principal a todo el ancho, las secundarias repartidas en una
      fila y «Actualizar» junto al título. La fila se estira: según el ancho y
      la fuente un rótulo entra en una línea y su vecino en dos (a 390 px, con
      «Gestionar Caja»), y sin esto el más bajo quedaba descolgado. */
-  .dash-page .page-top { position: relative; }
+  .dash-page .page-hdr { position: relative; }
   .dash-actions-slot { width: 100%; }
   .dash-actions { justify-content: stretch; align-items: stretch; }
   .dash-action--primary { flex: 1 1 100%; }

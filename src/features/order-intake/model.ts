@@ -59,10 +59,143 @@ export function parseLocalizedAmount(value: string): number | null {
   return Number.isFinite(amount) && amount >= 0 ? amount : null
 }
 
-export function accessSecretForRpc(draft: IntakeDraft): string | null {
-  if (draft.accessMode === 'pattern') return draft.pattern.length ? JSON.stringify(draft.pattern) : null
-  if (draft.accessMode === 'pin' || draft.accessMode === 'password') return draft.accessSecret || null
+// ─── Acceso del equipo ───────────────────────────────────────────────────────
+//
+// BETA-UX-2 — el acceso NUNCA bloquea la recepción.
+//
+// Contrato del servidor (`private.mobile2a_legacy_from_access`, aplicado por
+// `create_order_intake` y `set_order_device_access_secret`): un patrón es un
+// JSON de 2 a 9 puntos DISTINTOS entre 0 y 8, fila por fila. Es el formato del
+// frontend anterior (`pattern:0-4-8`) y el de los patrones migrados a Vault.
+// La grilla le numera los puntos 1–9 a la persona; hasta este lote se mandaban
+// así, y cualquier patrón que usara el punto 9 (la esquina inferior derecha)
+// hacía fallar TODA la creación con `INVALID_ACCESS_PATTERN`. La conversión
+// vive acá, en el borde con la RPC, y en ningún otro lado.
+
+/** Mínimo que acepta el servidor para guardar un patrón. */
+export const PATTERN_MIN_POINTS = 2
+/** Android admite PIN de hasta 16 dígitos; con el tope anterior (12) se truncaba en silencio. */
+export const PIN_MAX_DIGITS = 16
+/** Debajo de esto se sugiere revisar con el cliente, sin bloquear. */
+const TYPICAL_MIN_LENGTH = 4
+
+/** Grilla (1–9) → contrato del servidor (0–8). */
+export function patternToCanonical(points: number[]): number[] { return points.map(point => point - 1) }
+/** Contrato del servidor (0–8) → grilla (1–9). */
+export function patternFromCanonical(points: number[]): number[] { return points.map(point => point + 1) }
+
+/**
+ * BETA-UX-2 · hotfix — formato con el que se GUARDA un patrón desde ahora:
+ * contrato 0–8 como arreglo de STRINGS (`["0","4","8"]`).
+ *
+ * El servidor lo acepta igual que a los números: valida cada punto con
+ * `jsonb_array_elements_text(...) !~ '^[0-8]$'`, y el espejo legacy queda
+ * `pattern:0-4-8`. El tipo JSON es la marca de «formato actual»: antes se
+ * guardaban NÚMEROS, en dos numeraciones distintas (ver `readStoredPattern`).
+ */
+export function serializePattern(points: number[]): string {
+  return JSON.stringify(patternToCanonical(points).map(String))
+}
+
+export type StoredPatternReading =
+  /** Se puede dibujar con certeza; `points` en la numeración de la grilla (1–9). */
+  | { kind: 'exact'; points: number[]; source: 'current' | 'legacy_zero_based' | 'legacy_one_based' }
+  /** Formato anterior sin forma de saber la numeración: NO dibujarlo. */
+  | { kind: 'ambiguous' }
+  /** No es un patrón del contrato (texto legacy, JSON roto, puntos repetidos…). */
+  | { kind: 'unreadable' }
+
+/**
+ * Lee un patrón revelado de Vault.
+ *
+ * - Strings `"0"`–`"8"`: formato actual (`serializePattern`) → exacto.
+ * - Números: formato anterior. Lo guardaron dos frontends: el viejo (migrado,
+ *   contrato 0–8) y el de MOBILE-2A (grilla 1–9 cruda). Un 0 sólo existe en
+ *   0–8 y un 9 sólo en 1–9; sin ninguno de los dos, la misma lista es DOS
+ *   patrones distintos → `ambiguous`. Recargarlo lo pasa al formato actual.
+ */
+export function readStoredPattern(value: string): StoredPatternReading {
+  let parsed: unknown
+  try { parsed = JSON.parse(value) } catch { return { kind: 'unreadable' } }
+  if (!Array.isArray(parsed) || parsed.length < 2 || parsed.length > 9) return { kind: 'unreadable' }
+  if (new Set(parsed.map(String)).size !== parsed.length) return { kind: 'unreadable' }
+  if (parsed.every(point => typeof point === 'string' && /^[0-8]$/.test(point)))
+    return { kind: 'exact', points: patternFromCanonical(parsed.map(Number)), source: 'current' }
+  if (!parsed.every(point => typeof point === 'number' && Number.isInteger(point) && point >= 0 && point <= 9))
+    return { kind: 'unreadable' }
+  const points = parsed as number[]
+  const conCero = points.includes(0)
+  const conNueve = points.includes(9)
+  if (conCero && conNueve) return { kind: 'unreadable' }
+  if (conCero) return { kind: 'exact', points: patternFromCanonical(points), source: 'legacy_zero_based' }
+  if (conNueve) return { kind: 'exact', points: [...points], source: 'legacy_one_based' }
+  return { kind: 'ambiguous' }
+}
+
+/** ¿El acceso elegido tiene un valor que el servidor puede guardar? */
+export function hasStorableAccess(draft: Pick<IntakeDraft, 'accessMode' | 'accessSecret' | 'pattern'>): boolean {
+  switch (draft.accessMode) {
+    case 'pattern': return draft.pattern.length >= PATTERN_MIN_POINTS
+    case 'pin': return draft.accessSecret.length > 0
+    case 'password': return draft.accessSecret.trim().length > 0
+    default: return true
+  }
+}
+
+/**
+ * El modo que viaja al servidor. Un PIN, contraseña o patrón sin valor
+ * guardable no frena la orden: se registra como «No lo proporcionó» (es lo que
+ * pasó) y el acceso se puede cargar después desde el detalle de la orden.
+ */
+export function effectiveAccessMode(draft: Pick<IntakeDraft, 'accessMode' | 'accessSecret' | 'pattern'>): AccessMode {
+  return hasStorableAccess(draft) ? draft.accessMode : 'not_provided'
+}
+
+export interface AccessNotice { level: 'warning' | 'info'; message: string }
+
+/** Ayuda contextual del paso de acceso. Nunca es un error que frene «Continuar». */
+export function accessNotice(draft: Pick<IntakeDraft, 'accessMode' | 'accessSecret' | 'pattern'>): AccessNotice | null {
+  const later = 'Podés seguir: la orden queda como «No lo proporcionó» y el acceso se carga después desde la orden.'
+  if (!hasStorableAccess(draft)) {
+    if (draft.accessMode === 'pattern') return { level: 'warning', message: `Marcá al menos ${PATTERN_MIN_POINTS} puntos para guardar el patrón. ${later}` }
+    if (draft.accessMode === 'pin') return { level: 'warning', message: `Todavía no cargaste el PIN. ${later}` }
+    if (draft.accessMode === 'password') return { level: 'warning', message: `Todavía no cargaste la contraseña. ${later}` }
+  }
+  if (draft.accessMode === 'pattern' && draft.pattern.length < TYPICAL_MIN_LENGTH)
+    return { level: 'info', message: 'Los patrones de Android usan al menos 4 puntos. Revisalo con el cliente; se guarda igual.' }
+  if (draft.accessMode === 'pin' && draft.accessSecret.length < TYPICAL_MIN_LENGTH)
+    return { level: 'info', message: 'Un PIN suele tener entre 4 y 16 dígitos. Revisalo con el cliente; se guarda igual.' }
   return null
+}
+
+export function accessSecretForRpc(draft: IntakeDraft): string | null {
+  const mode = effectiveAccessMode(draft)
+  if (mode === 'pattern') return serializePattern(draft.pattern)
+  if (mode === 'pin' || mode === 'password') return draft.accessSecret || null
+  return null
+}
+
+// ─── Errores del servidor ────────────────────────────────────────────────────
+// `create_order_intake` responde con códigos (`INVALID_IMEI`…). La pantalla
+// mostraba el código crudo; acá se traduce lo que la persona puede resolver.
+const INTAKE_ERROR_MESSAGES: Record<string, string> = {
+  INVALID_ACCESS_PATTERN: 'El patrón no se pudo guardar. Volvé a dibujarlo o elegí «No lo proporcionó» y cargalo después desde la orden.',
+  INVALID_ACCESS_SECRET: 'El acceso del equipo no se pudo guardar. Revisalo o elegí «No lo proporcionó».',
+  ACCESS_SECRET_REQUIRED: 'Falta el código de acceso del equipo. Cargalo o elegí «No lo proporcionó».',
+  INVALID_IMEI: 'El IMEI no es válido: tiene que tener 15 dígitos y un dígito verificador. Corregilo o dejalo vacío.',
+  DEVICE_AND_PROBLEM_REQUIRED: 'Faltan la marca, el modelo o el problema informado.',
+  INVALID_CUSTOMER: 'El cliente elegido ya no está disponible. Elegí otro o crealo de nuevo.',
+  INVALID_ASSIGNEE: 'El técnico elegido ya no está activo. Elegí otro o dejá la orden sin asignar.',
+  INVALID_BUDGET: 'El presupuesto no es válido.',
+  INVALID_CURRENCY: 'La moneda del presupuesto no es válida.',
+  FORBIDDEN_ORDERS_CREATE: 'No tenés permiso para registrar recepciones.',
+  ACTIVE_PROFILE_REQUIRED: 'Tu usuario no tiene un perfil activo en el negocio.',
+  IDEMPOTENCY_KEY_REUSED: 'Esta recepción ya se envió con otros datos. Recargá la página y volvé a cargarla.',
+}
+
+export function intakeErrorMessage(raw: string): string {
+  const code = Object.keys(INTAKE_ERROR_MESSAGES).find(key => raw.includes(key))
+  return code ? INTAKE_ERROR_MESSAGES[code] : raw
 }
 
 export function intakePayload(draft: IntakeDraft) {
@@ -70,7 +203,7 @@ export function intakePayload(draft: IntakeDraft) {
     customer_id: draft.customerId,
     device: { ...draft.device, serial: draft.device.serial.trim(), imei: normalizeImei(draft.device.imei) },
     condition: { general: draft.condition.general, physical: draft.condition.physical, powers_on: draft.condition.powersOn },
-    checklist: draft.checklist, access_mode: draft.accessMode,
+    checklist: draft.checklist, access_mode: effectiveAccessMode(draft),
     problem: draft.problem.trim(), observations: draft.observations.trim(),
     assigned_profile_id: draft.assignedProfileId || null, priority: draft.priority,
     budget: { amount: parseLocalizedAmount(draft.budgetAmount)?.toString() ?? '', currency: draft.budgetCurrency },

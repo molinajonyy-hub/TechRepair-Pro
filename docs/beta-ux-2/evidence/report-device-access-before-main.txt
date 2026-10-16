@@ -1,0 +1,12 @@
+before-main-legacy-ambiguo-390.png: Acceso del equipo Cifrado · interno Patrón configurado Patrón: 1 → 2 → 5 → 8 Ocultar Configurar Eliminar
+before-main-legacy-ambiguo-1440.png: Acceso del equipo Cifrado · interno Patrón configurado Patrón: 1 → 2 → 5 → 8 Ocultar Configurar Eliminar
+before-main-legacy-ambiguo-390-dark.png: Acceso del equipo Cifrado · interno Patrón configurado Patrón: 1 → 2 → 5 → 8 Ocultar Configurar Eliminar
+before-main-nuevo-exacto-390.png: Acceso del equipo Cifrado · interno Patrón configurado Patrón: 0 → 1 → 4 → 7 Ocultar Configurar Eliminar
+before-main-nuevo-exacto-1440.png: Acceso del equipo Cifrado · interno Patrón configurado Patrón: 0 → 1 → 4 → 7 Ocultar Configurar Eliminar
+before-main-nuevo-exacto-390-dark.png: Acceso del equipo Cifrado · interno Patrón configurado Patrón: 0 → 1 → 4 → 7 Ocultar Configurar Eliminar
+before-main-migrado-con-cero-390.png: Acceso del equipo Cifrado · interno Patrón configurado Patrón: 0 → 1 → 4 → 7 Ocultar Configurar Eliminar
+before-main-migrado-con-cero-1440.png: Acceso del equipo Cifrado · interno Patrón configurado Patrón: 0 → 1 → 4 → 7 Ocultar Configurar Eliminar
+before-main-migrado-con-cero-390-dark.png: Acceso del equipo Cifrado · interno Patrón configurado Patrón: 0 → 1 → 4 → 7 Ocultar Configurar Eliminar
+before-main-pin-390.png: Acceso del equipo Cifrado · interno PIN configurado 4826 Ocultar Configurar Eliminar
+before-main-pin-1440.png: Acceso del equipo Cifrado · interno PIN configurado 4826 Ocultar Configurar Eliminar
+before-main-pin-390-dark.png: Acceso del equipo Cifrado · interno PIN configurado 4826 Ocultar Configurar Eliminar

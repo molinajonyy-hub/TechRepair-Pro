@@ -10,6 +10,7 @@ import { inventoryReportsService } from '../services/inventoryReportsService'
 import { inventoryService } from '../services/inventoryService'
 import { STATUS_CONFIG } from '../types/orderStatus'
 import { COST_RESTRICTED_LABEL } from '../services/inventoryCostAccess'
+import { AppPageHeader } from '../ui'
 import {
   addCalendarDays, addCalendarMonths, businessDateOfInstant, businessDayStartInstant,
   businessToday, calendarWeekday, firstDayOfMonth, formatCalendarDate,
@@ -803,15 +804,11 @@ export function Reports() {
 
   return (
     <div className="animate-fade-in">
-      <div className="page-hdr">
-        <div className="page-hdr-left">
-          <div className="page-hdr-icon"><TrendingUp size={22} /></div>
-          <div>
-            <h1 className="page-hdr-title">Reportes y Análisis</h1>
-            <p className="page-hdr-subtitle">Visualizaciones y métricas sincronizadas con el negocio actual</p>
-          </div>
-        </div>
-      </div>
+      <AppPageHeader
+        icon={<TrendingUp size={24} />}
+        title="Reportes y Análisis"
+        description="Visualizaciones y métricas sincronizadas con el negocio actual"
+      />
 
       {activeError && reportData && (
         <div className="alert-inline alert-warning" style={{ marginBottom: '1.5rem' }}>
