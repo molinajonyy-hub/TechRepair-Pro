@@ -162,14 +162,16 @@ test.describe('@dialogtouch DIALOG-TOUCH-1 · acciones del footer', () => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/orders/new')
 
-    // Pasos 1 y 2 del wizard para llegar al escaner (paso 3).
+    // Paso 1 del wizard para llegar al escaner. BETA-UX-2: la recepción es de
+    // 4 pasos y serie/IMEI (con «Escanear») están en «Equipo», el mismo paso
+    // que marca y modelo: ya no hay un «Continuar» intermedio.
     await page.getByLabel('Buscar cliente').fill('Cliente E2E')
     await page.getByRole('button', { name: /Cliente E2E/ }).click()
     const continuar = page.getByTestId('mobile-action-bar').getByRole('button', { name: 'Continuar' })
     await continuar.click()
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Equipo y acceso')
     await page.getByLabel('Marca').fill('Samsung')
     await page.getByLabel('Modelo').fill('Galaxy S24')
-    await continuar.click()
 
     await page.getByRole('button', { name: 'Escanear' }).first().click()
     // ORDERS-V2-0.1: el título nombra el identificador que se está escaneando.

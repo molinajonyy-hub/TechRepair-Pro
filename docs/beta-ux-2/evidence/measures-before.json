@@ -1,0 +1,1771 @@
+{
+ "comprobantes-desktop": {
+  "url": "/comprobantes",
+  "barToHeader": 48,
+  "header": {
+   "top": 153,
+   "bottom": 228,
+   "left": 324,
+   "right": 1376,
+   "w": 1052,
+   "h": 75
+  },
+  "tile": {
+   "w": 36,
+   "h": 36,
+   "radius": "8px",
+   "bg": "rgba(99, 102, 241, 0.15)"
+  },
+  "glyph": 20,
+  "title": {
+   "text": "Comprobantes",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "14px",
+   "color": "rgb(148, 163, 184)"
+  },
+  "gaps": [
+   24,
+   24,
+   20
+  ],
+  "blocks": [
+   "div.",
+   "div.filter-bar",
+   "div.card"
+  ],
+  "actions": [
+   {
+    "text": "Actualizar",
+    "h": 44
+   },
+   {
+    "text": "Nuevo Comprobante",
+    "h": 44
+   }
+  ],
+  "overflowX": 0
+ },
+ "customers-desktop": {
+  "url": "/customers",
+  "barToHeader": 24,
+  "header": {
+   "top": 129,
+   "bottom": 180,
+   "left": 292,
+   "right": 1408,
+   "w": 1116,
+   "h": 51
+  },
+  "tile": {
+   "w": 44,
+   "h": 44,
+   "radius": "12px",
+   "bg": "gradient"
+  },
+  "glyph": 22,
+  "title": {
+   "text": "Clientes",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "12.8px",
+   "color": "rgb(100, 116, 139)"
+  },
+  "gaps": [
+   28,
+   20
+  ],
+  "blocks": [
+   "div.filter-bar.list-filter-bar",
+   "div.surface-raised.customers-desktop-table"
+  ],
+  "actions": [
+   {
+    "text": "Plantilla",
+    "h": 44
+   },
+   {
+    "text": "Exportar",
+    "h": 44
+   },
+   {
+    "text": "Importar",
+    "h": 44
+   },
+   {
+    "text": "Nuevo Cliente",
+    "h": 44
+   }
+  ],
+  "overflowX": 0
+ },
+ "inventory-desktop": {
+  "url": "/inventory",
+  "barToHeader": 24,
+  "header": {
+   "top": 129,
+   "bottom": 180,
+   "left": 292,
+   "right": 1408,
+   "w": 1116,
+   "h": 51
+  },
+  "tile": {
+   "w": 44,
+   "h": 44,
+   "radius": "12px",
+   "bg": "gradient"
+  },
+  "glyph": 22,
+  "title": {
+   "text": "Inventario",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "12.8px",
+   "color": "rgb(100, 116, 139)"
+  },
+  "gaps": [
+   28,
+   24,
+   40
+  ],
+  "blocks": [
+   "div.",
+   "div.",
+   "div."
+  ],
+  "actions": [
+   {
+    "text": "Plantilla",
+    "h": 33
+   },
+   {
+    "text": "Exportar",
+    "h": 33
+   },
+   {
+    "text": "Importar",
+    "h": 33
+   },
+   {
+    "text": "Nuevo Producto",
+    "h": 33
+   },
+   {
+    "text": "",
+    "h": 33
+   }
+  ],
+  "overflowX": 0
+ },
+ "tasks-desktop": {
+  "url": "/tasks",
+  "barToHeader": 48,
+  "header": {
+   "top": 153,
+   "bottom": 228,
+   "left": 324,
+   "right": 1376,
+   "w": 1052,
+   "h": 75
+  },
+  "tile": {
+   "w": 40,
+   "h": 40,
+   "radius": "12px",
+   "bg": "rgba(79, 70, 229, 0.07)"
+  },
+  "glyph": 20,
+  "title": {
+   "text": "Tareas",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "14px",
+   "color": "rgb(148, 163, 184)"
+  },
+  "gaps": [
+   24,
+   16
+  ],
+  "blocks": [
+   "div.tasks-toolbar",
+   "div."
+  ],
+  "actions": [
+   {
+    "text": "Actualizar",
+    "h": 44
+   },
+   {
+    "text": "Nueva tarea",
+    "h": 44
+   }
+  ],
+  "overflowX": 0
+ },
+ "caja-desktop": {
+  "url": "/caja",
+  "barToHeader": 48,
+  "header": {
+   "top": 153,
+   "bottom": 204,
+   "left": 324,
+   "right": 1376,
+   "w": 1052,
+   "h": 51
+  },
+  "tile": {
+   "w": 44,
+   "h": 44,
+   "radius": "12px",
+   "bg": "gradient"
+  },
+  "glyph": 22,
+  "title": {
+   "text": "Caja",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "12.8px",
+   "color": "rgb(100, 116, 139)"
+  },
+  "gaps": [
+   48,
+   48
+  ],
+  "blocks": [
+   "div.",
+   "div."
+  ],
+  "actions": [],
+  "overflowX": 0
+ },
+ "expenses-desktop": {
+  "url": "/expenses",
+  "barToHeader": 48,
+  "header": {
+   "top": 153,
+   "bottom": 228,
+   "left": 324,
+   "right": 1376,
+   "w": 1052,
+   "h": 75
+  },
+  "tile": {
+   "w": 40,
+   "h": 40,
+   "radius": "12px",
+   "bg": "rgba(220, 38, 38, 0.06)"
+  },
+  "glyph": 20,
+  "title": {
+   "text": "Gastos",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "14px",
+   "color": "rgb(148, 163, 184)"
+  },
+  "gaps": [
+   24,
+   20,
+   16
+  ],
+  "blocks": [
+   "div.stats-grid",
+   "div.filter-bar.",
+   "div.card"
+  ],
+  "actions": [
+   {
+    "text": "Actualizar",
+    "h": 33
+   },
+   {
+    "text": "Categorías",
+    "h": 33
+   },
+   {
+    "text": "Nuevo Gasto",
+    "h": 33
+   }
+  ],
+  "overflowX": 0
+ },
+ "suppliers-desktop": {
+  "url": "/suppliers",
+  "barToHeader": 48,
+  "header": {
+   "top": 153,
+   "bottom": 228,
+   "left": 324,
+   "right": 1376,
+   "w": 1052,
+   "h": 75
+  },
+  "tile": {
+   "w": 40,
+   "h": 40,
+   "radius": "12px",
+   "bg": "rgba(99, 102, 241, 0.15)"
+  },
+  "glyph": 20,
+  "title": {
+   "text": "Proveedores",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "14px",
+   "color": "rgb(148, 163, 184)"
+  },
+  "gaps": [
+   24,
+   20,
+   16
+  ],
+  "blocks": [
+   "div.",
+   "div.",
+   "div."
+  ],
+  "actions": [
+   {
+    "text": "Nueva factura",
+    "h": 39
+   },
+   {
+    "text": "Nuevo proveedor",
+    "h": 39
+   }
+  ],
+  "overflowX": 0
+ },
+ "cuentas-desktop": {
+  "url": "/cuentas",
+  "barToHeader": 48,
+  "header": {
+   "top": 153,
+   "bottom": 228,
+   "left": 324,
+   "right": 1376,
+   "w": 1052,
+   "h": 75
+  },
+  "tile": {
+   "w": 40,
+   "h": 40,
+   "radius": "12px",
+   "bg": "rgba(79, 70, 229, 0.07)"
+  },
+  "glyph": 20,
+  "title": {
+   "text": "Cuentas Corrientes",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "14px",
+   "color": "rgb(148, 163, 184)"
+  },
+  "gaps": [
+   24,
+   20,
+   16
+  ],
+  "blocks": [
+   "div.",
+   "div.",
+   "div."
+  ],
+  "actions": [
+   {
+    "text": "Actualizar",
+    "h": 33
+   },
+   {
+    "text": "Nueva cuenta",
+    "h": 33
+   }
+  ],
+  "overflowX": 0
+ },
+ "warranties-desktop": {
+  "url": "/warranties",
+  "barToHeader": 24,
+  "header": {
+   "top": 129,
+   "bottom": 180,
+   "left": 292,
+   "right": 1408,
+   "w": 1116,
+   "h": 51
+  },
+  "tile": {
+   "w": 44,
+   "h": 44,
+   "radius": "12px",
+   "bg": "gradient"
+  },
+  "glyph": 22,
+  "title": {
+   "text": "Garantías",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "12.8px",
+   "color": "rgb(100, 116, 139)"
+  },
+  "gaps": [
+   28,
+   16,
+   16
+  ],
+  "blocks": [
+   "div.",
+   "div.filter-bar",
+   "div.surface-raised.table-wrap"
+  ],
+  "actions": [
+   {
+    "text": "Nueva garantía",
+    "h": 44
+   }
+  ],
+  "overflowX": 0
+ },
+ "reports-desktop": {
+  "url": "/reports",
+  "barToHeader": 24,
+  "header": {
+   "top": 129,
+   "bottom": 180,
+   "left": 292,
+   "right": 1408,
+   "w": 1116,
+   "h": 51
+  },
+  "tile": {
+   "w": 44,
+   "h": 44,
+   "radius": "12px",
+   "bg": "gradient"
+  },
+  "glyph": 22,
+  "title": {
+   "text": "Reportes y Análisis",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "12.8px",
+   "color": "rgb(100, 116, 139)"
+  },
+  "gaps": [
+   28,
+   24,
+   24
+  ],
+  "blocks": [
+   "div.card",
+   "div.",
+   "div."
+  ],
+  "actions": [],
+  "overflowX": 0
+ },
+ "finance-desktop": {
+  "url": "/finance",
+  "barToHeader": 168,
+  "header": {
+   "top": 273,
+   "bottom": 348,
+   "left": 324,
+   "right": 1376,
+   "w": 1052,
+   "h": 75
+  },
+  "tile": {
+   "w": 36,
+   "h": 36,
+   "radius": "8px",
+   "bg": "rgba(99, 102, 241, 0.15)"
+  },
+  "glyph": 20,
+  "title": {
+   "text": "Finanzas",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "14px",
+   "color": "rgb(148, 163, 184)"
+  },
+  "gaps": [
+   24,
+   24,
+   24,
+   24
+  ],
+  "blocks": [
+   "div.tabs",
+   "div.alert.alert-error",
+   "div.",
+   "section."
+  ],
+  "actions": [],
+  "overflowX": 0
+ },
+ "settings-desktop": {
+  "url": "/settings",
+  "barToHeader": 24,
+  "header": {
+   "top": 129,
+   "bottom": 180,
+   "left": 292,
+   "right": 1408,
+   "w": 1116,
+   "h": 51
+  },
+  "tile": {
+   "w": 44,
+   "h": 44,
+   "radius": "12px",
+   "bg": "gradient"
+  },
+  "glyph": 22,
+  "title": {
+   "text": "Configuración General",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "12.8px",
+   "color": "rgb(100, 116, 139)"
+  },
+  "gaps": [
+   28,
+   32,
+   32
+  ],
+  "blocks": [
+   "div.tabs",
+   "div.surface-raised",
+   "div."
+  ],
+  "actions": [],
+  "overflowX": 0
+ },
+ "users-desktop": {
+  "url": "/users",
+  "barToHeader": 24,
+  "header": {
+   "top": 129,
+   "bottom": 180,
+   "left": 292,
+   "right": 1408,
+   "w": 1116,
+   "h": 51
+  },
+  "tile": {
+   "w": 44,
+   "h": 44,
+   "radius": "12px",
+   "bg": "gradient"
+  },
+  "glyph": 22,
+  "title": {
+   "text": "Usuarios del Negocio",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "12.8px",
+   "color": "rgb(100, 116, 139)"
+  },
+  "gaps": [
+   28
+  ],
+  "blocks": [
+   "div."
+  ],
+  "actions": [
+   {
+    "text": "Invitar Usuario",
+    "h": 39
+   }
+  ],
+  "overflowX": 0
+ },
+ "dashboard-mobile": {
+  "url": "/dashboard",
+  "barToHeader": 70,
+  "header": {
+   "top": 126,
+   "bottom": 336,
+   "left": 16,
+   "right": 374,
+   "w": 358,
+   "h": 210
+  },
+  "tile": {
+   "w": 40,
+   "h": 40,
+   "radius": "12px",
+   "bg": "rgba(79, 70, 229, 0.07)"
+  },
+  "glyph": 20,
+  "title": {
+   "text": "Inicio",
+   "size": "22px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "12.8px",
+   "color": "rgb(51, 65, 85)"
+  },
+  "gaps": [
+   24,
+   20,
+   20
+  ],
+  "blocks": [
+   "section.dash-today",
+   "section.card.dash-tasks",
+   "section.card.dash-orders"
+  ],
+  "actions": [
+   {
+    "text": "Nueva Orden",
+    "h": 44
+   },
+   {
+    "text": "Nuevo Comprobante",
+    "h": 72
+   },
+   {
+    "text": "Gestionar Caja",
+    "h": 72
+   },
+   {
+    "text": "Registrar gasto",
+    "h": 72
+   },
+   {
+    "text": "",
+    "h": 44
+   }
+  ],
+  "overflowX": 0
+ },
+ "orders-mobile": {
+  "url": "/orders",
+  "barToHeader": 16,
+  "header": {
+   "top": 72,
+   "bottom": 200,
+   "left": 16,
+   "right": 374,
+   "w": 358,
+   "h": 128
+  },
+  "tile": {
+   "w": 44,
+   "h": 44,
+   "radius": "12px",
+   "bg": "gradient"
+  },
+  "glyph": 22,
+  "title": {
+   "text": "Órdenes de Trabajo",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "12.8px",
+   "color": "rgb(100, 116, 139)"
+  },
+  "gaps": [
+   16,
+   16
+  ],
+  "blocks": [
+   "div.filter-bar.list-filter-bar",
+   "div.orders-mobile-list"
+  ],
+  "actions": [
+   {
+    "text": "Nueva Orden",
+    "h": 44
+   }
+  ],
+  "overflowX": 0
+ },
+ "comprobantes-mobile": {
+  "url": "/comprobantes",
+  "barToHeader": 32,
+  "header": {
+   "top": 88,
+   "bottom": 219,
+   "left": 32,
+   "right": 358,
+   "w": 326,
+   "h": 131
+  },
+  "tile": {
+   "w": 36,
+   "h": 36,
+   "radius": "8px",
+   "bg": "rgba(99, 102, 241, 0.15)"
+  },
+  "glyph": 20,
+  "title": {
+   "text": "Comprobantes",
+   "size": "22px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "12.8px",
+   "color": "rgb(148, 163, 184)"
+  },
+  "gaps": [
+   24,
+   24,
+   20
+  ],
+  "blocks": [
+   "div.",
+   "div.filter-bar",
+   "div.card"
+  ],
+  "actions": [
+   {
+    "text": "Actualizar",
+    "h": 44
+   },
+   {
+    "text": "Nuevo Comprobante",
+    "h": 44
+   }
+  ],
+  "overflowX": 0
+ },
+ "customers-mobile": {
+  "url": "/customers",
+  "barToHeader": 16,
+  "header": {
+   "top": 72,
+   "bottom": 179,
+   "left": 16,
+   "right": 374,
+   "w": 358,
+   "h": 107
+  },
+  "tile": {
+   "w": 44,
+   "h": 44,
+   "radius": "12px",
+   "bg": "gradient"
+  },
+  "glyph": 22,
+  "title": {
+   "text": "Clientes",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "12.8px",
+   "color": "rgb(100, 116, 139)"
+  },
+  "gaps": [
+   16,
+   16
+  ],
+  "blocks": [
+   "div.filter-bar.list-filter-bar",
+   "div.customers-mobile-list"
+  ],
+  "actions": [
+   {
+    "text": "Nuevo Cliente",
+    "h": 44
+   }
+  ],
+  "overflowX": 0
+ },
+ "inventory-mobile": {
+  "url": "/inventory",
+  "barToHeader": 16,
+  "header": {
+   "top": 72,
+   "bottom": 215,
+   "left": 16,
+   "right": 374,
+   "w": 358,
+   "h": 143
+  },
+  "tile": {
+   "w": 44,
+   "h": 44,
+   "radius": "12px",
+   "bg": "gradient"
+  },
+  "glyph": 22,
+  "title": {
+   "text": "Inventario",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "12.8px",
+   "color": "rgb(100, 116, 139)"
+  },
+  "gaps": [
+   28,
+   24,
+   40
+  ],
+  "blocks": [
+   "div.",
+   "div.",
+   "div."
+  ],
+  "actions": [
+   {
+    "text": "Plantilla",
+    "h": 33
+   },
+   {
+    "text": "Exportar",
+    "h": 33
+   },
+   {
+    "text": "Importar",
+    "h": 33
+   },
+   {
+    "text": "Nuevo Producto",
+    "h": 33
+   },
+   {
+    "text": "",
+    "h": 33
+   }
+  ],
+  "overflowX": 0
+ },
+ "tasks-mobile": {
+  "url": "/tasks",
+  "barToHeader": 32,
+  "header": {
+   "top": 88,
+   "bottom": 219,
+   "left": 32,
+   "right": 358,
+   "w": 326,
+   "h": 131
+  },
+  "tile": {
+   "w": 40,
+   "h": 40,
+   "radius": "12px",
+   "bg": "rgba(79, 70, 229, 0.07)"
+  },
+  "glyph": 20,
+  "title": {
+   "text": "Tareas",
+   "size": "22px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "12.8px",
+   "color": "rgb(148, 163, 184)"
+  },
+  "gaps": [
+   24,
+   16
+  ],
+  "blocks": [
+   "div.tasks-toolbar",
+   "div."
+  ],
+  "actions": [
+   {
+    "text": "Actualizar",
+    "h": 44
+   },
+   {
+    "text": "Nueva tarea",
+    "h": 44
+   }
+  ],
+  "overflowX": 0
+ },
+ "caja-mobile": {
+  "url": "/caja",
+  "barToHeader": 40,
+  "header": {
+   "top": 96,
+   "bottom": 147,
+   "left": 40,
+   "right": 350,
+   "w": 310,
+   "h": 51
+  },
+  "tile": {
+   "w": 44,
+   "h": 44,
+   "radius": "12px",
+   "bg": "gradient"
+  },
+  "glyph": 22,
+  "title": {
+   "text": "Caja",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "12.8px",
+   "color": "rgb(100, 116, 139)"
+  },
+  "gaps": [
+   48,
+   48
+  ],
+  "blocks": [
+   "div.",
+   "div."
+  ],
+  "actions": [],
+  "overflowX": 0
+ },
+ "expenses-mobile": {
+  "url": "/expenses",
+  "barToHeader": 32,
+  "header": {
+   "top": 88,
+   "bottom": 228,
+   "left": 32,
+   "right": 358,
+   "w": 326,
+   "h": 140
+  },
+  "tile": {
+   "w": 40,
+   "h": 40,
+   "radius": "12px",
+   "bg": "rgba(220, 38, 38, 0.06)"
+  },
+  "glyph": 20,
+  "title": {
+   "text": "Gastos",
+   "size": "22px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "12.8px",
+   "color": "rgb(148, 163, 184)"
+  },
+  "gaps": [
+   24,
+   20,
+   16
+  ],
+  "blocks": [
+   "div.stats-grid",
+   "div.filter-bar.",
+   "div.card"
+  ],
+  "actions": [
+   {
+    "text": "Actualizar",
+    "h": 33
+   },
+   {
+    "text": "Categorías",
+    "h": 33
+   },
+   {
+    "text": "Nuevo Gasto",
+    "h": 33
+   }
+  ],
+  "overflowX": 0
+ },
+ "suppliers-mobile": {
+  "url": "/suppliers",
+  "barToHeader": 32,
+  "header": {
+   "top": 88,
+   "bottom": 214,
+   "left": 32,
+   "right": 358,
+   "w": 326,
+   "h": 126
+  },
+  "tile": {
+   "w": 40,
+   "h": 40,
+   "radius": "12px",
+   "bg": "rgba(99, 102, 241, 0.15)"
+  },
+  "glyph": 20,
+  "title": {
+   "text": "Proveedores",
+   "size": "22px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "12.8px",
+   "color": "rgb(148, 163, 184)"
+  },
+  "gaps": [
+   24,
+   20,
+   16
+  ],
+  "blocks": [
+   "div.",
+   "div.",
+   "div."
+  ],
+  "actions": [
+   {
+    "text": "Nueva factura",
+    "h": 39
+   },
+   {
+    "text": "Nuevo proveedor",
+    "h": 39
+   }
+  ],
+  "overflowX": 0
+ },
+ "cuentas-mobile": {
+  "url": "/cuentas",
+  "barToHeader": 32,
+  "header": {
+   "top": 88,
+   "bottom": 208,
+   "left": 32,
+   "right": 358,
+   "w": 326,
+   "h": 120
+  },
+  "tile": {
+   "w": 40,
+   "h": 40,
+   "radius": "12px",
+   "bg": "rgba(79, 70, 229, 0.07)"
+  },
+  "glyph": 20,
+  "title": {
+   "text": "Cuentas Corrientes",
+   "size": "22px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "12.8px",
+   "color": "rgb(148, 163, 184)"
+  },
+  "gaps": [
+   24,
+   20,
+   16
+  ],
+  "blocks": [
+   "div.",
+   "div.",
+   "div."
+  ],
+  "actions": [
+   {
+    "text": "Actualizar",
+    "h": 33
+   },
+   {
+    "text": "Nueva cuenta",
+    "h": 33
+   }
+  ],
+  "overflowX": 0
+ },
+ "warranties-mobile": {
+  "url": "/warranties",
+  "barToHeader": 16,
+  "header": {
+   "top": 72,
+   "bottom": 183,
+   "left": 16,
+   "right": 374,
+   "w": 358,
+   "h": 111
+  },
+  "tile": {
+   "w": 44,
+   "h": 44,
+   "radius": "12px",
+   "bg": "gradient"
+  },
+  "glyph": 22,
+  "title": {
+   "text": "Garantías",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "12.8px",
+   "color": "rgb(100, 116, 139)"
+  },
+  "gaps": [
+   28,
+   16,
+   16
+  ],
+  "blocks": [
+   "div.",
+   "div.filter-bar",
+   "div.surface-raised.table-wrap"
+  ],
+  "actions": [
+   {
+    "text": "Nueva garantía",
+    "h": 44
+   }
+  ],
+  "overflowX": 0
+ },
+ "reports-mobile": {
+  "url": "/reports",
+  "barToHeader": 16,
+  "header": {
+   "top": 72,
+   "bottom": 144,
+   "left": 16,
+   "right": 374,
+   "w": 358,
+   "h": 72
+  },
+  "tile": {
+   "w": 44,
+   "h": 44,
+   "radius": "12px",
+   "bg": "gradient"
+  },
+  "glyph": 22,
+  "title": {
+   "text": "Reportes y Análisis",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "12.8px",
+   "color": "rgb(100, 116, 139)"
+  },
+  "gaps": [
+   28,
+   24,
+   24
+  ],
+  "blocks": [
+   "div.card",
+   "div.",
+   "div."
+  ],
+  "actions": [],
+  "overflowX": 0
+ },
+ "finance-mobile": {
+  "url": "/finance",
+  "barToHeader": 254,
+  "header": {
+   "top": 310,
+   "bottom": 381,
+   "left": 32,
+   "right": 358,
+   "w": 326,
+   "h": 71
+  },
+  "tile": {
+   "w": 36,
+   "h": 36,
+   "radius": "8px",
+   "bg": "rgba(99, 102, 241, 0.15)"
+  },
+  "glyph": 20,
+  "title": {
+   "text": "Finanzas",
+   "size": "22px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "12.8px",
+   "color": "rgb(148, 163, 184)"
+  },
+  "gaps": [
+   24,
+   24,
+   24,
+   24
+  ],
+  "blocks": [
+   "div.tabs",
+   "div.alert.alert-error",
+   "div.",
+   "section."
+  ],
+  "actions": [],
+  "overflowX": 0
+ },
+ "settings-mobile": {
+  "url": "/settings",
+  "barToHeader": 16,
+  "header": {
+   "top": 72,
+   "bottom": 123,
+   "left": 16,
+   "right": 374,
+   "w": 358,
+   "h": 51
+  },
+  "tile": {
+   "w": 44,
+   "h": 44,
+   "radius": "12px",
+   "bg": "gradient"
+  },
+  "glyph": 22,
+  "title": {
+   "text": "Configuración General",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "12.8px",
+   "color": "rgb(100, 116, 139)"
+  },
+  "gaps": [
+   28,
+   32,
+   32
+  ],
+  "blocks": [
+   "div.tabs",
+   "div.surface-raised",
+   "div."
+  ],
+  "actions": [],
+  "overflowX": 0
+ },
+ "users-mobile": {
+  "url": "/users",
+  "barToHeader": 16,
+  "header": {
+   "top": 72,
+   "bottom": 178,
+   "left": 16,
+   "right": 374,
+   "w": 358,
+   "h": 106
+  },
+  "tile": {
+   "w": 44,
+   "h": 44,
+   "radius": "12px",
+   "bg": "gradient"
+  },
+  "glyph": 22,
+  "title": {
+   "text": "Usuarios del Negocio",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "12.8px",
+   "color": "rgb(100, 116, 139)"
+  },
+  "gaps": [
+   28
+  ],
+  "blocks": [
+   "div."
+  ],
+  "actions": [
+   {
+    "text": "Invitar Usuario",
+    "h": 39
+   }
+  ],
+  "overflowX": 0
+ },
+ "dashboard-desktop-dark": {
+  "url": "/dashboard",
+  "barToHeader": 48,
+  "header": {
+   "top": 153,
+   "bottom": 228,
+   "left": 324,
+   "right": 1376,
+   "w": 1052,
+   "h": 75
+  },
+  "tile": {
+   "w": 40,
+   "h": 40,
+   "radius": "12px",
+   "bg": "rgba(99, 102, 241, 0.1)"
+  },
+  "glyph": 20,
+  "title": {
+   "text": "Inicio",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(240, 244, 255)"
+  },
+  "subtitle": {
+   "size": "14px",
+   "color": "rgb(196, 205, 232)"
+  },
+  "gaps": [
+   24,
+   24,
+   24
+  ],
+  "blocks": [
+   "section.dash-today",
+   "section.card.dash-tasks",
+   "section.card.dash-orders"
+  ],
+  "actions": [
+   {
+    "text": "Nueva Orden",
+    "h": 44
+   },
+   {
+    "text": "Nuevo Comprobante",
+    "h": 44
+   },
+   {
+    "text": "Gestionar Caja",
+    "h": 44
+   },
+   {
+    "text": "Registrar gasto",
+    "h": 44
+   },
+   {
+    "text": "",
+    "h": 44
+   }
+  ],
+  "overflowX": 0
+ },
+ "orders-desktop-dark": {
+  "url": "/orders",
+  "barToHeader": 24,
+  "header": {
+   "top": 129,
+   "bottom": 180,
+   "left": 292,
+   "right": 1408,
+   "w": 1116,
+   "h": 51
+  },
+  "tile": {
+   "w": 44,
+   "h": 44,
+   "radius": "12px",
+   "bg": "gradient"
+  },
+  "glyph": 22,
+  "title": {
+   "text": "Órdenes de Trabajo",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(240, 244, 255)"
+  },
+  "subtitle": {
+   "size": "12.8px",
+   "color": "rgb(136, 150, 179)"
+  },
+  "gaps": [
+   28,
+   20
+  ],
+  "blocks": [
+   "div.filter-bar.list-filter-bar",
+   "div.surface-raised.orders-desktop-table"
+  ],
+  "actions": [
+   {
+    "text": "Nueva Orden",
+    "h": 44
+   }
+  ],
+  "overflowX": 0
+ },
+ "comprobantes-desktop-dark": {
+  "url": "/comprobantes",
+  "barToHeader": 48,
+  "header": {
+   "top": 153,
+   "bottom": 228,
+   "left": 324,
+   "right": 1376,
+   "w": 1052,
+   "h": 75
+  },
+  "tile": {
+   "w": 36,
+   "h": 36,
+   "radius": "8px",
+   "bg": "rgba(99, 102, 241, 0.15)"
+  },
+  "glyph": 20,
+  "title": {
+   "text": "Comprobantes",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(240, 244, 255)"
+  },
+  "subtitle": {
+   "size": "14px",
+   "color": "rgb(78, 90, 115)"
+  },
+  "gaps": [
+   24,
+   24,
+   20
+  ],
+  "blocks": [
+   "div.",
+   "div.filter-bar",
+   "div.card"
+  ],
+  "actions": [
+   {
+    "text": "Actualizar",
+    "h": 44
+   },
+   {
+    "text": "Nuevo Comprobante",
+    "h": 44
+   }
+  ],
+  "overflowX": 0
+ },
+ "settings-desktop-dark": {
+  "url": "/settings",
+  "barToHeader": 24,
+  "header": {
+   "top": 129,
+   "bottom": 180,
+   "left": 292,
+   "right": 1408,
+   "w": 1116,
+   "h": 51
+  },
+  "tile": {
+   "w": 44,
+   "h": 44,
+   "radius": "12px",
+   "bg": "gradient"
+  },
+  "glyph": 22,
+  "title": {
+   "text": "Configuración General",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(240, 244, 255)"
+  },
+  "subtitle": {
+   "size": "12.8px",
+   "color": "rgb(136, 150, 179)"
+  },
+  "gaps": [
+   28,
+   32,
+   32
+  ],
+  "blocks": [
+   "div.tabs",
+   "div.surface-raised",
+   "div."
+  ],
+  "actions": [],
+  "overflowX": 0
+ },
+ "settings-desktop-full": {
+  "url": "/settings",
+  "barToHeader": 24,
+  "header": {
+   "top": 129,
+   "bottom": 180,
+   "left": 292,
+   "right": 1408,
+   "w": 1116,
+   "h": 51
+  },
+  "tile": {
+   "w": 44,
+   "h": 44,
+   "radius": "12px",
+   "bg": "gradient"
+  },
+  "glyph": 22,
+  "title": {
+   "text": "Configuración General",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "12.8px",
+   "color": "rgb(100, 116, 139)"
+  },
+  "gaps": [
+   28,
+   32,
+   32
+  ],
+  "blocks": [
+   "div.tabs",
+   "div.surface-raised",
+   "div."
+  ],
+  "actions": [],
+  "overflowX": 0
+ },
+ "settings-mobile-full": {
+  "url": "/settings",
+  "barToHeader": 16,
+  "header": {
+   "top": 72,
+   "bottom": 123,
+   "left": 16,
+   "right": 374,
+   "w": 358,
+   "h": 51
+  },
+  "tile": {
+   "w": 44,
+   "h": 44,
+   "radius": "12px",
+   "bg": "gradient"
+  },
+  "glyph": 22,
+  "title": {
+   "text": "Configuración General",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "12.8px",
+   "color": "rgb(100, 116, 139)"
+  },
+  "gaps": [
+   28,
+   32,
+   32
+  ],
+  "blocks": [
+   "div.tabs",
+   "div.surface-raised",
+   "div."
+  ],
+  "actions": [],
+  "overflowX": 0
+ },
+ "wizard-mobile": {
+  "steps": [
+   "Cliente",
+   "Equipo",
+   "Identificación",
+   "Estado y fotos",
+   "Checklist",
+   "Acceso",
+   "Problema",
+   "Asignación",
+   "Presupuesto",
+   "Resumen"
+  ],
+  "rpc": [
+   {
+    "fn": "create_order_intake",
+    "access_mode": "pattern",
+    "p_access_secret": "[1,5,9]"
+   }
+  ],
+  "finalUrl": "/orders/new",
+  "alert": "INVALID_ACCESS_PATTERN"
+ },
+ "wizard-desktop": {
+  "steps": [
+   "Cliente",
+   "Equipo",
+   "Identificación",
+   "Estado y fotos",
+   "Checklist",
+   "Acceso",
+   "Problema",
+   "Asignación",
+   "Presupuesto",
+   "Resumen"
+  ],
+  "rpc": [
+   {
+    "fn": "create_order_intake",
+    "access_mode": "pattern",
+    "p_access_secret": "[1,5,9]"
+   }
+  ],
+  "finalUrl": "/orders/new",
+  "alert": "INVALID_ACCESS_PATTERN"
+ },
+ "dashboard-desktop": {
+  "url": "/dashboard",
+  "barToHeader": 48,
+  "header": {
+   "top": 153,
+   "bottom": 228,
+   "left": 324,
+   "right": 1376,
+   "w": 1052,
+   "h": 75
+  },
+  "tile": {
+   "w": 40,
+   "h": 40,
+   "radius": "12px",
+   "bg": "rgba(79, 70, 229, 0.07)"
+  },
+  "glyph": 20,
+  "title": {
+   "text": "Inicio",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "14px",
+   "color": "rgb(51, 65, 85)"
+  },
+  "gaps": [
+   24,
+   24,
+   24
+  ],
+  "blocks": [
+   "section.dash-today",
+   "section.card.dash-tasks",
+   "section.card.dash-orders"
+  ],
+  "actions": [
+   {
+    "text": "Nueva Orden",
+    "h": 44
+   },
+   {
+    "text": "Nuevo Comprobante",
+    "h": 44
+   },
+   {
+    "text": "Gestionar Caja",
+    "h": 44
+   },
+   {
+    "text": "Registrar gasto",
+    "h": 44
+   },
+   {
+    "text": "",
+    "h": 44
+   }
+  ],
+  "overflowX": 0
+ },
+ "orders-desktop": {
+  "url": "/orders",
+  "barToHeader": 24,
+  "header": {
+   "top": 129,
+   "bottom": 180,
+   "left": 292,
+   "right": 1408,
+   "w": 1116,
+   "h": 51
+  },
+  "tile": {
+   "w": 44,
+   "h": 44,
+   "radius": "12px",
+   "bg": "gradient"
+  },
+  "glyph": 22,
+  "title": {
+   "text": "Órdenes de Trabajo",
+   "size": "24px",
+   "weight": "800",
+   "color": "rgb(15, 23, 42)"
+  },
+  "subtitle": {
+   "size": "12.8px",
+   "color": "rgb(100, 116, 139)"
+  },
+  "gaps": [
+   28,
+   20
+  ],
+  "blocks": [
+   "div.filter-bar.list-filter-bar",
+   "div.surface-raised.orders-desktop-table"
+  ],
+  "actions": [
+   {
+    "text": "Nueva Orden",
+    "h": 44
+   }
+  ],
+  "overflowX": 0
+ }
+}

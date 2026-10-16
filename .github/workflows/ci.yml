@@ -393,6 +393,25 @@ jobs:
       - name: BETA-UX-1G — auth funnel
         run: npm run test:beta-ux-1g
 
+      # BETA-UX-2: consistencia visual + recepción más rápida. Había tres
+      # encabezados de página (ícono de 44px con gradiente, de 40px plano y de
+      # 36px armado a mano) y nueve pantallas con padding doble; Configuración
+      # eran diez pestañas en una fila; la recepción eran 10 pasos y un patrón
+      # con el punto 9 hacía fallar toda la creación (la grilla mandaba 1–9 y el
+      # servidor acepta 0–8). Fija: que `AppPageHeader` emite el encabezado de
+      # la referencia (`.page-hdr*`) sin estilos en línea y que las pantallas
+      # migradas lo usan; que el ícono es un tinte plano con tokens (48/44px,
+      # glifo 24/22) y el subtítulo `--text-secondary`; que `.page-shell` ya no
+      # suma padding; la navegación agrupada de Configuración (diez secciones,
+      # las mismas claves de `?tab=`, `aria-current`, corte por CSS); el
+      # `AppStepper`; la recepción en 4 pasos; que el patrón viaja en el
+      # contrato del servidor y que un acceso incompleto NUNCA frena la orden
+      # (queda «No lo proporcionó»). Lo pintado y la base real se miden en
+      # `m7/beta-ux-2-consistency.spec.ts` y `m7/mobile2a-order-intake.spec.ts`
+      # (job `e2e-local`).
+      - name: BETA-UX-2 — consistent page headers + faster order intake
+        run: npm run test:beta-ux-2
+
       # BETA-MP: Billing SaaS por Mercado Pago. El frontend propone, Mercado Pago
       # confirma, el backend decide. Corre el código REAL de las Edge Functions
       # (`supabase/functions/_shared/billing`) contra un PostgREST en memoria que

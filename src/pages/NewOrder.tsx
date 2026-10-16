@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Camera, ChevronLeft, ChevronRight, ScanLine, ShieldCheck, Trash2 } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Camera, ChevronLeft, ChevronRight, Info, ScanLine, ShieldCheck, Trash2 } from 'lucide-react'
 import { customersService } from '../services/api'
 import { ensureBrandAndModel } from '../services/deviceCatalogService'
 import type { Customer } from '../lib/supabase'
-import { AppButton, AppCombobox, AppInput, AppMoneyInput, AppSelect, AppTextarea, FormGrid, MobileActionBar, ResponsiveDialog } from '../ui'
+import { AppButton, AppCombobox, AppInput, AppMoneyInput, AppSelect, AppStepper, AppTextarea, FormGrid, MobileActionBar, ResponsiveDialog } from '../ui'
 import { formatMoney } from '../lib/money'
 import { useAuth } from '../contexts/AuthContext'
 import { effectivePermissions, usePermissions } from '../hooks/usePermissions'
@@ -12,11 +12,40 @@ import { BarcodeScannerDialog } from '../features/order-intake/BarcodeScannerDia
 import { ChecklistField } from '../features/order-intake/ChecklistField'
 import { PatternGrid } from '../features/order-intake/PatternGrid'
 import { useDeviceCatalog } from '../features/order-intake/useDeviceCatalog'
-import { INITIAL_INTAKE_DRAFT, isValidImei, normalizeImei, parseLocalizedAmount, type AccessMode, type IntakeDraft } from '../features/order-intake/model'
+import {
+  INITIAL_INTAKE_DRAFT, PIN_MAX_DIGITS, accessNotice, effectiveAccessMode, intakeErrorMessage, isValidImei,
+  normalizeImei, parseLocalizedAmount, type AccessMode, type CheckResult, type IntakeDraft,
+} from '../features/order-intake/model'
 import { createOrderIntake, loadAssignableProfiles, uploadIntakePhotos } from '../features/order-intake/service'
 import { CustomerCreateFields, CustomerPicker, useCustomerCore, type CustomerPickerOption } from '../features/customer-core'
 
-const STEPS = ['Cliente','Equipo','Identificación','Estado y fotos','Checklist','Acceso','Problema','Asignación','Presupuesto','Resumen'] as const
+/**
+ * BETA-UX-2 — la recepción pasó de 10 pasos a 4.
+ *
+ * Antes: Cliente · Equipo · Identificación · Estado y fotos · Checklist ·
+ * Acceso · Problema · Asignación · Presupuesto · Resumen. Una recepción mínima
+ * eran nueve «Continuar», siete de ellos sobre pasos opcionales.
+ *
+ * Ahora cada paso agrupa lo que se carga en el mismo momento del mostrador:
+ *   1. Cliente   — quién trae el equipo.
+ *   2. Equipo    — qué es (tipo, marca, modelo, serie/IMEI) y cómo se desbloquea.
+ *   3. Ingreso   — qué le pasa y en qué estado llega (fotos; checklist plegado).
+ *   4. Confirmar — técnico, prioridad y presupuesto opcionales + resumen.
+ *
+ * Lo obligatorio (cliente, marca/modelo, problema) quedó al principio de cada
+ * paso; lo opcional, después o plegado. No se quitó ningún dato: el payload de
+ * `create_order_intake` es el mismo. El acceso (PIN, patrón, contraseña) nunca
+ * frena la orden: ver `accessNotice` / `effectiveAccessMode` en model.ts.
+ */
+const STEPS = [
+  { label: 'Cliente', title: 'Cliente' },
+  { label: 'Equipo', title: 'Equipo y acceso' },
+  { label: 'Ingreso', title: 'Problema y estado' },
+  { label: 'Confirmar', title: 'Confirmar recepción' },
+] as const
+const LAST_STEP = STEPS.length - 1
+const STEP_LABELS = STEPS.map(step => step.label)
+
 const CHECKS = [['display','Pantalla'],['touch','Táctil'],['cameras','Cámaras'],['audio','Audio'],['charging','Carga'],['wifi','Wi‑Fi'],['buttons','Botones'],['biometrics','Biometría']] as const
 const ACCESS: { value: AccessMode; label: string; hint: string }[] = [
   {value:'none',label:'Sin bloqueo',hint:'El equipo no tiene bloqueo'},
@@ -25,10 +54,23 @@ const ACCESS: { value: AccessMode; label: string; hint: string }[] = [
   {value:'not_provided',label:'No lo proporcionó',hint:'El cliente no dejó el acceso'},
   {value:'not_verifiable',label:'No se puede verificar',hint:'El equipo no permite comprobarlo'},
 ]
+const DEVICE_TYPES: { value: IntakeDraft['device']['type']; label: string }[] = [
+  {value:'smartphone',label:'Teléfono'},{value:'tablet',label:'Tablet'},{value:'laptop',label:'Notebook'},
+  {value:'smartwatch',label:'Smartwatch'},{value:'other',label:'Otro'},
+]
+const POWERS_ON_LABEL: Record<IntakeDraft['condition']['powersOn'], string> = { yes:'Enciende', no:'No enciende', not_verified:'Encendido no verificado' }
+
 type PhotoDraft = { file: File; preview: string }
 type ProfileOption = { id:string; full_name?:string|null; email?:string|null; role?:string|null; permissions?:unknown }
+/** Campo que se enfoca cuando un paso no puede avanzar. */
+type FieldKey = 'brand' | 'model' | 'imei' | 'problem' | 'budget'
+const FIELD_TESTID: Record<FieldKey, string> = { brand:'intake-brand', model:'intake-model', imei:'intake-imei', problem:'intake-problem', budget:'intake-budget' }
 
-function StepCard({ children }: { children: React.ReactNode }) { return <section className="card intake-step-card"><div className="card-body">{children}</div></section> }
+function StepCard({ title, children }: { title?: string; children: React.ReactNode }) {
+  return <section className="card intake-step-card" aria-label={title}>
+    <div className="card-body">{title && <h2 className="intake-section-title">{title}</h2>}{children}</div>
+  </section>
+}
 function ChoiceGrid({ children }: { children: React.ReactNode }) { return <div className="intake-choice-grid">{children}</div> }
 
 export function NewOrder() {
@@ -48,6 +90,7 @@ export function NewOrder() {
   const [photos,setPhotos] = useState<PhotoDraft[]>([])
   const [quickOpen,setQuickOpen] = useState(false)
   const [scanner,setScanner] = useState<'serial'|'imei'|null>(null)
+  const [checklistOpen,setChecklistOpen] = useState(false)
   const [error,setError] = useState('')
   const [submitting,setSubmitting] = useState(false)
   const [createdOrderId,setCreatedOrderId] = useState('')
@@ -74,19 +117,30 @@ export function NewOrder() {
 
   const {brands,models,brandsLoading,modelsLoading}=useDeviceCatalog(draft.device.brand)
 
-  const stepError = () => {
-    if(step===0&&!draft.customerId)return 'Seleccioná o creá un cliente.'
-    if(step===1&&(!draft.device.brand.trim()||!draft.device.model.trim()))return 'Completá marca y modelo.'
-    if(step===2&&draft.device.imei&&!isValidImei(draft.device.imei))return 'El IMEI debe tener 15 dígitos y un dígito verificador válido.'
-    if(step===5&&draft.accessMode==='pin'&&!/^\d{4,12}$/.test(draft.accessSecret))return 'El PIN debe tener entre 4 y 12 dígitos.'
-    if(step===5&&draft.accessMode==='password'&&!draft.accessSecret.trim())return 'Ingresá la contraseña.'
-    if(step===5&&draft.accessMode==='pattern'&&draft.pattern.length<2)return 'Marcá al menos 2 puntos del patrón.'
-    if(step===6&&!draft.problem.trim())return 'Describí el problema informado.'
-    if(step===8&&draft.budgetAmount&&parseLocalizedAmount(draft.budgetAmount)===null)return 'Ingresá un presupuesto válido.'
-    return ''
+  const imeiInvalid = Boolean(draft.device.imei) && !isValidImei(draft.device.imei)
+  const notice = accessNotice(draft)
+
+  /** Lo que impide avanzar en un paso. El acceso NUNCA está acá. */
+  const stepIssue = (index: number): { message: string; field?: FieldKey } | null => {
+    if(index===0&&!draft.customerId)return {message:'Seleccioná o creá un cliente.'}
+    if(index===1&&!draft.device.brand.trim())return {message:'Completá marca y modelo.',field:'brand'}
+    if(index===1&&!draft.device.model.trim())return {message:'Completá marca y modelo.',field:'model'}
+    // El servidor rechaza un IMEI inválido (`INVALID_IMEI`): no se puede guardar
+    // tal cual, pero es opcional — vaciarlo también deja seguir.
+    if(index===1&&imeiInvalid)return {message:'El IMEI no es válido: tiene que tener 15 dígitos y un dígito verificador. Corregilo o dejalo vacío para seguir.',field:'imei'}
+    if(index===2&&!draft.problem.trim())return {message:'Describí el problema informado.',field:'problem'}
+    if(index===3&&draft.budgetAmount&&parseLocalizedAmount(draft.budgetAmount)===null)return {message:'Ingresá un presupuesto válido.',field:'budget'}
+    return null
   }
-  const next=()=>{const message=stepError();if(message){setError(message);return}setStep(value=>Math.min(STEPS.length-1,value+1))}
-  const back=()=>setStep(value=>Math.max(0,value-1))
+  const block = (index: number, issue: { message: string; field?: FieldKey }) => {
+    setStep(index); setError(issue.message)
+    // El campo que falta se enfoca: en el celular el aviso de arriba puede no
+    // estar a la vista cuando se toca «Continuar» al pie.
+    if(issue.field){const testId=FIELD_TESTID[issue.field];requestAnimationFrame(()=>document.querySelector<HTMLElement>(`[data-testid="${testId}"]`)?.focus())}
+  }
+  const next=()=>{const issue=stepIssue(step);if(issue){block(step,issue);return}setError('');setStep(value=>Math.min(LAST_STEP,value+1))}
+  const back=()=>{setError('');setStep(value=>Math.max(0,value-1))}
+  const goTo=(index:number)=>{if(index<step){setError('');setStep(index)}}
   const cancel=()=>{if(!dirty||window.confirm('¿Salir? Los datos cargados no se guardarán.'))navigate('/orders')}
 
   const addPhotos=(files:FileList|null)=>{
@@ -101,6 +155,10 @@ export function NewOrder() {
 
   const submit=async()=>{
     if(submitLock.current)return
+    // Los pasos ya validaron al avanzar; esto cubre volver atrás desde el
+    // stepper y vaciar un campo obligatorio.
+    for(let index=0;index<LAST_STEP;index+=1){const issue=stepIssue(index);if(issue){block(index,issue);return}}
+    const budgetIssue=stepIssue(LAST_STEP);if(budgetIssue){block(LAST_STEP,budgetIssue);return}
     submitLock.current=true;setSubmitting(true);setError('')
     let orderId=createdOrderId
     try{
@@ -126,92 +184,141 @@ export function NewOrder() {
         submitLock.current=false;return
       }
       navigate(`/orders/${orderId}`,{replace:true,state:{intakeCreated:true}})
-    }catch(cause){setError(cause instanceof Error?cause.message:'No se pudo crear la orden.');if(!orderId)submitLock.current=false}
+    }catch(cause){setError(cause instanceof Error?intakeErrorMessage(cause.message):'No se pudo crear la orden.');if(!orderId)submitLock.current=false}
     finally{setSubmitting(false)}
   }
 
   if(!can('orders_create'))return <div className="card"><div className="card-body"><h1>Nueva orden</h1><p>No tenés permiso para registrar recepciones.</p><AppButton onClick={()=>navigate('/orders')}>Volver</AppButton></div></div>
 
+  const accessLabel=(mode:AccessMode)=>ACCESS.find(option=>option.value===mode)?.label
+  const finalAccessMode=effectiveAccessMode(draft)
+  const accessSummary=finalAccessMode!==draft.accessMode
+    ? `${accessLabel(finalAccessMode)} (el ${accessLabel(draft.accessMode)?.toLowerCase()} quedó sin cargar)`
+    : ['pin','pattern','password'].includes(draft.accessMode)?`${accessLabel(draft.accessMode)} configurado`:accessLabel(draft.accessMode)
+  const checklistValues=CHECKS.map(([key])=>draft.checklist[key]||'not_tested') as CheckResult[]
+  const countOf=(result:CheckResult)=>checklistValues.filter(value=>value===result).length
+  const checklistSummary=[`${countOf('ok')} OK`,`${countOf('fail')} con falla`,`${countOf('not_tested')} sin probar`].join(' · ')
+  const reviewed=CHECKS.length-countOf('not_tested')
+
+  const primaryAction=(fullWidth:boolean)=>step<LAST_STEP
+    ?<AppButton variant="primary" fullWidth={fullWidth} onClick={next} rightIcon={fullWidth?undefined:<ChevronRight size={18}/>}>Continuar</AppButton>
+    :<AppButton variant="primary" fullWidth={fullWidth} loading={submitting} onClick={submit}>{createdOrderId?'Reintentar fotos':'Crear orden'}</AppButton>
+
   return <>
     <div className="animate-fade-in intake-page">
     <header className="intake-header">
-      <button type="button" className="btn btn-ghost" onClick={cancel} aria-label="Salir de nueva orden"><ArrowLeft size={20}/></button>
-      <div><p className="intake-eyebrow">Nueva orden · Paso {step+1} de {STEPS.length}</p><h1 ref={headingRef} tabIndex={-1}>{STEPS[step]}</h1></div>
+      <button type="button" className="btn btn-ghost intake-exit" onClick={cancel} aria-label="Salir de nueva orden"><ArrowLeft size={20}/></button>
+      <div><p className="intake-eyebrow">Nueva orden</p><h1 ref={headingRef} tabIndex={-1}>{STEPS[step].title}</h1></div>
     </header>
-    <div className="intake-progress" role="progressbar" aria-label="Progreso de la recepción" aria-valuemin={1} aria-valuemax={STEPS.length} aria-valuenow={step+1}><span style={{width:`${((step+1)/STEPS.length)*100}%`}}/></div>
+    <AppStepper steps={STEP_LABELS} current={step} onSelect={goTo} label="Pasos de la recepción" data-testid="intake-stepper"/>
     {error&&<div className="alert-inline alert-error" role="alert">{error}</div>}
 
     {step===0&&<StepCard><CustomerPicker businessId={businessId} selectedId={draft.customerId} pinned={createdCustomers} onCreateNew={()=>setQuickOpen(true)} onSelect={customer=>{setSelectedCustomer(customer);update({customerId:customer.id})}}/></StepCard>}
 
-    {step===1&&<StepCard><AppSelect label="Tipo de equipo" value={draft.device.type} onChange={e=>updateDevice({type:e.target.value as IntakeDraft['device']['type']})} options={[{value:'smartphone',label:'Teléfono'},{value:'tablet',label:'Tablet'},{value:'laptop',label:'Notebook'},{value:'smartwatch',label:'Smartwatch'},{value:'other',label:'Otro'}]}/>
-      {/* ORDERS-V2-0.1 — `<datalist>` no despliega sugerencias en WebKit móvil:
-          en el celular esto era un campo de texto pelado. AppCombobox dibuja la
-          lista con marcado propio y sigue aceptando texto libre. */}
-      <FormGrid>
-        <AppCombobox label="Marca" required value={draft.device.brand} options={brands} loading={brandsLoading}
-          data-testid="intake-brand" autoCapitalize="words"
-          emptyHint="No está en el catálogo. Podés escribirla igual."
-          onChange={value=>updateDevice({brand:value,model:''})}/>
-        <AppCombobox label="Modelo" required value={draft.device.model} options={models} loading={modelsLoading}
-          data-testid="intake-model" autoCapitalize="words"
-          emptyHint="No está en el catálogo. Podés escribirlo igual."
-          onChange={value=>updateDevice({model:value})}/>
-      </FormGrid>
-    </StepCard>}
+    {step===1&&<>
+      <StepCard title="Equipo">
+        <AppSelect label="Tipo de equipo" value={draft.device.type} onChange={e=>updateDevice({type:e.target.value as IntakeDraft['device']['type']})} options={DEVICE_TYPES}/>
+        {/* ORDERS-V2-0.1 — `<datalist>` no despliega sugerencias en WebKit móvil:
+            en el celular esto era un campo de texto pelado. AppCombobox dibuja la
+            lista con marcado propio y sigue aceptando texto libre. */}
+        <FormGrid>
+          <AppCombobox label="Marca" required value={draft.device.brand} options={brands} loading={brandsLoading}
+            data-testid="intake-brand" autoCapitalize="words"
+            emptyHint="No está en el catálogo. Podés escribirla igual."
+            onChange={value=>updateDevice({brand:value,model:''})}/>
+          <AppCombobox label="Modelo" required value={draft.device.model} options={models} loading={modelsLoading}
+            data-testid="intake-model" autoCapitalize="words"
+            emptyHint="No está en el catálogo. Podés escribirlo igual."
+            onChange={value=>updateDevice({model:value})}/>
+        </FormGrid>
+        <div className="intake-id-grid">
+          <div className="intake-field-action"><AppInput label="Número de serie (opcional)" value={draft.device.serial} onChange={e=>updateDevice({serial:e.target.value})} autoCapitalize="characters"/><AppButton variant="secondary" leftIcon={<ScanLine size={17}/>} onClick={()=>setScanner('serial')}>Escanear</AppButton></div>
+          <div className="intake-field-action"><AppInput semantic="numeric" label="IMEI (opcional)" data-testid="intake-imei" value={draft.device.imei} error={imeiInvalid?'Debe ser un IMEI válido de 15 dígitos. Si no lo tenés a mano, dejalo vacío.':''} onChange={e=>updateDevice({imei:normalizeImei(e.target.value)})} maxLength={15}/><AppButton variant="secondary" leftIcon={<ScanLine size={17}/>} onClick={()=>setScanner('imei')}>Escanear</AppButton></div>
+        </div>
+      </StepCard>
 
-    {step===2&&<StepCard><div className="intake-field-action"><AppInput label="Número de serie" value={draft.device.serial} onChange={e=>updateDevice({serial:e.target.value})} autoCapitalize="characters"/><AppButton variant="secondary" leftIcon={<ScanLine size={17}/>} onClick={()=>setScanner('serial')}>Escanear</AppButton></div>
-      <div className="intake-field-action"><AppInput semantic="numeric" label="IMEI (opcional)" value={draft.device.imei} error={draft.device.imei&&!isValidImei(draft.device.imei)?'Debe ser un IMEI válido de 15 dígitos.':''} onChange={e=>updateDevice({imei:normalizeImei(e.target.value)})} maxLength={15}/><AppButton variant="secondary" leftIcon={<ScanLine size={17}/>} onClick={()=>setScanner('imei')}>Escanear</AppButton></div>
-    </StepCard>}
+      <StepCard title="Acceso al equipo">
+        <div className="intake-security-note"><ShieldCheck size={20} aria-hidden="true"/><span>El acceso se cifra en Vault. No aparece en el resumen ni se guarda en el navegador.</span></div>
+        <ChoiceGrid>{ACCESS.map(option=><button type="button" key={option.value} className={`intake-choice ${draft.accessMode===option.value?'is-selected':''}`} aria-pressed={draft.accessMode===option.value} onClick={()=>update({accessMode:option.value,accessSecret:'',pattern:[]})}><strong>{option.label}</strong><small>{option.hint}</small></button>)}</ChoiceGrid>
+        {draft.accessMode==='pin' && (
+          <AppInput semantic="password" inputMode="numeric" autoComplete="new-password" label="PIN" value={draft.accessSecret} onChange={e=>update({accessSecret:e.target.value.replace(/\D/g,'').slice(0,PIN_MAX_DIGITS)})}/>
+        )}
+        {draft.accessMode==='password' && (
+          <AppInput semantic="password" autoComplete="new-password" label="Contraseña" value={draft.accessSecret} onChange={e=>update({accessSecret:e.target.value.slice(0,256)})}/>
+        )}
+        {draft.accessMode==='pattern'&&<PatternGrid value={draft.pattern} onChange={pattern=>update({pattern})}/>}
+        {/* Ayuda, no bloqueo: «Continuar» sigue habilitado con cualquier acceso. */}
+        {notice&&<p className="intake-access-notice" data-level={notice.level} role="status" data-testid="intake-access-notice">
+          {notice.level==='warning'?<AlertTriangle size={16} aria-hidden="true"/>:<Info size={16} aria-hidden="true"/>}<span>{notice.message}</span>
+        </p>}
+      </StepCard>
+    </>}
 
-    {step===3&&<StepCard><AppSelect label="Estado general" value={draft.condition.general} onChange={e=>update({condition:{...draft.condition,general:e.target.value}})} options={['Excelente','Bueno','Regular','Dañado'].map(value=>({value,label:value}))}/>
-      <AppSelect label="¿Enciende?" value={draft.condition.powersOn} onChange={e=>update({condition:{...draft.condition,powersOn:e.target.value as IntakeDraft['condition']['powersOn']}})} options={[{value:'yes',label:'Sí'},{value:'no',label:'No'},{value:'not_verified',label:'No verificado'}]}/>
-      <fieldset><legend>Condiciones visibles</legend><ChoiceGrid>{['Pantalla rota','Rayones','Golpes','Humedad','Tapa dañada','Faltantes'].map(item=><label key={item} className="intake-check"><input type="checkbox" checked={draft.condition.physical.includes(item)} onChange={e=>update({condition:{...draft.condition,physical:e.target.checked?[...draft.condition.physical,item]:draft.condition.physical.filter(value=>value!==item)}})}/>{item}</label>)}</ChoiceGrid></fieldset>
-      <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={e=>addPhotos(e.target.files)}/><AppButton variant="secondary" leftIcon={<Camera size={18}/>} onClick={()=>fileRef.current?.click()} disabled={photos.length>=8}>Agregar fotos ({photos.length}/8)</AppButton>
-      <div className="intake-photo-grid">{photos.map((photo,index)=><div key={photo.preview}><img src={photo.preview} alt={`Foto de recepción ${index+1}`}/><button type="button" onClick={()=>removePhoto(index)} aria-label={`Quitar foto ${index+1}`}><Trash2 size={16}/></button></div>)}</div>
-    </StepCard>}
+    {step===2&&<>
+      <StepCard title="Problema">
+        <AppTextarea label="Problema informado por el cliente" required data-testid="intake-problem" value={draft.problem} onChange={e=>update({problem:e.target.value})} minRows={4}/>
+        <AppTextarea label="Observaciones de recepción" value={draft.observations} onChange={e=>update({observations:e.target.value})} hint="Estado, accesorios o aclaraciones que no forman parte del problema."/>
+      </StepCard>
 
-    {step===4&&<StepCard><p className="form-hint">Marcá qué se verificó al recibir el equipo. “No probado” evita asumir que algo funciona.</p><div className="intake-check-list">{CHECKS.map(([key,label])=><ChecklistField key={key} name={key} label={label} value={draft.checklist[key]||'not_tested'} onChange={result=>update({checklist:{...draft.checklist,[key]:result}})}/>)}</div></StepCard>}
+      <StepCard title="Estado del equipo">
+        <FormGrid>
+          <AppSelect label="Estado general" value={draft.condition.general} onChange={e=>update({condition:{...draft.condition,general:e.target.value}})} options={['Excelente','Bueno','Regular','Dañado'].map(value=>({value,label:value}))}/>
+          <AppSelect label="¿Enciende?" value={draft.condition.powersOn} onChange={e=>update({condition:{...draft.condition,powersOn:e.target.value as IntakeDraft['condition']['powersOn']}})} options={[{value:'yes',label:'Sí'},{value:'no',label:'No'},{value:'not_verified',label:'No verificado'}]}/>
+        </FormGrid>
+        <fieldset><legend>Condiciones visibles</legend><ChoiceGrid>{['Pantalla rota','Rayones','Golpes','Humedad','Tapa dañada','Faltantes'].map(item=><label key={item} className="intake-check"><input type="checkbox" checked={draft.condition.physical.includes(item)} onChange={e=>update({condition:{...draft.condition,physical:e.target.checked?[...draft.condition.physical,item]:draft.condition.physical.filter(value=>value!==item)}})}/>{item}</label>)}</ChoiceGrid></fieldset>
+        <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={e=>addPhotos(e.target.files)}/><AppButton variant="secondary" leftIcon={<Camera size={18}/>} onClick={()=>fileRef.current?.click()} disabled={photos.length>=8}>Agregar fotos ({photos.length}/8)</AppButton>
+        <div className="intake-photo-grid">{photos.map((photo,index)=><div key={photo.preview}><img src={photo.preview} alt={`Foto de recepción ${index+1}`}/><button type="button" onClick={()=>removePhoto(index)} aria-label={`Quitar foto ${index+1}`}><Trash2 size={16}/></button></div>)}</div>
+      </StepCard>
 
-    {step===5&&<StepCard><div className="intake-security-note"><ShieldCheck size={20}/><span>El acceso se cifra en Vault. No aparece en el resumen ni se guarda en el navegador.</span></div><ChoiceGrid>{ACCESS.map(option=><button type="button" key={option.value} className={`intake-choice ${draft.accessMode===option.value?'is-selected':''}`} onClick={()=>update({accessMode:option.value,accessSecret:'',pattern:[]})}><strong>{option.label}</strong><small>{option.hint}</small></button>)}</ChoiceGrid>
-      {draft.accessMode==='pin' && (
-        <AppInput semantic="password" inputMode="numeric" autoComplete="new-password" label="PIN" value={draft.accessSecret} onChange={e=>update({accessSecret:e.target.value.replace(/\D/g,'').slice(0,12)})}/>
-      )}
-      {draft.accessMode==='password' && (
-        <AppInput semantic="password" autoComplete="new-password" label="Contraseña" value={draft.accessSecret} onChange={e=>update({accessSecret:e.target.value.slice(0,256)})}/>
-      )}
-      {draft.accessMode==='pattern'&&<PatternGrid value={draft.pattern} onChange={pattern=>update({pattern})}/>}</StepCard>}
+      {/* El checklist es opcional y largo (ocho filas): plegado no le roba la
+          pantalla a quien recibe rápido, y el resumen dice cuánto se revisó. */}
+      <details className="card intake-step-card intake-disclosure" open={checklistOpen} onToggle={event=>setChecklistOpen(event.currentTarget.open)} data-testid="intake-checklist">
+        <summary className="intake-disclosure__summary">
+          <span className="intake-disclosure__title">Checklist de funciones <small>(opcional)</small></span>
+          <span className="intake-disclosure__meta">{reviewed} de {CHECKS.length} revisadas</span>
+          <ChevronRight size={18} className="intake-disclosure__chevron" aria-hidden="true"/>
+        </summary>
+        <div className="card-body">
+          <p className="form-hint">Marcá qué se verificó al recibir el equipo. “No probado” evita asumir que algo funciona.</p>
+          <div className="intake-check-list">{CHECKS.map(([key,label])=><ChecklistField key={key} name={key} label={label} value={draft.checklist[key]||'not_tested'} onChange={result=>update({checklist:{...draft.checklist,[key]:result}})}/>)}</div>
+        </div>
+      </details>
+    </>}
 
-    {step===6&&<StepCard><AppTextarea label="Problema informado por el cliente" required value={draft.problem} onChange={e=>update({problem:e.target.value})} minRows={4}/><AppTextarea label="Observaciones de recepción" value={draft.observations} onChange={e=>update({observations:e.target.value})} hint="Estado, accesorios o aclaraciones que no forman parte del problema."/></StepCard>}
+    {step===3&&<>
+      <StepCard title="Asignación y presupuesto">
+        <FormGrid>
+          <AppSelect label="Técnico / responsable" value={draft.assignedProfileId} onChange={e=>update({assignedProfileId:e.target.value})} placeholder="Sin asignar" options={profiles.map(profile=>({value:profile.id,label:profile.full_name||profile.email||'Integrante'}))}/>
+          <AppSelect label="Prioridad" value={draft.priority} onChange={e=>update({priority:e.target.value as IntakeDraft['priority']})} options={[{value:'medium',label:'Normal'},{value:'high',label:'Importante'},{value:'urgent',label:'Urgente'}]}/>
+        </FormGrid>
+        {/* ORDERS-V2-0.1 — moneda y monto eran dos controles sueltos y `85000` se
+            veía igual en pesos que en dólares. AppMoneyInput los une y pone el
+            prefijo adentro del campo. Cambiar de moneda NO convierte el importe. */}
+        <AppMoneyInput label="Presupuesto estimado (opcional)" data-testid="intake-budget"
+          value={draft.budgetAmount} onValueChange={value=>update({budgetAmount:value})}
+          currency={draft.budgetCurrency} onCurrencyChange={currency=>update({budgetCurrency:currency})}
+          hint="No registra pagos ni movimientos financieros. Cambiar la moneda no convierte el número."/>
+      </StepCard>
 
-    {step===7&&<StepCard><AppSelect label="Técnico / responsable" value={draft.assignedProfileId} onChange={e=>update({assignedProfileId:e.target.value})} placeholder="Sin asignar" options={profiles.map(profile=>({value:profile.id,label:profile.full_name||profile.email||'Integrante'}))}/><AppSelect label="Prioridad" value={draft.priority} onChange={e=>update({priority:e.target.value as IntakeDraft['priority']})} options={[{value:'medium',label:'Normal'},{value:'high',label:'Importante'},{value:'urgent',label:'Urgente'}]}/></StepCard>}
+      <StepCard title="Resumen">
+        <div className="intake-summary">
+          <Summary title="Cliente" onEdit={()=>goTo(0)}>{selectedCustomer?.name}</Summary>
+          <Summary title="Equipo" onEdit={()=>goTo(1)}>{draft.device.brand} {draft.device.model} · {DEVICE_TYPES.find(type=>type.value===draft.device.type)?.label} · Serie: {draft.device.serial||'No informada'} · IMEI: {draft.device.imei||'No informado'}</Summary>
+          <Summary title="Acceso" onEdit={()=>goTo(1)}>{accessSummary}</Summary>
+          <Summary title="Problema" onEdit={()=>goTo(2)}>{draft.problem}</Summary>
+          <Summary title="Estado" onEdit={()=>goTo(2)}>{draft.condition.general} · {POWERS_ON_LABEL[draft.condition.powersOn]} · {photos.length} foto(s){draft.condition.physical.length?` · ${draft.condition.physical.join(', ')}`:''}</Summary>
+          <Summary title="Checklist" onEdit={()=>{setChecklistOpen(true);goTo(2)}}>{checklistSummary}</Summary>
+          {/* El presupuesto se carga arriba, en este mismo paso, pero se relee
+              formateado: `85000` y `850000` se confunden en el campo y no acá
+              (`$ 85.000,00` / `US$ …`, la autoridad de formato de ORDERS-V2-0.1). */}
+          <Summary title="Presupuesto">{formatMoney(parseLocalizedAmount(draft.budgetAmount),draft.budgetCurrency,{fallback:'Sin presupuesto'})}</Summary>
+        </div>
+      </StepCard>
+    </>}
 
-    {/* ORDERS-V2-0.1 — moneda y monto eran dos controles sueltos y `85000` se
-        veía igual en pesos que en dólares. AppMoneyInput los une y pone el
-        prefijo adentro del campo. Cambiar de moneda NO convierte el importe. */}
-    {step===8&&<StepCard><p className="form-hint">El presupuesto es opcional y no registra pagos ni movimientos financieros.</p>
-      <AppMoneyInput label="Presupuesto estimado" data-testid="intake-budget"
-        value={draft.budgetAmount} onValueChange={value=>update({budgetAmount:value})}
-        currency={draft.budgetCurrency} onCurrencyChange={currency=>update({budgetCurrency:currency})}
-        hint="Sólo cambia la unidad: el número que cargaste queda como está."/>
-    </StepCard>}
-
-    {step===9&&<StepCard><div className="intake-summary">
-      <Summary title="Cliente" onEdit={()=>setStep(0)}>{selectedCustomer?.name}</Summary>
-      <Summary title="Equipo" onEdit={()=>setStep(1)}>{draft.device.brand} {draft.device.model} · {draft.device.type}</Summary>
-      <Summary title="Identificación" onEdit={()=>setStep(2)}>Serie: {draft.device.serial||'No informada'} · IMEI: {draft.device.imei||'No informado'}</Summary>
-      <Summary title="Estado y fotos" onEdit={()=>setStep(3)}>{draft.condition.general} · {photos.length} foto(s)</Summary>
-      <Summary title="Checklist" onEdit={()=>setStep(4)}>{Object.values(draft.checklist).filter(value=>value==='fail').length} falla(s) marcada(s)</Summary>
-      <Summary title="Acceso" onEdit={()=>setStep(5)}>{['pin','pattern','password'].includes(draft.accessMode)?`${ACCESS.find(a=>a.value===draft.accessMode)?.label} configurado`:ACCESS.find(a=>a.value===draft.accessMode)?.label}</Summary>
-      <Summary title="Problema" onEdit={()=>setStep(6)}>{draft.problem}</Summary>
-      <Summary title="Asignación" onEdit={()=>setStep(7)}>{profiles.find(profile=>profile.id===draft.assignedProfileId)?.full_name||'Sin asignar'} · {draft.priority==='medium'?'Normal':draft.priority==='high'?'Importante':'Urgente'}</Summary>
-      {/* El resumen mostraba `ARS 85.000` como texto crudo. Con la autoridad
-          de formato la moneda se lee de un vistazo: `$ 85.000,00` / `US$ …`. */}
-      <Summary title="Presupuesto" onEdit={()=>setStep(8)}>{formatMoney(parseLocalizedAmount(draft.budgetAmount),draft.budgetCurrency,{fallback:'Sin presupuesto'})}</Summary>
-    </div></StepCard>}
-
-    <div className="intake-desktop-actions"><AppButton variant="secondary" onClick={step===0?cancel:back} leftIcon={<ChevronLeft size={18}/>}>{step===0?'Cancelar':'Anterior'}</AppButton>{step<9?<AppButton variant="primary" onClick={next} rightIcon={<ChevronRight size={18}/>}>Continuar</AppButton>:<AppButton variant="primary" loading={submitting} onClick={submit}>{createdOrderId?'Reintentar fotos':'Crear orden'}</AppButton>}</div>
+    <div className="intake-desktop-actions"><AppButton variant="secondary" onClick={step===0?cancel:back} leftIcon={<ChevronLeft size={18}/>}>{step===0?'Cancelar':'Anterior'}</AppButton>{primaryAction(false)}</div>
     </div>
-    <MobileActionBar secondaryAction={<AppButton variant="secondary" fullWidth onClick={step===0?cancel:back}>{step===0?'Cancelar':'Anterior'}</AppButton>} primaryAction={step<9?<AppButton variant="primary" fullWidth onClick={next}>Continuar</AppButton>:<AppButton variant="primary" fullWidth loading={submitting} onClick={submit}>{createdOrderId?'Reintentar fotos':'Crear orden'}</AppButton>}/>
+    <MobileActionBar secondaryAction={<AppButton variant="secondary" fullWidth onClick={step===0?cancel:back}>{step===0?'Cancelar':'Anterior'}</AppButton>} primaryAction={primaryAction(true)}/>
     <QuickCustomerDialog open={quickOpen} onClose={()=>setQuickOpen(false)} onCreated={customer=>{
       // El alta se antepone a los resultados del servidor y queda elegida:
       // el usuario acaba de crearla para ESTA orden.
@@ -225,7 +332,7 @@ export function NewOrder() {
   </>
 }
 
-function Summary({title,onEdit,children}:{title:string;onEdit:()=>void;children:React.ReactNode}){return <section><div><h2>{title}</h2><button type="button" onClick={onEdit}>Editar</button></div><p>{children||'—'}</p></section>}
+function Summary({title,onEdit,children}:{title:string;onEdit?:()=>void;children:React.ReactNode}){return <section><div><h3>{title}</h3>{onEdit&&<button type="button" onClick={onEdit} aria-label={`Editar ${title.toLowerCase()}`}>Editar</button>}</div><p>{children||'—'}</p></section>}
 
 const QUICK_CUSTOMER_FORM_ID = 'quick-customer-form'
 

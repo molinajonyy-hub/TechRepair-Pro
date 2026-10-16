@@ -299,6 +299,12 @@ RESET ROLE;
 DO $$ BEGIN
   IF private.mobile2a_secret_from_legacy('pattern:0-4-8')<>'[0, 4, 8]' OR
      private.mobile2a_legacy_from_access('pattern','[0,4,8]')<>'pattern:0-4-8' THEN RAISE EXCEPTION 'LEGACY FAIL: codec pattern';END IF;
+  -- BETA-UX-2 · hotfix: el frontend guarda el patrón como arreglo de STRINGS
+  -- (marca de formato actual). El codec tiene que aceptarlo igual que a los
+  -- números, y seguir rechazando el 9 y los repetidos.
+  IF private.mobile2a_legacy_from_access('pattern','["0","4","8"]')<>'pattern:0-4-8' THEN RAISE EXCEPTION 'LEGACY FAIL: codec pattern strings';END IF;
+  BEGIN PERFORM private.mobile2a_legacy_from_access('pattern','["1","5","9"]'); RAISE EXCEPTION 'LEGACY FAIL: aceptó el 9 como string';
+  EXCEPTION WHEN SQLSTATE '22023' THEN NULL; END;
   IF EXISTS(SELECT 1 FROM private.order_device_access_secrets WHERE order_id=current_setting('test.order_id')::uuid) THEN RAISE EXCEPTION 'C FAIL: delete conservó mapping';END IF;
   IF (SELECT device_password FROM public.orders WHERE id=current_setting('test.order_id')::uuid) IS NOT NULL THEN RAISE EXCEPTION 'COEXIST FAIL: delete no limpió shadow legacy';END IF;
   IF NOT EXISTS(SELECT 1 FROM private.order_device_access_audit WHERE order_id=current_setting('test.order_id')::uuid AND action='deleted') THEN RAISE EXCEPTION 'C FAIL: delete sin auditoría';END IF;

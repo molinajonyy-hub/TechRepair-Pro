@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { runHealthCheck } from '../services/financeHealthService'
+import { AppPageHeader } from '../ui'
 import {
   groupChecks, fmtARS, GLOBAL_CATEGORIES,
   type HealthResult, type HealthCheck, type CheckResult, type CheckGroup,
@@ -367,35 +368,29 @@ export function FinanceHealthCheck() {
 
   return (
     <div className="page-shell" data-testid="finance-health-page" data-health-version={result?.health_version}>
-      {/* ── Header ── */}
-      <div className="page-top">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
-          <div className="stat-icon" style={{ background: 'var(--info-subtle)', border: '1px solid var(--info-border)' }}>
-            <ShieldCheck size={20} style={{ color: 'var(--info)' }} />
-          </div>
-          <div>
-            <h1 className="page-title">Auditoría financiera</h1>
-            <p className="page-subtitle">
-              Integridad económica, períodos, anulaciones, caja y aislamiento
-            </p>
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
+      {/* ── Header ── BETA-UX-2: patrón compartido; las acciones pasan a la
+          categoría de acción de página (antes sin `.btn`, con alto propio). */}
+      <AppPageHeader
+        icon={<ShieldCheck size={24} />}
+        tone="info"
+        title="Auditoría financiera"
+        description="Integridad económica, períodos, anulaciones, caja y aislamiento"
+        actions={<>
           {result && (
-            <button className="btn-secondary" onClick={copyReport} data-testid="finance-health-copy">
-              {copied ? <CheckCircle2 size={15} /> : <Copy size={15} />}
+            <button className="btn btn-secondary btn-page-action" onClick={copyReport} data-testid="finance-health-copy">
+              {copied ? <CheckCircle2 size={16} /> : <Copy size={16} />}
               {copied ? 'Copiado' : 'Copiar'}
             </button>
           )}
           <button
-            className="btn-primary" onClick={runCheck} disabled={loading || !businessId}
+            className="btn btn-primary btn-page-action" onClick={runCheck} disabled={loading || !businessId}
             data-testid="finance-health-run"
           >
-            <RefreshCw size={15} style={{ animation: loading ? 'spin 1s linear infinite' : undefined }} />
+            <RefreshCw size={16} style={{ animation: loading ? 'spin 1s linear infinite' : undefined }} />
             {loading ? 'Analizando…' : 'Ejecutar auditoría'}
           </button>
-        </div>
-      </div>
+        </>}
+      />
 
       {error && (
         <div role="alert" data-testid="finance-health-error" style={{

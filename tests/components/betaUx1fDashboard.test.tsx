@@ -1636,8 +1636,12 @@ describe('BETA-UX-1F · CSS: los pares de color elegidos llegan a 4,5:1', () => 
     expect(contraste(hex(token(vars, '--text-subtle')), pagina)).toBeLessThan(AA)
   })
 
-  it('el subtítulo de Inicio no usa `--text-subtle`', () => {
-    expect(regla('.dash-page .page-subtitle')).toMatch(/color: var\(--text-secondary\)/)
+  // BETA-UX-2: Inicio ya no tiene regla propia de subtítulo. El encabezado es el
+  // compartido (`AppPageHeader` → `.page-hdr-subtitle`) y lo que 1F había
+  // resuelto sólo para Inicio quedó para todas las pantallas.
+  it('el subtítulo de Inicio no usa `--text-subtle`: lo hereda del encabezado compartido', () => {
+    expect(regla('.dash-page .page-subtitle')).toBeNull()
+    expect(regla('.page-hdr-subtitle', sinComentarios(css))).toMatch(/color: var\(--text-secondary\)/)
   })
 })
 

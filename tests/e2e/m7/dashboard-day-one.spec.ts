@@ -462,7 +462,8 @@ test.describe('@beta-ux-1f A · dueño con datos · escritorio', () => {
       await capturar(page, `dashboard-owner-desktop-${tema}`)
 
       // ── Contraste pintado de lo que el lote agregó ──────────────────────
-      await legible(page, inicio(page).locator('.page-subtitle'), 'subtítulo «Tu taller hoy»', tema)
+      // BETA-UX-2: el encabezado es el compartido (`.page-hdr*`).
+      await legible(page, inicio(page).locator('.page-hdr-subtitle'), 'subtítulo «Tu taller hoy»', tema)
       for (const nombre of ['Nueva Orden', 'Nuevo Comprobante', 'Gestionar Caja', 'Registrar gasto']) {
         await legible(page, accion(page, nombre), `«${nombre}»`, tema)
         await legible(page, accion(page, nombre), `«${nombre}»`, tema, 'hover')
@@ -828,7 +829,7 @@ test.describe('@beta-ux-1f B · negocio nuevo', () => {
     })
     await abrir(page, 'light', DESKTOP, { cotizacion: false })
     await expect(page.getByTestId('setup-checklist')).toHaveCount(0)
-    const encabezado = await caja(inicio(page).locator('.page-top'))
+    const encabezado = await caja(inicio(page).locator('.page-hdr'))
     const hoy = await caja(page.getByTestId('dashboard-today'))
     expect(hoy.y - (encabezado.y + encabezado.height), 'quedó un hueco donde estaba la guía').toBeLessThanOrEqual(32)
   })

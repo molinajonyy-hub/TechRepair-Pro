@@ -71,8 +71,11 @@ test.describe('@ordersv20 ORDERS-V2-0 · desktop', () => {
     await continuar(page)
 
     // ── Checklist ──────────────────────────────────────────────────────────
-    await continuar(page) // identificación
-    await continuar(page) // estado y fotos
+    // BETA-UX-2: la recepción es de 4 pasos. El checklist vive plegado en
+    // «Ingreso» (el paso siguiente a Equipo): se abre desde su resumen.
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Problema y estado')
+    await page.getByTestId('intake-checklist').locator('summary').click()
+    await expect(page.getByTestId('intake-checklist')).toHaveAttribute('open', '')
 
     await expect(page.getByRole('radiogroup', { name: 'Pantalla' })).toBeVisible()
     await expect(page.getByRole('radiogroup')).toHaveCount(8)

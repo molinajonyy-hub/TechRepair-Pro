@@ -57,6 +57,7 @@ const hasDebt = (n: number | null | undefined, min = 0) =>
 const isSettled = (n: number | null | undefined, min = 0) =>
   n !== null && n !== undefined && n <= min
 import { fmtDateFull as _fmtDateFull } from '../utils/dateUtils'
+import { AppPageHeader } from '../ui'
 const fmtDate = (d: string | null) => d ? _fmtDateFull(d) : '—'
 const daysSince = (d: string | null) => {
   if (!d) return null
@@ -1241,19 +1242,14 @@ export function Suppliers() {
 
   if (view === 'list') return (
     <div className="page-shell" data-testid="suppliers-page">
-      {/* Encabezado */}
-      <div className="page-top">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
-          <div style={{ width: 40, height: 40, borderRadius: '0.75rem', background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Truck size={20} style={{ color: '#818cf8' }} />
-          </div>
-          <div>
-            <h1 className="page-title">Proveedores</h1>
-            <p className="page-subtitle">{suppliers.length} proveedores registrados</p>
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <button className="btn btn-ghost" data-testid="supplier-new-invoice-button" onClick={() => {
+      {/* Encabezado — BETA-UX-2: patrón compartido. Las dos acciones visibles
+          son una categoría (acción de página, 44px); la jerarquía, la variante. */}
+      <AppPageHeader
+        icon={<Truck size={24} />}
+        title="Proveedores"
+        description={`${suppliers.length} proveedores registrados`}
+        actions={<>
+          <button className="btn btn-ghost btn-page-action" data-testid="supplier-new-invoice-button" onClick={() => {
             // La carga de factura necesita un proveedor. Si hay uno solo, abrimos su
             // detalle directo; si hay varios, guiamos a elegir (el modal de compra vive
             // en el detalle del proveedor). Antes este onClick estaba vacío (botón muerto).
@@ -1261,13 +1257,13 @@ export function Suppliers() {
             if (activos.length === 1) { openDetail(activos[0].id); setShowModalPurchase(true) }
             else alert('Elegí un proveedor de la lista (botón "Ver detalle") y usá "Nueva factura" desde ahí.')
           }}>
-            <FileText size={15} /> Nueva factura
+            <FileText size={16} /> Nueva factura
           </button>
-          <button className="btn btn-primary btn-lift" onClick={() => { setEditingSupplier(null); setShowModalSupplier(true) }}>
-            <Plus size={15} /> Nuevo proveedor
+          <button className="btn btn-primary btn-page-action" onClick={() => { setEditingSupplier(null); setShowModalSupplier(true) }}>
+            <Plus size={16} /> Nuevo proveedor
           </button>
-        </div>
-      </div>
+        </>}
+      />
 
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.25rem' }}>
