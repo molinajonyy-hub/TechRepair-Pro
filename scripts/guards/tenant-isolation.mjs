@@ -172,12 +172,6 @@ const DEUDA_PERSONAL = 'Mi Guita: CHECK solo-self (user_id = auth.uid()) y authe
   + 'atada a la pertenencia. Fuera del alcance de PRE-BETA-1: requiere discovery propio (P1 de seguimiento).'
 export const DEUDA_PREEXISTENTE = [
   {
-    table: 'customer_events', policy: 'ce_insert', rule: 'CHECK_TRUE', access: 'authenticated:I', fp: 'e44e33e9c1d2965c8a0f815a569dc9c9',
-    reason: 'INSERT con WITH CHECK (true) desde el remote_baseline: un authenticated puede insertar eventos con '
-      + 'business_id ajeno (escritura cross-tenant; la lectura si esta anclada por ce_admin). Fuera del alcance '
-      + 'de PRE-BETA-1: requiere discovery propio (P1 de seguimiento).',
-  },
-  {
     table: 'personal_accounts', policy: 'personal_accounts_own', rule: 'NO_DEMOSTRABLE', access: ['authenticated:I', 'authenticated:U'],
     fp: '32a2cf69e3a79cfe1d650c419b65ada9', reason: DEUDA_PERSONAL,
   },
@@ -593,11 +587,14 @@ function selfTestCatalogo() {
       'DROP POLICY woi_customer_select ON public.wholesale_order_items;',
       (r) => r.errores.some((e) => e.includes('excepcion vieja') && e.includes('woi_customer_select'))],
     ['M7 deuda preexistente arreglada sin quitar la entrada (trinquete)',
-      'DROP POLICY ce_insert ON public.customer_events;',
-      (r) => r.errores.some((e) => e.includes('customer_events.ce_insert'))],
+      'DROP POLICY personal_accounts_own ON public.personal_accounts;',
+      (r) => r.errores.some((e) => e.includes('personal_accounts.personal_accounts_own'))],
     ['D1 la deuda cambia (roles) -> entrada vieja y el hallazgo vuelve a ser violacion',
-      'ALTER POLICY ce_insert ON public.customer_events TO authenticated;',
-      (r) => r.errores.some((e) => e.includes('customer_events.ce_insert')) && tiene(r, (v) => v.policy === 'ce_insert' && v.rule === 'CHECK_TRUE')],
+      'ALTER POLICY personal_accounts_own ON public.personal_accounts TO PUBLIC;',
+      (r) => r.errores.some((e) => e.includes('personal_accounts.personal_accounts_own')) && tiene(r, (v) => v.policy === 'personal_accounts_own' && v.rule === 'NO_DEMOSTRABLE')],
+    ['H01 customer_events cannot regain permissive INSERT under any name',
+      'CREATE POLICY h01_reopened ON public.customer_events FOR INSERT TO authenticated WITH CHECK (true);',
+      (r) => tiene(r, (v) => v.table === 'customer_events' && v.policy === 'h01_reopened' && v.rule === 'CHECK_TRUE')],
     // ── Controles: las formas legitimas NO dan falso positivo ──
     ['C1 control: tabla por usuario sin business_id (user_id = auth.uid()) no es hallazgo',
       'CREATE TABLE public._tg_c1 (id uuid PRIMARY KEY, user_id uuid, nota text);\n'

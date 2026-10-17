@@ -59,6 +59,9 @@ test-results/
 # extension como rota.
 .companion-local/
 
+# Disposable TR-B42/H01 Supabase stack and browser output.
+.h01-local/
+
 # FISCAL DATE Parte 2 — salidas de las herramientas de clasificacion/backfill.
 # Llevan datos fiscales REALES (ids de comprobante, numeros fiscales, fechas de
 # ARCA) de un tenant productivo: las herramientas se versionan, sus salidas no.

@@ -311,7 +311,13 @@
     "pwa:iconos": "node scripts/pwa/generar-iconos.mjs",
     "test:product-variants-v2": "node scripts/guards/product-variants-v2.mjs --self-test && node scripts/guards/product-variants-v2.mjs && vitest run --config vitest.config.ts tests/components/productVariantsV2.test.tsx tests/components/productSearchService.test.tsx tests/components/g2c3a2ProductFormModal.test.tsx tests/components/g2c3a2InventoryPage.test.tsx",
     "test:sql:product-variants-v2": "docker cp tests/sql/product_variants_v2.test.sql supabase_db_techrepair-vite:/tmp/product-variants-v2.sql && docker exec supabase_db_techrepair-vite psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/product-variants-v2.sql",
-    "test:sql:clientes-ux-1b": "docker cp tests/sql/clientes_ux_1b.test.sql supabase_db_techrepair-vite:/tmp/clientes-ux-1b.sql && docker exec supabase_db_techrepair-vite psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/clientes-ux-1b.sql"
+    "test:sql:clientes-ux-1b": "docker cp tests/sql/clientes_ux_1b.test.sql supabase_db_techrepair-vite:/tmp/clientes-ux-1b.sql && docker exec supabase_db_techrepair-vite psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/clientes-ux-1b.sql",
+    "guard:h01": "node scripts/guards/customer-events-h01.mjs",
+    "guard:h01:self-test": "node scripts/guards/customer-events-h01.mjs --self-test",
+    "test:h01": "npm run guard:h01:self-test && npm run guard:h01 && vitest run --config vitest.h01.config.ts tests/components/h01CustomerEvents.test.tsx tests/components/g2c1WholesaleOrderStatus.test.ts tests/components/prebeta3a2sServerAuthority.test.tsx tests/components/prebeta3a2WholesaleAccess.test.tsx tests/components/portalAccessLockdown.test.tsx tests/components/portalAuthUx.test.tsx tests/components/portalAuthUxScreens.test.tsx tests/components/wholesaleEmailConfirmation.test.tsx tests/components/portalLoginNoDemo.test.tsx tests/components/authProfileLinking.test.tsx tests/components/permissionsHydration.test.tsx tests/components/rbacCapabilities.test.tsx",
+    "test:sql:h01": "node scripts/security/customer-events-h01-local.mjs --self-test --related",
+    "test:e2e:h01": "playwright test --config playwright.h01.config.ts",
+    "validate:h01:local": "npm run test:h01 && npm run test:sql:h01 && npm run test:e2e:h01"
   },
   "dependencies": {
     "@rollup/rollup-linux-x64-gnu": "^4.60.2",

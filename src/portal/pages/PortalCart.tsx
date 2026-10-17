@@ -70,7 +70,9 @@ export function PortalCart() {
 
     // El total y las líneas que valen son los que devolvió el servidor, no los
     // del carrito (que son orientativos).
-    await trackEvent(business.id, 'whatsapp_order', customer.id, { order_id: order.order_id, total: order.total })
+    // Telemetría independiente: una respuesta fallida o pendiente no puede
+    // bloquear el pedido ya confirmado ni la apertura de WhatsApp.
+    void trackEvent(business.id, 'whatsapp_order', customer.id, { order_id: order.order_id, total: order.total })
 
     const waNumber = (business.wholesale_whatsapp || '').replace(/\D/g, '')
     const msg = buildWhatsAppMessage({
