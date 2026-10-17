@@ -73,7 +73,7 @@ async function createFromQuickDialog(page: Page) {
   const dialog = page.getByRole('dialog', { name: 'Crear cliente rápido' })
   await expect(dialog).toBeVisible()
   await dialog.getByLabel('Nombre completo').fill(QUICK_NAME)
-  await dialog.getByLabel('Teléfono').fill(PHONE)
+  await dialog.getByLabel('Teléfono', { exact: true }).fill(PHONE)
   await dialog.getByTestId('customer-additional-toggle').click()
   await dialog.getByLabel('Email').fill(EMAIL)
   await dialog.getByLabel('DNI').fill(DOCUMENT_TYPED)
@@ -132,7 +132,7 @@ test.describe('@customer-core UI-CONSISTENCY-1 · paridad entre superficies de a
     await expect(dialog.getByTestId('customer-document-type-cuit')).toHaveAttribute('aria-pressed', 'true')
     await dialog.getByLabel('Razón social').fill('Demo SRL')
     await dialog.getByLabel('Nombre completo').fill(quickWholesale)
-    await dialog.getByLabel('Teléfono').fill(PHONE)
+    await dialog.getByLabel('Teléfono', { exact: true }).fill(PHONE)
     await dialog.getByLabel('CUIT').fill('20-30123456-7')
     await dialog.getByRole('button', { name: 'Crear cliente' }).click()
     await expect(dialog).not.toBeVisible()
@@ -240,7 +240,7 @@ test.describe('@customer-core CUSTOMER-CREATION-PARITY-1A · responsive y tema',
         expect(await overflow(page)).toBeLessThanOrEqual(1)
 
         await page.getByLabel('Nombre completo').fill('QA responsive')
-        await page.getByLabel('Teléfono').fill('3510000009')
+        await page.getByLabel('Teléfono', { exact: true }).fill('3510000009')
         const fullCta = page.getByTestId('customer-save-button')
         await expect(fullCta).toBeEnabled()
         await expectReachable(fullCta)
@@ -267,7 +267,7 @@ test.describe('@customer-core CUSTOMER-CREATION-PARITY-1A · responsive y tema',
         }
 
         await dialog.getByLabel('Nombre completo').fill('QA diálogo')
-        await dialog.getByLabel('Teléfono').fill('3510000009')
+        await dialog.getByLabel('Teléfono', { exact: true }).fill('3510000009')
         await dialog.getByTestId('customer-additional-toggle').click()
         await expect(dialog.getByLabel('Dirección')).toBeVisible()
         await expect(dialog.getByLabel('Notas')).toBeVisible()
@@ -294,7 +294,7 @@ test.describe('@customer-core CUSTOMER-CREATION-PARITY-1A · validación y tecla
   test('el email vacío es válido y el inválido muestra el mismo error en ambos shells', async ({ page }) => {
     await page.goto('/customers/new')
     await page.getByLabel('Nombre completo').fill('Email Full')
-    await page.getByLabel('Teléfono').fill(PHONE)
+    await page.getByLabel('Teléfono', { exact: true }).fill(PHONE)
     await expect(page.getByTestId('customer-save-button')).toBeEnabled()
     await page.getByLabel('Email').fill('email-invalido')
     await expect(page.getByText('Ingresá un email válido.')).toHaveCount(0)
@@ -310,7 +310,7 @@ test.describe('@customer-core CUSTOMER-CREATION-PARITY-1A · validación y tecla
     await page.getByRole('button', { name: 'Crear cliente rápido' }).click()
     const dialog = page.getByRole('dialog', { name: 'Crear cliente rápido' })
     await dialog.getByLabel('Nombre completo').fill('Email Quick')
-    await dialog.getByLabel('Teléfono').fill(PHONE)
+    await dialog.getByLabel('Teléfono', { exact: true }).fill(PHONE)
     await expect(dialog.getByRole('button', { name: 'Crear cliente' })).toBeEnabled()
     await dialog.getByTestId('customer-additional-toggle').click()
     await dialog.getByLabel('Email').fill('email-invalido')
@@ -346,11 +346,11 @@ test.describe('@customer-core CUSTOMER-CREATION-PARITY-1A · validación y tecla
     await expect(page.getByText('El nombre es obligatorio.')).toHaveCount(0)
     await page.getByTestId('customer-save-button').click()
     await expect(page.getByText('El teléfono es obligatorio.')).toBeVisible()
-    await expect(page.getByLabel('Teléfono')).toBeFocused()
+    await expect(page.getByLabel('Teléfono', { exact: true })).toBeFocused()
     await expect(page).toHaveURL(/\/customers\/new$/)
 
-    await page.getByLabel('Teléfono').fill(PHONE)
-    await page.getByLabel('Teléfono').press('Enter')
+    await page.getByLabel('Teléfono', { exact: true }).fill(PHONE)
+    await page.getByLabel('Teléfono', { exact: true }).press('Enter')
     await page.waitForURL(/\/customers\/[0-9a-f-]{36}$/)
     const row = consultarJSON<{ count: number }>(`
       SELECT count(*)::int AS count FROM public.customers
@@ -365,16 +365,16 @@ test.describe('@customer-core CUSTOMER-CREATION-PARITY-1A · validación y tecla
 
     await page.goto('/customers/new')
     await page.getByLabel('Nombre completo').fill(fullName)
-    await page.getByLabel('Teléfono').fill(PHONE)
-    await page.getByLabel('Teléfono').press('Enter')
+    await page.getByLabel('Teléfono', { exact: true }).fill(PHONE)
+    await page.getByLabel('Teléfono', { exact: true }).press('Enter')
     await page.waitForURL(/\/customers\/[0-9a-f-]{36}$/)
 
     await page.goto('/orders/new')
     await page.getByRole('button', { name: 'Crear cliente rápido' }).click()
     const dialog = page.getByRole('dialog', { name: 'Crear cliente rápido' })
     await dialog.getByLabel('Nombre completo').fill(quickName)
-    await dialog.getByLabel('Teléfono').fill(PHONE)
-    await dialog.getByLabel('Teléfono').press('Enter')
+    await dialog.getByLabel('Teléfono', { exact: true }).fill(PHONE)
+    await dialog.getByLabel('Teléfono', { exact: true }).press('Enter')
     await expect(dialog).not.toBeVisible()
     await expect(page.getByRole('button', { name: new RegExp(quickName) })).toBeVisible()
 
@@ -400,7 +400,7 @@ test.describe('@customer-core CUSTOMER-CREATION-PARITY-1B · ciclo del alta ráp
 
     let dialog = page.getByRole('dialog', { name: 'Crear cliente rápido' })
     await dialog.getByLabel('Nombre completo').fill(`${MARK} Descartar`)
-    await dialog.getByLabel('Teléfono').fill(PHONE)
+    await dialog.getByLabel('Teléfono', { exact: true }).fill(PHONE)
     await dialog.getByTestId('customer-type-mayorista').click()
     await dialog.getByLabel('Razón social').fill('Descartar SRL')
     await dialog.getByLabel('Persona de contacto').fill('Ana')
@@ -418,7 +418,7 @@ test.describe('@customer-core CUSTOMER-CREATION-PARITY-1B · ciclo del alta ráp
 
     await expect(dialog.getByTestId('customer-type-minorista')).toHaveAttribute('aria-pressed', 'true')
     await expect(dialog.getByLabel('Nombre completo')).toHaveValue('')
-    await expect(dialog.getByLabel('Teléfono')).toHaveValue('')
+    await expect(dialog.getByLabel('Teléfono', { exact: true })).toHaveValue('')
     await expect(dialog.getByTestId('customer-additional-toggle')).toHaveAttribute('aria-expanded', 'false')
     await expect(dialog.getByLabel('Razón social')).toHaveCount(0)
     await expect(dialog.getByLabel('Persona de contacto')).toHaveCount(0)
@@ -437,7 +437,7 @@ test.describe('@customer-core CUSTOMER-CREATION-PARITY-1B · ciclo del alta ráp
 
     let dialog = page.getByRole('dialog', { name: 'Crear cliente rápido' })
     await dialog.getByLabel('Nombre completo').fill(quickName)
-    await dialog.getByLabel('Teléfono').fill(PHONE)
+    await dialog.getByLabel('Teléfono', { exact: true }).fill(PHONE)
     await dialog.getByTestId('customer-additional-toggle').click()
     await dialog.getByLabel('Dirección').fill(ADDRESS)
     await dialog.getByRole('button', { name: 'Crear cliente' }).click()
@@ -450,7 +450,7 @@ test.describe('@customer-core CUSTOMER-CREATION-PARITY-1B · ciclo del alta ráp
     await trigger.click()
     dialog = page.getByRole('dialog', { name: 'Crear cliente rápido' })
     await expect(dialog.getByLabel('Nombre completo')).toHaveValue('')
-    await expect(dialog.getByLabel('Teléfono')).toHaveValue('')
+    await expect(dialog.getByLabel('Teléfono', { exact: true })).toHaveValue('')
     await expect(dialog.getByTestId('customer-type-minorista')).toHaveAttribute('aria-pressed', 'true')
     await expect(dialog.getByTestId('customer-additional-toggle')).toHaveAttribute('aria-expanded', 'false')
     await expect(dialog.getByLabel('Dirección')).toBeHidden()
@@ -580,7 +580,7 @@ test.describe('@customer-core PRE-BETA-3A-2 · gate Mayorista', () => {
     await expect(page.getByTestId('customer-type-minorista')).toHaveCount(0)
     await expect(page.getByLabel('Razón social')).toHaveCount(0)
     await page.getByLabel('Nombre completo').fill(fullName)
-    await page.getByLabel('Teléfono').fill(PHONE)
+    await page.getByLabel('Teléfono', { exact: true }).fill(PHONE)
     await page.getByTestId('customer-save-button').click()
     await page.waitForURL(/\/customers\/[0-9a-f-]{36}$/)
 
@@ -592,7 +592,7 @@ test.describe('@customer-core PRE-BETA-3A-2 · gate Mayorista', () => {
     await expect(dialog.getByLabel('Nombre completo')).toBeVisible()
     await expect(dialog.getByTestId('customer-type-mayorista')).toHaveCount(0)
     await dialog.getByLabel('Nombre completo').fill(quickName)
-    await dialog.getByLabel('Teléfono').fill(PHONE)
+    await dialog.getByLabel('Teléfono', { exact: true }).fill(PHONE)
     await dialog.getByRole('button', { name: 'Crear cliente' }).click()
     await expect(dialog).not.toBeVisible()
     await expect(page.getByRole('button', { name: new RegExp(quickName) })).toHaveClass(/is-selected/)
@@ -623,7 +623,7 @@ test.describe('@customer-core PRE-BETA-3A-2 · gate Mayorista', () => {
     await expect(dialog.getByTestId('customer-business-name-readonly')).toHaveText('Existente SRL')
     await expect(dialog.getByTestId('customer-contact-person-readonly')).toHaveText('Ana')
 
-    await dialog.getByLabel('Teléfono').fill('3517777777')
+    await dialog.getByLabel('Teléfono', { exact: true }).fill('3517777777')
     await dialog.getByTestId('customer-edit-save-button').click()
     await expect(dialog).not.toBeVisible()
 

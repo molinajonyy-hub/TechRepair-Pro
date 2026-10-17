@@ -27,10 +27,10 @@ for (const width of [390, 1280]) {
     await expect(name).toHaveValue('Juan Perez')
     await expect(name).toBeFocused()
 
-    await dialog.getByLabel('Teléfono').click()
+    await dialog.getByLabel('Teléfono', { exact: true }).click()
     await page.keyboard.type('351 555 0000', { delay: 40 })
-    await expect(dialog.getByLabel('Teléfono')).toHaveValue('351 555 0000')
-    await expect(dialog.getByLabel('Teléfono')).toBeFocused()
+    await expect(dialog.getByLabel('Teléfono', { exact: true })).toHaveValue('351 555 0000')
+    await expect(dialog.getByLabel('Teléfono', { exact: true })).toBeFocused()
 
     // Escape cierra y devuelve el foco al disparador.
     await page.keyboard.press('Escape')
