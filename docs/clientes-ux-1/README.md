@@ -266,6 +266,7 @@ Orden recomendado: **aplicar la migración y después mergear**. No se hizo `db 
 - **Actualizados**:
   - `customerCreateFields`: la jerarquía suma la sección nueva;
   - `betaUx1dOrderDetail` y `orderDetailHistory`: mock de `usePermissions`, la nueva dependencia del detalle.
+  - E2E `customer-core-parity`, `dialog-focus-stability` y `dialog-touch-actions`: el teléfono principal se busca con `getByLabel('Teléfono', { exact: true })`. Playwright compara por substring y «Teléfono para avisos» lo volvía ambiguo.
 - **CI**: paso `CLIENTES-UX-1B` (`npm run test:clientes-ux-1b`) y paso SQL en el job E2E.
 
 ## 8. Evidencia (1B)
