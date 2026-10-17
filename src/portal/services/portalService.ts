@@ -697,16 +697,36 @@ export async function getOrCreateCustomerFromWholesale(
 
 // ─── Events ───────────────────────────────────────────────────────────────────
 
+type CustomerEventFailureCode = 'denied' | 'invalid-event' | 'insert-failed' | 'unexpected-failure'
+
+function reportCustomerEventFailure(code: CustomerEventFailureCode): void {
+  try {
+    // Mapa cerrado: nunca registrar IDs, metadata ni detalles del servidor.
+    logger.warn('SUPABASE', 'portal: no se pudo registrar el evento', { code })
+  } catch {
+    // Incluso un fallo del logger debe dejar intacto el pedido confirmado.
+  }
+}
+
 export async function trackEvent(
   businessId: string,
   eventType: string,
   customerId?: string,
   metadata?: Record<string, unknown>
 ): Promise<void> {
-  await supabase.from('customer_events').insert({
-    business_id: businessId,
-    event_type:  eventType,
-    customer_id: customerId || null,
-    metadata:    metadata || null,
-  }).then(() => {}) // fire-and-forget
+  try {
+    const { error } = await supabase.from('customer_events').insert({
+      business_id: businessId,
+      event_type:  eventType,
+      customer_id: customerId || null,
+      metadata:    metadata || null,
+    })
+    if (error) {
+      const code = error.code === '42501' ? 'denied'
+        : error.code === '23514' ? 'invalid-event' : 'insert-failed'
+      reportCustomerEventFailure(code)
+    }
+  } catch {
+    reportCustomerEventFailure('unexpected-failure')
+  }
 }
