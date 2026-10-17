@@ -149,11 +149,33 @@ const getErrorMessageText = (error: unknown) => {
   return ''
 }
 
-const getCustomerErrorMessage = (error: unknown, action: string) => {
+const getErrorCodeText = (error: unknown) =>
+  typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string'
+    ? error.code
+    : ''
+
+/** Verbo que lee la persona, no el de la API: «editar», no «actualizar». */
+const CUSTOMER_ACTION_VERB: Record<string, string> = {
+  obtener: 'ver',
+  crear: 'crear',
+  actualizar: 'editar',
+  buscar: 'buscar',
+  eliminar: 'eliminar',
+}
+
+/**
+ * CLIENTES-UX-1A — mensajes que entiende quien usa la pantalla. Antes la
+ * edición mostraba el texto crudo del servidor («JSON object requested,
+ * multiple (or no) rows returned», «WHOLESALE_AUTHORITY_REQUIRED: …») o una
+ * instrucción para el desarrollador («Revisá las políticas de customers»).
+ */
+export const getCustomerErrorMessage = (error: unknown, action: string) => {
   const fallbackMessage = `Error al ${action} cliente`
   const rawMessage = getErrorMessageText(error)
+  const code = getErrorCodeText(error)
+  const verb = CUSTOMER_ACTION_VERB[action] ?? action
 
-  if (!rawMessage) {
+  if (!rawMessage && !code) {
     return fallbackMessage
   }
 
@@ -167,8 +189,31 @@ const getCustomerErrorMessage = (error: unknown, action: string) => {
     return 'La tabla customers no tiene la columna created_by. Ejecutá el script supabase/fix_customers_business_context.sql.'
   }
 
-  if (message.includes('row-level security') || message.includes('permission denied')) {
-    return 'No tenés permisos para operar con clientes en este negocio. Revisá las políticas de customers.'
+  if (message.includes('wholesale_authority_required')) {
+    return 'Cambiar el tipo de cliente o sus datos mayoristas requiere acceso a Mayorista.'
+  }
+
+  // `.single()` sin fila: en una edición, la RLS no dejó tocarla o ya no existe.
+  if (code === 'PGRST116') {
+    return action === 'actualizar'
+      ? 'No se pudo guardar: el cliente ya no existe o no tenés permiso para editarlo. Recargá la página e intentá de nuevo.'
+      : 'No encontramos este cliente en tu negocio.'
+  }
+
+  if (code === '42501' || message.includes('row-level security') || message.includes('permission denied')) {
+    return `No tenés permiso para ${verb} clientes en este negocio.`
+  }
+
+  if (code === '23502') {
+    return 'Faltan datos obligatorios del cliente.'
+  }
+
+  if (code === '23514' || code === '22P02') {
+    return 'Algún dato del cliente no tiene un formato válido. Revisalo e intentá de nuevo.'
+  }
+
+  if (message.includes('failed to fetch') || message.includes('networkerror') || message.includes('load failed')) {
+    return 'No pudimos conectar con el servidor. Revisá tu conexión e intentá de nuevo.'
   }
 
   if (message.includes('no hay una sesión activa') || message.includes('negocio activo')) {

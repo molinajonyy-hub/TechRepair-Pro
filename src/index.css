@@ -4096,6 +4096,35 @@ tbody tr:hover td {
   min-height: var(--mobile-touch-target);
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   CLIENTES-UX-1A · confirmación de guardado y ficha del cliente
+   ══════════════════════════════════════════════════════════════════════════ */
+.saved-notice {
+  align-items: center;
+  margin: 0 0 1rem;
+  font-weight: 600;
+}
+
+/* `--success` en claro queda en 3.7:1 sobre el fondo del aviso; el tono
+   `-soft` llega a AA para texto de 13px. */
+[data-theme="light"] .saved-notice {
+  color: var(--success-soft);
+}
+
+.customer-detail-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 767px) {
+  .customer-detail-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+  }
+}
+
 @media (max-width: 599px) {
   .customer-create-document-row {
     grid-template-columns: minmax(0, 1fr);

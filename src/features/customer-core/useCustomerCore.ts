@@ -136,8 +136,8 @@ export function useCustomerCore(options: UseCustomerCoreOptions = {}): UseCustom
   }, [mode])
 
   const errors = useMemo(
-    () => validateCustomerCore(values, mode, customerTypeAccess),
-    [values, mode, customerTypeAccess]
+    () => validateCustomerCore(values, mode, customerTypeAccess, stored),
+    [values, mode, customerTypeAccess, stored]
   )
   const errorMessage = useMemo(() => firstCustomerCoreError(errors), [errors])
   const isValid = Object.keys(errors).length === 0
