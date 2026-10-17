@@ -1,6 +1,6 @@
 # TR-B42 / H01 — hardening de customer_events
 
-Estado: implementación y validación local completas; PR/CI remoto pendientes de registrar. Alcance autorizado: implementación y pruebas locales/QA aislado. Sin merge, deploy, previews automáticas, migraciones ni escrituras en producción.
+Estado: implementación y validación local completas; PR #190 en borrador. CI global bloqueado por una aserción histórica de orden de migraciones de BETA-MP. Alcance autorizado: implementación y pruebas locales/QA aislado. Sin merge, deploy, previews automáticas, migraciones ni escrituras en producción.
 
 ## Cambio y compatibilidad
 
@@ -65,7 +65,7 @@ Validado el 17/10/2026 en Windows/Node 24 y PostgreSQL 17.6, con un Supabase ais
 | Navegador, rama final | PASS: 2/2 con Auth, catálogo, carrito y RPC reales; evento propio HTTP 201 persistido y enlazado |
 | Fallo de seguimiento | PASS: HTTP 403 inyectado, pedido único confirmado, carrito vacío tras recarga, WhatsApp abre y no se muestran errores/PII; componente también cubre rechazo y promesa pendiente |
 | TypeScript / ESLint / build | PASS los tres; build conserva advertencia de chunks grandes y canal de soporte sin configurar fuera de producción |
-| CI remoto y URL de PR | Pendiente de ejecutar/publicar |
+| CI remoto y URL de PR | [PR #190](https://github.com/molinajonyy-hub/TechRepair-Pro/pull/190). Primera corrida [39041858316](https://github.com/molinajonyy-hub/TechRepair-Pro/actions/runs/39041858316): TypeScript/ESLint/H01 guard y componentes PASS; fallo de billingContracts.test.ts:42 porque exige que la migración del 16/10 sea la última global. No se modificó Mercado Pago. El job H01 se independiza para ejecutarse aunque falle un lote ajeno; el CI global sigue reflejando el fallo. |
 | Producción / merge / despliegues | No ejecutados |
 
 El navegador intercepta el destino externo de WhatsApp antes de salir a la red: comprueba popup, número y contenido reales generados por el portal, sin enviar pedidos sintéticos a terceros. Los fixtures de navegador se eliminan al terminar; las matrices SQL terminan en ROLLBACK. Las capturas de éxito están en `test-results/h01/` y los logs SQL en `.h01-local/sql-results/` (artefactos CI; no contienen credenciales).

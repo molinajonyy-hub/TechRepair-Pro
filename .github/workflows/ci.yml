@@ -1317,7 +1317,6 @@ jobs:
   h01-customer-events:
     name: H01 Customer Events Isolation + Portal Order
     runs-on: ubuntu-latest
-    needs: quality
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
