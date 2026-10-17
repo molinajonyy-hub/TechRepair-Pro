@@ -18,6 +18,7 @@ import {
 } from '../features/order-intake/model'
 import { createOrderIntake, loadAssignableProfiles, uploadIntakePhotos } from '../features/order-intake/service'
 import { CustomerCreateFields, CustomerPicker, useCustomerCore, type CustomerPickerOption } from '../features/customer-core'
+import { RECIPIENT_ROLE_LABEL, loadCustomerNoticeContact, setOrderNotificationRecipient, type NotificationRecipientKind } from '../features/order-notify'
 
 /**
  * BETA-UX-2 — la recepción pasó de 10 pasos a 4.
@@ -86,6 +87,16 @@ export function NewOrder() {
    */
   const [selectedCustomer,setSelectedCustomer] = useState<CustomerPickerOption|null>(null)
   const [createdCustomers,setCreatedCustomers] = useState<CustomerPickerOption[]>([])
+  /**
+   * CLIENTES-UX-1B — a quién se avisa en esta orden. Por defecto el teléfono
+   * principal; el contacto alternativo sólo se ofrece si el cliente lo tiene.
+   * No va en el payload de `create_order_intake`: se guarda después con
+   * `set_order_notification_recipient`, que copia el contacto en la orden.
+   */
+  const [noticeContact,setNoticeContact] = useState<{name:string;phone:string}|null>(null)
+  const [notifyRecipient,setNotifyRecipient] = useState<NotificationRecipientKind>('customer')
+  const noticeRequestRef = useRef('')
+  const recipientWarningRef = useRef('')
   const [profiles,setProfiles] = useState<ProfileOption[]>([])
   const [photos,setPhotos] = useState<PhotoDraft[]>([])
   const [quickOpen,setQuickOpen] = useState(false)
@@ -102,6 +113,15 @@ export function NewOrder() {
   const photosRef = useRef<PhotoDraft[]>([])
 
   const update = (patch: Partial<IntakeDraft>) => { setDraft(previous => ({...previous,...patch})); setDirty(true); setError('') }
+  /** Elegir otro cliente vuelve a avisar al titular hasta saber si tiene contacto alternativo. */
+  const chooseCustomer = (customer: CustomerPickerOption, knownNotice?: {name:string;phone:string}|null) => {
+    setSelectedCustomer(customer);update({customerId:customer.id})
+    setNotifyRecipient('customer');noticeRequestRef.current=customer.id
+    if(knownNotice!==undefined){setNoticeContact(knownNotice);return}
+    setNoticeContact(null)
+    if(!businessId)return
+    void loadCustomerNoticeContact(customer.id,businessId).then(contact=>{if(noticeRequestRef.current===customer.id)setNoticeContact(contact)})
+  }
   const updateDevice = (patch: Partial<IntakeDraft['device']>) => update({device:{...draft.device,...patch}})
 
   useEffect(() => { loadAssignableProfiles()
@@ -175,6 +195,12 @@ export function NewOrder() {
          * y no hay que volver a tocar el catálogo.
          */
         void ensureBrandAndModel(draft.device.brand,draft.device.model)
+        // CLIENTES-UX-1B — la orden ya existe: si no se puede guardar el
+        // destinatario, se avisa en la orden en vez de bloquear la recepción.
+        if(notifyRecipient==='alternate'){
+          try{await setOrderNotificationRecipient(orderId,'alternate')}
+          catch(cause){recipientWarningRef.current=`La orden se creó, pero no se pudo guardar el aviso al contacto alternativo: ${cause instanceof Error?cause.message:'error desconocido'} Elegilo en la tarjeta Cliente.`}
+        }
       }
       const upload=await uploadIntakePhotos(orderId,photos.map(photo=>photo.file))
       setDraft(previous=>({...previous,accessSecret:'',pattern:[]}));setDirty(false)
@@ -183,7 +209,7 @@ export function NewOrder() {
         setError(`La orden fue creada. No se pudieron subir ${upload.failed.length} foto(s). Tocá “Reintentar fotos” para completar la evidencia.`)
         submitLock.current=false;return
       }
-      navigate(`/orders/${orderId}`,{replace:true,state:{intakeCreated:true}})
+      navigate(`/orders/${orderId}`,{replace:true,state:{intakeCreated:true,...(recipientWarningRef.current?{notifyRecipientWarning:recipientWarningRef.current}:{})}})
     }catch(cause){setError(cause instanceof Error?intakeErrorMessage(cause.message):'No se pudo crear la orden.');if(!orderId)submitLock.current=false}
     finally{setSubmitting(false)}
   }
@@ -213,7 +239,15 @@ export function NewOrder() {
     <AppStepper steps={STEP_LABELS} current={step} onSelect={goTo} label="Pasos de la recepción" data-testid="intake-stepper"/>
     {error&&<div className="alert-inline alert-error" role="alert">{error}</div>}
 
-    {step===0&&<StepCard><CustomerPicker businessId={businessId} selectedId={draft.customerId} pinned={createdCustomers} onCreateNew={()=>setQuickOpen(true)} onSelect={customer=>{setSelectedCustomer(customer);update({customerId:customer.id})}}/></StepCard>}
+    {step===0&&<StepCard><CustomerPicker businessId={businessId} selectedId={draft.customerId} pinned={createdCustomers} onCreateNew={()=>setQuickOpen(true)} onSelect={customer=>chooseCustomer(customer)}/>
+      {selectedCustomer&&noticeContact&&<fieldset className="intake-notify" data-testid="intake-notify">
+        <legend>¿A quién avisamos por WhatsApp?</legend>
+        <ChoiceGrid>{(['customer','alternate'] as const).map(kind=>{const who=kind==='customer'?{name:selectedCustomer.name,phone:selectedCustomer.phone??''}:noticeContact
+          return <button type="button" key={kind} data-testid={`intake-notify-${kind}`} className={`intake-choice ${notifyRecipient===kind?'is-selected':''}`} aria-pressed={notifyRecipient===kind} onClick={()=>{setNotifyRecipient(kind);setDirty(true)}}>
+            <strong>{kind==='customer'?'Al cliente':'Al contacto alternativo'}</strong><span className="intake-notify__who">{who.name}{who.phone?` · ${who.phone}`:''}</span></button>})}</ChoiceGrid>
+        <p className="intake-notify__help">Se puede cambiar después desde la orden. El cliente sigue siendo el titular.</p>
+      </fieldset>}
+    </StepCard>}
 
     {step===1&&<>
       <StepCard title="Equipo">
@@ -303,6 +337,9 @@ export function NewOrder() {
       <StepCard title="Resumen">
         <div className="intake-summary">
           <Summary title="Cliente" onEdit={()=>goTo(0)}>{selectedCustomer?.name}</Summary>
+          <Summary title="Avisos" onEdit={()=>goTo(0)}>{notifyRecipient==='alternate'&&noticeContact
+            ?`${noticeContact.name} · ${noticeContact.phone} (${RECIPIENT_ROLE_LABEL.alternate})`
+            :`${selectedCustomer?.name??''}${selectedCustomer?.phone?` · ${selectedCustomer.phone}`:''} (${RECIPIENT_ROLE_LABEL.customer})`}</Summary>
           <Summary title="Equipo" onEdit={()=>goTo(1)}>{draft.device.brand} {draft.device.model} · {DEVICE_TYPES.find(type=>type.value===draft.device.type)?.label} · Serie: {draft.device.serial||'No informada'} · IMEI: {draft.device.imei||'No informado'}</Summary>
           <Summary title="Acceso" onEdit={()=>goTo(1)}>{accessSummary}</Summary>
           <Summary title="Problema" onEdit={()=>goTo(2)}>{draft.problem}</Summary>
@@ -324,7 +361,8 @@ export function NewOrder() {
       // el usuario acaba de crearla para ESTA orden.
       const option:CustomerPickerOption={id:customer.id,name:customer.name,phone:customer.phone,document:customer.document,customer_type:customer.customer_type}
       setCreatedCustomers(previous=>[option,...previous.filter(item=>item.id!==option.id)])
-      setSelectedCustomer(option);update({customerId:customer.id});setQuickOpen(false)
+      const notice=customer.notification_contact_name&&customer.notification_contact_phone?{name:customer.notification_contact_name,phone:customer.notification_contact_phone}:null
+      chooseCustomer(option,notice);setQuickOpen(false)
     }}/>
     {/* El IMEI escaneado pasa por la MISMA normalización que el tipeado; el
         serial no hereda la validación de IMEI, que es otro identificador. */}

@@ -5,7 +5,7 @@ Dos PR independientes:
 | Lote | Qué | Migraciones |
 |---|---|---|
 | **1A** (este documento, §1–§5) | Diagnóstico y corrección de la edición de clientes | No |
-| **1B** (§6, en su propio PR) | Contacto alternativo para avisos, destinatario por orden y WhatsApp | Sí, aditiva |
+| **1B** (§6–§9, en su propio PR) | Contacto alternativo para avisos, destinatario por orden y WhatsApp | Sí, aditiva |
 
 ---
 
@@ -152,3 +152,137 @@ editar correctamente» son reproducibles y están en el frontend:
 - Los botones del encabezado de la ficha miden 34 px en celular, igual que
   «Volver» y «WhatsApp» que ya estaban. Pasarlos a 44 px es un cambio de todo
   el encabezado, fuera de este lote.
+
+---
+
+## 6. Contacto alternativo y destinatario por orden (CLIENTES-UX-1B)
+
+### 6.1 Discovery del esquema
+
+| Pieza | Hallazgo | Consecuencia |
+|---|---|---|
+| `customers.contact_person` | Es el contacto **mayorista**; lo protege `trig_customers_wholesale_authority` (`UPDATE OF customer_type, business_name, contact_person, business_id`). | No se reutiliza. Columnas nuevas, fuera del trigger. |
+| `customers` grants/RLS | GRANT de tabla a `authenticated`; RLS por tenant + rol. | Las columnas nuevas se editan igual que el resto del cliente. |
+| `orders` | SEC-08A: SELECT **por columna** (lista cerrada), UPDATE sólo con `orders_change_status`, `create_order_intake` con idempotencia por hash. | No se toca `orders` ni la RPC de recepción: el destinatario vive en una tabla aparte. |
+| WhatsApp | `OrderDetail` y `handleAutoSend` usaban `order.customer.phone`; el preview ya permitía corregir el número. | Pasan a usar el destinatario resuelto. |
+| Garantías, comprobantes, cuentas corrientes | Leen `orders.customer_id` y los datos del cliente. | **Sin cambios**: la titularidad no se mueve. |
+
+### 6.2 Migración `20261015180000_clientes_ux_1b_notification_contact.sql` (aditiva)
+
+**Versión.** `20261015180000` queda entre `20261015120000`, la última versión productiva reportada, y `20261016120000`.
+
+- `20261016120000` es la migración candidata de BETA-MP (email), que su runbook y `tests/unit/billingContracts.test.ts` exigen aplicar **al final**.
+- Las dos son independientes: no comparten objetos.
+- Si la de BETA-MP ya se aplicó en producción cuando se libere este lote, hay que aplicar esta igual (es aditiva); no se repara historial.
+
+
+- **`customers.notification_contact_name` y `notification_contact_phone`** (opcionales):
+  - van de a dos: los dos o ninguno;
+  - nombre de hasta 120 caracteres;
+  - teléfono con dígitos, `+`, espacios, guiones o paréntesis, de 8 a 15 dígitos.
+
+  No hay backfill: ningún teléfono existente se modifica.
+- **`order_notification_recipients`** (`order_id` PK):
+  - `recipient` es `customer` o `alternate`;
+  - con `alternate`, guarda una **copia** del nombre y el teléfono.
+
+  Lectura con RLS (tenant + capacidad `orders`), sin escritura directa. Sin fila, se avisa al titular: todas las órdenes existentes siguen igual.
+- **`set_order_notification_recipient(order, kind)`**:
+  - es la única escritura; SECURITY DEFINER con `search_path = pg_catalog, pg_temp`, `REVOKE` a PUBLIC y anon;
+  - la autoridad es el negocio del actor más `orders_create` (recepción) u `orders_change_status` (seguimiento);
+  - es idempotente; sin contacto cargado responde `ALTERNATE_CONTACT_MISSING`.
+- **Postcondiciones** dentro de la migración:
+  - columnas creadas y 0 filas tocadas;
+  - RLS activa;
+  - grants según el contrato;
+  - RPC endurecida;
+  - el trigger mayorista no mira las columnas nuevas.
+
+### 6.3 Decisión: copia sólo para el contacto alternativo
+
+- **Titular (`customer`)**: no se copia nada. Si el cliente corrige su teléfono (por ejemplo con la edición de 1A), sus órdenes abiertas avisan al número corregido.
+- **Contacto alternativo (`alternate`)**: se copia al elegirlo. Es una persona designada para *esta* reparación. Si después la ficha cambia o borra el contacto, la orden sigue avisando a quien se eligió.
+- **Si la copia ya no coincide con la ficha**, la orden lo dice y ofrece «Usar el de la ficha». Nunca se actualiza sola.
+
+### 6.4 Pantallas
+
+- **Formulario compartido**: sección «Contacto para avisos (opcional)» con nombre y teléfono. Aparece en:
+  - alta;
+  - edición;
+  - alta rápida desde Nueva orden.
+
+  Valida igual que la base, y además el número tiene que poder normalizarse para WhatsApp. No puede ser el mismo teléfono principal.
+- **Ficha**: «Contacto para avisos: …» en la tarjeta Contacto.
+- **Nueva orden**: si el cliente tiene contacto, aparece «¿A quién avisamos por WhatsApp?»:
+  - por defecto, el cliente;
+  - la elección queda en el resumen;
+  - se guarda después de crear la orden; si falla, la orden se crea igual y el detalle lo avisa.
+- **Detalle de la orden**: «Avisos por WhatsApp» en la tarjeta Cliente:
+  - muestra rol, nombre y número;
+  - se puede elegir Cliente o Contacto alternativo;
+  - si no hay contacto, indica dónde cargarlo.
+- **WhatsApp**:
+  - el preview propone el destinatario: «Para María Hija · Contacto alternativo» y el número usado. Se sigue pudiendo editar el número y el mensaje antes de abrir WhatsApp.
+  - `{nombre}` saluda a quien recibe; `{cliente}` y `{apellido}` siguen siendo del titular.
+  - el envío automático existente (sólo con Cloud API conectada) usa el mismo destinatario. No se agrega ningún envío nuevo.
+- **Secretos de desbloqueo**: las variables de la orden no incluyen acceso, PIN ni patrón. Hay un test que lo verifica.
+
+### 6.5 Compatibilidad y despliegue
+
+El frontend se despliega al mergear y la migración se aplica a mano. Por eso, **sin la migración aplicada todo sigue funcionando**:
+
+- Los payloads del cliente sólo nombran las columnas nuevas si hay algo que escribir o que borrar.
+- Lecturas:
+  - cliente con `select('*')`;
+  - la tabla de destinatarios es tolerante: si falta, se avisa al titular;
+  - la RPC ausente muestra un mensaje claro.
+- Si alguien intenta guardar un contacto sin migración, ve «falta actualizar la base de datos».
+
+Orden recomendado: **aplicar la migración y después mergear**. No se hizo `db push`.
+
+## 7. Tests (1B)
+
+- **`tests/sql/clientes_ux_1b.test.sql`** (27 aserciones), en el job E2E sobre la base real (`npm run test:sql:clientes-ux-1b`):
+  - CHECK de a dos y de formato;
+  - grants y RLS;
+  - sin escritura directa;
+  - RPC: alternativo sin contacto, valor inválido, copia, la copia sobrevive a cambios y borrado de la ficha, titular sin copia, idempotencia;
+  - teléfono principal y titularidad intactos;
+  - aislamiento entre negocios;
+  - técnico sin capacidad;
+  - contacto de un mayorista editable sin acceso Mayorista.
+
+  Validado también contra Postgres 16 local con un esqueleto de Supabase.
+- **`tests/components/clientesUx1bNoticeContact.test.tsx`** (23 tests):
+  - reglas del core y payloads, incluida una base sin migrar;
+  - formulario de alta y edición;
+  - resolución del destinatario;
+  - panel de la orden;
+  - recepción;
+  - WhatsApp: saludo, sin secretos, envío automático al destinatario.
+- **`tests/e2e/m7/clientes-ux-1b-notice.spec.ts`**:
+  - escritorio: ficha → recepción → orden → preview → la ficha cambia → volver al titular, todo leído con SQL; y recepción sin contacto;
+  - celular: alta rápida con contacto.
+- **Actualizados**:
+  - `customerCreateFields`: la jerarquía suma la sección nueva;
+  - `betaUx1dOrderDetail` y `orderDetailHistory`: mock de `usePermissions`, la nueva dependencia del detalle.
+  - E2E `customer-core-parity`, `dialog-focus-stability` y `dialog-touch-actions`: el teléfono principal se busca con `getByLabel('Teléfono', { exact: true })`. Playwright compara por substring y «Teléfono para avisos» lo volvía ambiguo.
+- **CI**: paso `CLIENTES-UX-1B` (`npm run test:clientes-ux-1b`) y paso SQL en el job E2E.
+
+## 8. Evidencia (1B)
+
+- `evidence/03-contacto-para-avisos.png` — editar cliente antes/después y ficha.
+- `evidence/04-recepcion-destinatario.png` — elección en la recepción (1440 y 390) y resumen.
+- `evidence/05-orden-y-whatsapp.png` — tarjeta Cliente y preview de WhatsApp antes/después.
+- Reproducir: `serve-stateful.mjs` (con `MOCK_NO_1B=1` simula una base sin migrar) y `capture-1b.mjs`, y después `contact-sheet.mjs … 1b`.
+
+## 9. Riesgos pendientes (1B)
+
+- **Orden de despliegue**: hay que aplicar la migración antes de usar la función. Sin ella el producto se comporta como antes, pero no se puede cargar el contacto.
+- **Versión de la migración**: va antes de la candidata de BETA-MP (ver §6.2). Hay que confirmar el estado del ledger productivo al liberar.
+- **`{whatsapp}` y `{telefono}` se reemplazan entre sí** (regla previa de W1, en `resolveWhatsAppValues` y en `whatsappFormat`). Son teléfonos de personas distintas: «WhatsApp del negocio» y «Teléfono del cliente».
+  - El preview de una orden no carga `{telefono}`, así que una plantilla que lo use muestra el WhatsApp del negocio.
+  - Donde sí se carga el teléfono del cliente y el negocio no configuró su WhatsApp, `{whatsapp}` muestra el del cliente.
+
+  Ya pasaba antes de este lote y no lo cambié: queda como tarea aparte.
+- **El destinatario se guarda después de crear la orden** (no en la misma transacción que `create_order_intake`, que no se tocó). Si esa llamada falla, la orden queda avisando al titular y el detalle lo indica.

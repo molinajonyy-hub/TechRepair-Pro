@@ -8,6 +8,7 @@
  */
 
 export * from './document'
+export * from './notice'
 export * from './model'
 export * from './useCustomerCore'
 export * from './useWholesaleCustomerGate'

@@ -5,6 +5,10 @@
 //     puede guardar, reabrir y ver lo guardado;
 //   · un segundo cliente, «Mayorista Portal», mayorista SIN razón social, como
 //     los crea `get_or_create_customer_from_wholesale_atomic`.
+// CLIENTES-UX-1B suma: POST /customers (alta rápida) devuelve la fila creada;
+// `order_notification_recipients` y `set_order_notification_recipient` con la
+// misma regla que la migración (el alternativo se COPIA del cliente).
+// MOCK_NO_1B=1 simula una base SIN la migración 1B (tabla y RPC ausentes).
 // Nada sale de la máquina. No reemplaza al job `e2e-local` (base real).
 // Uso: node serve-stateful.mjs   (API :59997, web :5200)
 import http from 'node:http'
@@ -59,8 +63,11 @@ const ORDER_ID = 'f0000000-0000-4000-8000-0000000000aa'
 //                   ver la tarjeta «Acceso del equipo» con un patrón SINTÉTICO de
 //                   formato anterior, p. ej. `[1,4,7,8]`, sin pasar por la recepción).
 const state = { accessMode: process.env.MOCK_ACCESS_MODE || 'none', secret: process.env.MOCK_ACCESS_SECRET ?? null }
+const NO_1B = process.env.MOCK_NO_1B === '1'
+const recipients = new Map() // order_id → { recipient, contact_name, contact_phone }
+let lastIntakeCustomer = null
 const order = () => ({
-  id: ORDER_ID, business_id: BIZ_ID, status: 'new', priority: 'medium', customer_id: CUSTOMER.id, device_id: DEVICE.id,
+  id: ORDER_ID, business_id: BIZ_ID, status: 'new', priority: 'medium', customer_id: lastIntakeCustomer ?? CUSTOMER.id, device_id: DEVICE.id,
   access_mode: state.accessMode, estimated_total: 0, estimated_total_currency: 'ARS', notes: null,
   created_at: new Date().toISOString(), updated_at: new Date().toISOString(), created_by: USER_ID,
   customer: { name: CUSTOMER.name, phone: CUSTOMER.phone }, device: { brand: DEVICE.brand, model: DEVICE.model, type: DEVICE.type },
@@ -127,7 +134,18 @@ const api = http.createServer((req, res) => {
         state.accessMode = body.p_mode; state.secret = body.p_secret
         return send(200, null)
       }
+      if (fn === 'set_order_notification_recipient') {
+        if (NO_1B) return send(404, { code: 'PGRST202', message: 'Could not find the function public.set_order_notification_recipient in the schema cache' })
+        const customer = CUSTOMERS.find(c => c.id === (lastIntakeCustomer ?? CUSTOMER.id))
+        if (body.p_recipient === 'alternate') {
+          if (!customer?.notification_contact_name || !customer?.notification_contact_phone)
+            return send(400, { code: '22023', message: 'ALTERNATE_CONTACT_MISSING', details: null, hint: null })
+          recipients.set(body.p_order_id, { recipient: 'alternate', contact_name: customer.notification_contact_name, contact_phone: customer.notification_contact_phone })
+        } else recipients.set(body.p_order_id, { recipient: 'customer', contact_name: null, contact_phone: null })
+        return send(200, { order_id: body.p_order_id, ...recipients.get(body.p_order_id) })
+      }
       if (fn === 'create_order_intake') {
+        lastIntakeCustomer = body.p_payload?.customer_id ?? null
         const mode = body.p_payload?.access_mode
         const secret = body.p_access_secret ?? null
         const fail = message => send(400, { code: '22023', message, details: null, hint: null })
@@ -141,6 +159,17 @@ const api = http.createServer((req, res) => {
     }
     if (p.startsWith('/rest/v1/')) {
       const table = p.replace('/rest/v1/', '')
+      if (req.method === 'POST' && table === 'customers') {
+        const row = { id: `c0000000-0000-4000-8000-${String(Date.now()).slice(-12)}`, business_id: BIZ_ID, active: true, customer_type: 'minorista', created_at: new Date().toISOString(), ...body }
+        CUSTOMERS.unshift(row)
+        return send(201, row)
+      }
+      if (table === 'order_notification_recipients') {
+        if (NO_1B) return send(404, { code: 'PGRST205', message: "Could not find the table 'public.order_notification_recipients' in the schema cache" })
+        const id = (url.searchParams.get('order_id') || '').replace('eq.', '')
+        const row = recipients.get(id)
+        return row ? send(200, row) : send(200, null)
+      }
       if (req.method === 'PATCH' && table === 'customers') {
         const id = (url.searchParams.get('id') || '').replace('eq.', '')
         const row = CUSTOMERS.find(c => c.id === id)
@@ -155,7 +184,10 @@ const api = http.createServer((req, res) => {
       if (table === 'orders') return single ? one(order()) : list([order()])
       if (table === 'customers') {
         if (single) { const id = (url.searchParams.get('id') || '').replace('eq.', ''); return one(CUSTOMERS.find(c => c.id === id) || CUSTOMER) }
-        return CUSTOMERS_DELAY_MS ? setTimeout(() => list(CUSTOMERS), CUSTOMERS_DELAY_MS) : list(CUSTOMERS)
+        // `maybeSingle()` pide una lista filtrada por id: se respeta el filtro.
+        const byId = (url.searchParams.get('id') || '').replace('eq.', '')
+        const rows = byId ? CUSTOMERS.filter(c => c.id === byId) : CUSTOMERS
+        return CUSTOMERS_DELAY_MS ? setTimeout(() => list(rows), CUSTOMERS_DELAY_MS) : list(rows)
       }
       if (table === 'devices') return single ? one(DEVICE) : list([DEVICE])
       if (table === 'business_users_view') return list([{ id: USER_ID, full_name: `QA ${ROLE}`, email: user.email, role: ROLE, is_active: true, permissions: null }])

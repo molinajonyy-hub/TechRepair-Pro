@@ -4,7 +4,7 @@ import {
   ArrowLeft, User, Phone, Mail, MapPin, ClipboardList,
   Smartphone, Building2, CreditCard, ShoppingBag, ChevronDown,
   ChevronRight, Receipt, Tag, Search, ExternalLink,
-  TrendingUp, RotateCcw, Wallet, MessageCircle, Pencil, FileText, StickyNote,
+  TrendingUp, RotateCcw, Wallet, MessageCircle, Pencil, FileText, StickyNote, BellRing,
 } from 'lucide-react'
 import { WhatsAppActionButton } from '../components/whatsapp/WhatsAppActionButton'
 import { Loader } from '../components/ui/Loader'
@@ -47,6 +47,8 @@ interface CustomerDetailData {
   customer_type?: string
   business_name?: string | null
   contact_person?: string | null
+  notification_contact_name?: string | null
+  notification_contact_phone?: string | null
   devices?: Array<{ id: string; brand?: string; model?: string }>
   orders?: CustomerOrderSummary[]
 }
@@ -593,6 +595,15 @@ export function CustomerDetail() {
                   <span data-testid="customer-detail-wholesale" style={{ fontSize: '0.875rem', color: customer.business_name ? 'var(--text-secondary)' : 'var(--text-muted)' }}>
                     {customer.business_name || 'Sin razón social'}
                     {customer.contact_person && <><br />Contacto: {customer.contact_person}</>}
+                  </span>
+                </div>
+              )}
+              {customer.notification_contact_phone && (
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+                  <BellRing size={16} style={{ color: 'var(--text-tertiary)', flexShrink: 0, marginTop: '0.1rem' }} />
+                  <span data-testid="customer-detail-notice" style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', overflowWrap: 'anywhere' }}>
+                    Contacto para avisos: {customer.notification_contact_name}
+                    <br />{customer.notification_contact_phone}
                   </span>
                 </div>
               )}

@@ -204,6 +204,16 @@ export const getCustomerErrorMessage = (error: unknown, action: string) => {
     return `No tenés permiso para ${verb} clientes en este negocio.`
   }
 
+  // CLIENTES-UX-1B — frontend nuevo contra una base sin la migración del
+  // contacto para avisos: PostgREST no conoce las columnas.
+  if (message.includes('notification_contact') && (code === 'PGRST204' || message.includes('schema cache'))) {
+    return 'Todavía no se puede guardar el contacto para avisos: falta actualizar la base de datos. Guardá sin ese dato o avisá a quien administra el sistema.'
+  }
+
+  if (code === '23514' && message.includes('notification_contact')) {
+    return 'El contacto para avisos no es válido: necesita nombre y un teléfono de 8 a 15 dígitos.'
+  }
+
   if (code === '23502') {
     return 'Faltan datos obligatorios del cliente.'
   }

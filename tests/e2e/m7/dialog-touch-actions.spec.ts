@@ -129,7 +129,7 @@ test.describe('@dialogtouch DIALOG-TOUCH-1 · acciones del footer', () => {
 
       // ── Con los campos minimos del customer core los bloqueos desaparecen.
       await dialog.getByLabel('Nombre completo').fill('Cliente Dialog Touch')
-      await dialog.getByLabel('Teléfono').fill('1122334455')
+      await dialog.getByLabel('Teléfono', { exact: true }).fill('1122334455')
       await expect(dialog.getByText('El nombre es obligatorio.')).toHaveCount(0)
       await expect(dialog.getByText('El teléfono es obligatorio.')).toHaveCount(0)
       await expect(crear).toBeEnabled()

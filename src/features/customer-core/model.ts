@@ -24,6 +24,7 @@ import {
   parseStoredDocument,
   type DocumentType,
 } from './document'
+import { cleanNoticeText, validateNoticeContact } from './notice'
 
 /**
  * Valores del dominio. `minorista` / `mayorista` NO son etiquetas de UI: son
@@ -45,6 +46,9 @@ export interface CustomerCoreValues {
   customerType: CustomerType
   businessName: string
   contactPerson: string
+  /** CLIENTES-UX-1B — contacto alternativo para avisos (no es `contactPerson`). */
+  noticeName: string
+  noticePhone: string
 }
 
 export const EMPTY_CUSTOMER_CORE: CustomerCoreValues = {
@@ -58,6 +62,8 @@ export const EMPTY_CUSTOMER_CORE: CustomerCoreValues = {
   customerType: 'minorista',
   businessName: '',
   contactPerson: '',
+  noticeName: '',
+  noticePhone: '',
 }
 
 export type CustomerCoreField = keyof CustomerCoreValues
@@ -114,6 +120,8 @@ export interface CustomerCreatePayload {
   customer_type: CustomerType
   business_name?: string
   contact_person?: string
+  notification_contact_name?: string
+  notification_contact_phone?: string
 }
 
 /**
@@ -126,6 +134,12 @@ export interface CustomerCommonUpdatePayload {
   address: string | null
   notes: string | null
   document: string | null
+  /**
+   * CLIENTES-UX-1B — sólo viajan si hay algo que escribir o que borrar: así una
+   * edición no nombra columnas que todavía no existan en una base sin migrar.
+   */
+  notification_contact_name?: string | null
+  notification_contact_phone?: string | null
 }
 
 /**
@@ -152,6 +166,8 @@ export interface CustomerCoreRecord {
   customer_type?: string | null
   business_name?: string | null
   contact_person?: string | null
+  notification_contact_name?: string | null
+  notification_contact_phone?: string | null
 }
 
 const text = (value: string | null | undefined): string => (value ?? '').trim()
@@ -189,6 +205,8 @@ export function customerCoreFromRecord(record: CustomerCoreRecord): CustomerCore
     customerType,
     businessName: text(record.business_name),
     contactPerson: text(record.contact_person),
+    noticeName: text(record.notification_contact_name),
+    noticePhone: text(record.notification_contact_phone),
   }
 }
 
@@ -299,6 +317,10 @@ export function validateCustomerCore(
     errors.businessName = 'Un cliente mayorista necesita razón social.'
   }
 
+  // CLIENTES-UX-1B — vale igual en alta y edición: un contacto para avisos
+  // inválido no sirve para avisar, y la base lo rechazaría.
+  Object.assign(errors, validateNoticeContact(values.noticeName, values.noticePhone, values.phone))
+
   return errors
 }
 
@@ -313,7 +335,7 @@ export function isCustomerCoreValid(
 
 /** Primer mensaje de error, para las superficies que muestran un único aviso. */
 export function firstCustomerCoreError(errors: CustomerCoreErrors): string {
-  const order: CustomerCoreField[] = ['name', 'phone', 'email', 'businessName', 'contactPerson', 'document']
+  const order: CustomerCoreField[] = ['name', 'phone', 'email', 'businessName', 'contactPerson', 'document', 'noticeName', 'noticePhone']
   for (const field of order) {
     const message = errors[field]
     if (message) return message
@@ -352,7 +374,32 @@ export function toCreatePayload(values: CustomerCoreValues, access: CustomerType
     customer_type: effective.customerType,
     business_name: orUndefined(businessName),
     contact_person: orUndefined(contactPerson),
+    ...noticeCreateFields(effective),
   }
+}
+
+/** Alta: el contacto para avisos viaja sólo si se cargó (los dos campos). */
+function noticeCreateFields(values: CustomerCoreValues) {
+  const name = cleanNoticeText(values.noticeName)
+  const phone = cleanNoticeText(values.noticePhone)
+  return name && phone ? { notification_contact_name: name, notification_contact_phone: phone } : {}
+}
+
+/**
+ * Edición: se escribe si hay contacto, y se borra (null) si la fila tenía uno.
+ * Sin nada que escribir ni borrar, las claves no viajan.
+ */
+function noticeUpdateFields(
+  values: CustomerCoreValues,
+  stored?: Pick<CustomerCoreValues, 'noticeName' | 'noticePhone'> | null
+) {
+  const name = cleanNoticeText(values.noticeName)
+  const phone = cleanNoticeText(values.noticePhone)
+  if (name && phone) return { notification_contact_name: name, notification_contact_phone: phone }
+  if (stored && (text(stored.noticeName) || text(stored.noticePhone))) {
+    return { notification_contact_name: null, notification_contact_phone: null }
+  }
+  return {}
 }
 
 /**
@@ -360,14 +407,20 @@ export function toCreatePayload(values: CustomerCoreValues, access: CustomerType
  * fila. Suponer `retail` convertiría a minorista un mayorista existente, y
  * suponer `full` dejaría escribir mayorista sin gate.
  */
-export function toUpdatePayload(values: CustomerCoreValues, access: 'full' | 'retail'): CustomerUpdatePayload
 export function toUpdatePayload(
   values: CustomerCoreValues,
-  access: CustomerTypeAccess
+  access: 'full' | 'retail',
+  stored?: Pick<CustomerCoreValues, 'noticeName' | 'noticePhone'> | null
+): CustomerUpdatePayload
+export function toUpdatePayload(
+  values: CustomerCoreValues,
+  access: CustomerTypeAccess,
+  stored?: Pick<CustomerCoreValues, 'noticeName' | 'noticePhone'> | null
 ): CustomerUpdatePayload | CustomerCommonUpdatePayload
 export function toUpdatePayload(
   values: CustomerCoreValues,
-  access: CustomerTypeAccess
+  access: CustomerTypeAccess,
+  stored?: Pick<CustomerCoreValues, 'noticeName' | 'noticePhone'> | null
 ): CustomerUpdatePayload | CustomerCommonUpdatePayload {
   const common: CustomerCommonUpdatePayload = {
     name: text(values.name),
@@ -376,6 +429,7 @@ export function toUpdatePayload(
     address: orNull(text(values.address)),
     notes: orNull(text(values.notes)),
     document: normalizeDocumentInput(values.documentType, values.document) ?? null,
+    ...noticeUpdateFields(values, stored),
   }
 
   // PRE-BETA-3A-2 — mayorista existente sin gate: el PATCH ni siquiera nombra

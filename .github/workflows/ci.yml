@@ -437,6 +437,13 @@ jobs:
       - name: CLIENTES-UX-1A — customer editing from list and detail
         run: npm run test:clientes-ux-1a
 
+      # CLIENTES-UX-1B: contacto alternativo para avisos en alta, edición,
+      # ficha y alta rápida; destinatario por orden en la recepción y el
+      # detalle; el preview y el envío automático de WhatsApp lo usan. Sin
+      # migrar, todo cae al teléfono principal (comportamiento anterior).
+      - name: CLIENTES-UX-1B — notification contact + per-order recipient
+        run: npm run test:clientes-ux-1b
+
       # BETA-MP: Billing SaaS por Mercado Pago. El frontend propone, Mercado Pago
       # confirma, el backend decide. Corre el código REAL de las Edge Functions
       # (`supabase/functions/_shared/billing`) contra un PostgREST en memoria que
@@ -654,6 +661,10 @@ jobs:
           # idempotencia (drift frente al catalogo de produccion), y sus
           # precondiciones exigen G2-C.2 y G2-C.3B0, que aca estan apartadas. Lo
           # certifica el job g2c3a1-stock-adjustments.
+          # CLIENTES-UX-1B tambien (y en g2c3a3, prebeta1 y prebeta3a2s): agrega
+          # columnas a customers, una tabla y una RPC que produccion todavia no
+          # tiene. La certifican el job e2e-local (aplicada, con su matriz SQL)
+          # y tests/sql/clientes_ux_1b.test.sql.
           # G2-C.3A3 tambien: cambia grants, policies, triggers y una FK de
           # inventory / inventory_movements y agrega dos funciones privadas
           # (drift frente al catalogo de produccion), y su PRECONDICION 4 exige
@@ -702,6 +713,7 @@ jobs:
           mv "$beta_mp_plan_b" "$RUNNER_TEMP/"
           mv supabase/migrations/20261015120000_beta_mp_recovery_payment_identity.sql "$RUNNER_TEMP/"
           mv supabase/migrations/20261016120000_beta_mp_email_one_pending_business.sql "$RUNNER_TEMP/"
+          mv supabase/migrations/20261015180000_clientes_ux_1b_notification_contact.sql "$RUNNER_TEMP/"
           supabase start
           mv "$RUNNER_TEMP/$(basename "$r3")" "$r3"
       - name: Run real PostgreSQL/PostgREST R3 matrix
@@ -995,6 +1007,7 @@ jobs:
           mv supabase/migrations/20261013120000_beta_mp_plan_b_session_preapproval_unique.sql "$RUNNER_TEMP/"
           mv supabase/migrations/20261015120000_beta_mp_recovery_payment_identity.sql "$RUNNER_TEMP/"
           mv supabase/migrations/20261016120000_beta_mp_email_one_pending_business.sql "$RUNNER_TEMP/"
+          mv supabase/migrations/20261015180000_clientes_ux_1b_notification_contact.sql "$RUNNER_TEMP/"
           mv "$a3" "$RUNNER_TEMP/"
           mv "$prebeta1" "$RUNNER_TEMP/"
           trap 'mv "$RUNNER_TEMP/$(basename "$a3")" "$a3"; mv "$RUNNER_TEMP/$(basename "$prebeta1")" "$prebeta1"' EXIT
@@ -1057,6 +1070,7 @@ jobs:
           mv supabase/migrations/20261013120000_beta_mp_plan_b_session_preapproval_unique.sql "$RUNNER_TEMP/"
           mv supabase/migrations/20261015120000_beta_mp_recovery_payment_identity.sql "$RUNNER_TEMP/"
           mv supabase/migrations/20261016120000_beta_mp_email_one_pending_business.sql "$RUNNER_TEMP/"
+          mv supabase/migrations/20261015180000_clientes_ux_1b_notification_contact.sql "$RUNNER_TEMP/"
           mv "$prebeta1" "$RUNNER_TEMP/"
           trap 'mv "$RUNNER_TEMP/$(basename "$prebeta1")" "$prebeta1"' EXIT
           supabase start
@@ -1115,6 +1129,7 @@ jobs:
           mv supabase/migrations/20261013120000_beta_mp_plan_b_session_preapproval_unique.sql "$RUNNER_TEMP/"
           mv supabase/migrations/20261015120000_beta_mp_recovery_payment_identity.sql "$RUNNER_TEMP/"
           mv supabase/migrations/20261016120000_beta_mp_email_one_pending_business.sql "$RUNNER_TEMP/"
+          mv supabase/migrations/20261015180000_clientes_ux_1b_notification_contact.sql "$RUNNER_TEMP/"
           mv "$mayorista" "$RUNNER_TEMP/"
           mv "$clic" "$RUNNER_TEMP/"
           trap 'mv "$RUNNER_TEMP/$(basename "$mayorista")" "$mayorista"; mv "$RUNNER_TEMP/$(basename "$clic")" "$clic"' EXIT
@@ -1261,6 +1276,12 @@ jobs:
           CI: 'true'
       - name: Verify variants metadata permissions and canonical stock in PostgreSQL
         run: npm run test:sql:product-variants-v2
+
+      # CLIENTES-UX-1B: contacto alternativo (CHECK de a dos, formato) y
+      # destinatario por orden (RLS, sin escritura directa, RPC endurecida,
+      # copia que sobrevive a cambios de la ficha, aislamiento entre negocios).
+      - name: Verify CLIENTES-UX-1B notification contact authority in PostgreSQL
+        run: npm run test:sql:clientes-ux-1b
 
       - name: Upload Playwright report (on failure)
         uses: actions/upload-artifact@v4

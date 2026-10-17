@@ -10,6 +10,9 @@ const state = vi.hoisted(() => ({
   refresh: vi.fn(),
 }))
 
+// CLIENTES-UX-1B — el detalle consulta permisos para el panel «Avisos por
+// WhatsApp»; acá no hay AuthProvider.
+vi.mock('../../src/hooks/usePermissions', () => ({ usePermissions: () => ({ can: () => true }) }))
 vi.mock('../../src/hooks/useOrderSimple', () => ({
   useOrderSimple: () => ({ order: state.order, loading: false, error: null, refresh: state.refresh }),
 }))
