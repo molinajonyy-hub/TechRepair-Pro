@@ -32,14 +32,16 @@ const adminRpc  = read('../../supabase/migrations/_legacy/20260623121000_billing
 const entRpc    = read('../../supabase/migrations/_legacy/20260623101000_billing_stageA_entitlements_rpc.sql')
 const platform  = read('../../supabase/migrations/_legacy/20260623120000_billing_stageC_admin_roles_audit.sql')
 
-test('Email: la migración candidata sucede a Recovery y a las demás versiones del repositorio', () => {
+test('Email: la migración candidata sucede a sus dependencias de billing', () => {
   const files = readdirSync(new URL('../../supabase/migrations/', import.meta.url)).filter(n => /^\d{14}_.*\.sql$/.test(n))
   const email = files.filter(n => n.endsWith('_beta_mp_email_one_pending_business.sql'))
   assert.equal(email.length, 1, 'sólo debe existir una versión de la migración candidata')
   const candidate = email[0]
   const version = candidate.slice(0, 14)
   assert.ok(version > '20261015120000', 'debe ser posterior a la última versión productiva reportada')
-  assert.ok(files.filter(n => n !== candidate).every(n => n.slice(0, 14) < version), 'la candidata debe aplicar al final')
+  const predecessors = files.filter(n => /_beta_mp_(checkout_session_server_authority|plan_b_session_preapproval_unique|recovery_payment_identity)\.sql$/.test(n))
+  assert.equal(predecessors.length, 3, 'deben existir las tres migraciones de billing de las que depende Email')
+  assert.ok(predecessors.every(n => n.slice(0, 14) < version), 'Email debe suceder a todas sus dependencias de billing')
   for (const path of ['../../.github/workflows/ci.yml', '../../scripts/billing/beta-mp-recovery-local.mjs', '../../docs/beta-mp/email-runbook.md']) {
     assert.ok(read(path).includes(candidate), `${path} debe referenciar la versión candidata vigente`)
   }
